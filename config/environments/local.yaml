@@ -1,0 +1,115 @@
+# Local Development Environment Configuration
+
+app:
+  name: "playback-backend"
+  version: "1.0.0"
+  environment: "local"
+  log_level: "debug"
+  port: 8080
+
+# Database configurations
+clickhouse:
+  host: "localhost:9000"
+  http_host: "localhost:8123"
+  database: "telemetry"
+  username: "admin"
+  password: "admin123"
+  max_connections: 10
+  max_idle_connections: 5
+  connection_timeout: "30s"
+  read_timeout: "30s"
+  write_timeout: "30s"
+  
+redis:
+  host: "localhost:6379"
+  password: "redis123"
+  database: 0
+  max_connections: 10
+  max_idle_connections: 5
+  connection_timeout: "5s"
+  read_timeout: "3s"
+  write_timeout: "3s"
+
+# AWS LocalStack configuration
+aws:
+  region: "us-east-1"
+  endpoint_url: "http://localhost:4566"
+  access_key_id: "test"
+  secret_access_key: "test"
+  
+# Kinesis streams
+kinesis:
+  streams:
+    traces: "telemetry-traces"
+    metrics: "telemetry-metrics"
+    logs: "telemetry-logs"
+  shard_count: 1
+  batch_size: 100
+  flush_interval: "5s"
+
+# API configuration
+api:
+  rate_limit:
+    requests_per_second: 1000
+    burst: 2000
+  timeout: "30s"
+  max_request_size: "10MB"
+  cors:
+    enabled: true
+    allowed_origins: ["*"]
+    allowed_methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
+    allowed_headers: ["*"]
+
+# Data processing
+processing:
+  batch_size: 1000
+  flush_interval: "5s"
+  max_queue_size: 10000
+  worker_count: 4
+  retry_attempts: 3
+  retry_delay: "1s"
+
+# Data retention (in days)
+retention:
+  traces: 7
+  metrics: 30
+  logs: 7
+
+# Performance tuning
+performance:
+  enable_compression: true
+  compression_type: "gzip"
+  enable_caching: true
+  cache_ttl: "5m"
+  enable_connection_pooling: true
+
+# Monitoring and observability
+monitoring:
+  enable_metrics: true
+  enable_profiling: true
+  enable_tracing: true
+  metrics_endpoint: "/metrics"
+  health_endpoint: "/health"
+  profiling_endpoint: "/debug/pprof"
+
+# Development features
+development:
+  enable_debug_endpoints: true
+  enable_hot_reload: true
+  mock_external_services: true
+  seed_test_data: true
+  enable_query_logging: true
+
+# Security
+security:
+  enable_auth: false  # Disabled for local development
+  jwt_secret: "dev-secret-key"
+  token_expiry: "24h"
+  
+# Feature flags
+features:
+  enable_replay: true
+  enable_system_map: true
+  enable_real_time_processing: true
+  enable_batch_processing: true
+  enable_data_export: true

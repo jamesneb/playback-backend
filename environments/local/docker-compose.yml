@@ -1,0 +1,134 @@
+version: '3.8'
+
+services:
+  # ClickHouse - Primary analytical database
+  clickhouse:
+    image: clickhouse/clickhouse-server:23.8
+    hostname: clickhouse
+    ports:
+      - "8123:8123"     # HTTP interface
+      - "9000:9000"     # Native TCP interface
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse
+      - ./clickhouse/config.xml:/etc/clickhouse-server/config.xml
+      - ./clickhouse/users.xml:/etc/clickhouse-server/users.xml
+      - ../../scripts/data/seed-clickhouse.sql:/docker-entrypoint-initdb.d/init.sql
+    environment:
+      CLICKHOUSE_DB: telemetry
+      CLICKHOUSE_USER: admin
+      CLICKHOUSE_PASSWORD: admin123
+    networks:
+      - telemetry_network
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8123/ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Redis - Multi-tier caching
+  redis:
+    image: redis:7-alpine
+    hostname: redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --requirepass redis123 --appendonly yes
+    networks:
+      - telemetry_network
+    healthcheck:
+      test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # LocalStack - AWS services emulation
+  localstack:
+    image: localstack/localstack:2.3
+    hostname: localstack
+    ports:
+      - "4566:4566"     # LocalStack Gateway
+      - "4510-4559:4510-4559"  # External services port range
+    environment:
+      - SERVICES=kinesis,lambda,s3,iam,sts,logs
+      - DEBUG=1
+      - DATA_DIR=/tmp/localstack/data
+      - LAMBDA_EXECUTOR=docker
+      - DOCKER_HOST=unix:///var/run/docker.sock
+      - HOST_TMP_FOLDER=${TMPDIR:-/tmp}/localstack
+      - KINESIS_ERROR_PROBABILITY=0.0
+      - KINESIS_LATENCY=0
+      - PERSISTENCE=1
+    volumes:
+      - "${TMPDIR:-/tmp}/localstack:/tmp/localstack"
+      - "/var/run/docker.sock:/var/run/docker.sock"
+      - localstack_data:/tmp/localstack/data
+    networks:
+      - telemetry_network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4566/_localstack/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  # Playback Backend - Your main service
+  playback-backend:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    hostname: playback-backend
+    ports:
+      - "8080:8080"
+    environment:
+      - ENV=local
+      - CLICKHOUSE_HOST=clickhouse:9000
+      - CLICKHOUSE_DB=telemetry
+      - CLICKHOUSE_USER=admin
+      - CLICKHOUSE_PASSWORD=admin123
+      - REDIS_HOST=redis:6379
+      - REDIS_PASSWORD=redis123
+      - AWS_ENDPOINT_URL=http://localstack:4566
+      - AWS_DEFAULT_REGION=us-east-1
+      - AWS_ACCESS_KEY_ID=test
+      - AWS_SECRET_ACCESS_KEY=test
+      - KINESIS_STREAM_TRACES=telemetry-traces
+      - KINESIS_STREAM_METRICS=telemetry-metrics
+      - KINESIS_STREAM_LOGS=telemetry-logs
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      localstack:
+        condition: service_healthy
+    networks:
+      - telemetry_network
+    volumes:
+      - ../../config:/app/config:ro
+
+  # Order Service - Test data generator
+  order-service:
+    build:
+      context: ../../examples/order-service-working
+      dockerfile: Dockerfile
+    hostname: order-service
+    ports:
+      - "8081:8081"
+    environment:
+      - OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=http://playback-backend:8080/api/v1/traces
+      - OTEL_EXPORTER_OTLP_METRICS_ENDPOINT=http://playback-backend:8080/api/v1/metrics
+      - OTEL_EXPORTER_OTLP_LOGS_ENDPOINT=http://playback-backend:8080/api/v1/logs
+      - ENVIRONMENT=local
+    depends_on:
+      - playback-backend
+    networks:
+      - telemetry_network
+
+networks:
+  telemetry_network:
+    driver: bridge
+
+volumes:
+  clickhouse_data:
+  redis_data:
+  localstack_data:

@@ -29,7 +29,7 @@ func main() {
 
 	// Create Gin engine without default middleware to avoid warning
 	r := gin.New()
-	
+
 	// Add middleware manually for better control
 	r.Use(gin.Logger())
 	r.Use(gin.Recovery())
@@ -49,7 +49,9 @@ func main() {
 
 	// Initialize handlers
 	traceHandler := handlers.NewTraceHandler()
-	
+	metricsHandler := handlers.NewMetricsHandler()
+	logsHandler := handlers.NewLogsHandler()
+
 	// API routes
 	api := r.Group("/api/v1")
 	{
@@ -59,12 +61,18 @@ func main() {
 				"mode":   cfg.Server.Mode,
 			})
 		})
-		
-		// Trace routes
+
+		// OpenTelemetry endpoints
 		api.POST("/traces", traceHandler.CreateTrace)
 		api.GET("/traces/:id", traceHandler.GetTrace)
+		
+		api.POST("/metrics", metricsHandler.CreateMetrics)
+		api.GET("/metrics", metricsHandler.GetMetrics)
+		
+		api.POST("/logs", logsHandler.CreateLogs)
+		api.GET("/logs", logsHandler.GetLogs)
 	}
-	
+
 	// Start server
 	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)
 	log.Printf("Starting server in %s mode on %s", cfg.Server.Mode, addr)

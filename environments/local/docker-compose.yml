@@ -12,11 +12,10 @@ services:
       - clickhouse_data:/var/lib/clickhouse
       - ./clickhouse/config.xml:/etc/clickhouse-server/config.xml
       - ./clickhouse/users.xml:/etc/clickhouse-server/users.xml
-      - ../../scripts/data/seed-clickhouse.sql:/docker-entrypoint-initdb.d/init.sql
-    environment:
-      CLICKHOUSE_DB: telemetry
-      CLICKHOUSE_USER: admin
-      CLICKHOUSE_PASSWORD: admin123
+      - ../../scripts/data/init-clickhouse.sql:/docker-entrypoint-initdb.d/01-init.sql
+      - ../../config/schemas/traces.sql:/docker-entrypoint-initdb.d/02-traces.sql
+      - ../../config/schemas/metrics.sql:/docker-entrypoint-initdb.d/03-metrics.sql
+      - ../../config/schemas/logs.sql:/docker-entrypoint-initdb.d/04-logs.sql
     networks:
       - telemetry_network
     healthcheck:

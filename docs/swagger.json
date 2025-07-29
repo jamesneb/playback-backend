@@ -1,0 +1,151 @@
+{
+    "swagger": "2.0",
+    "info": {
+        "description": "Distributed systems event replay backend",
+        "title": "Playback Backend API",
+        "contact": {},
+        "version": "1.0"
+    },
+    "host": "localhost:8080",
+    "basePath": "/api/v1",
+    "paths": {
+        "/api/v1/traces": {
+            "post": {
+                "description": "Create a new distributed trace",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "traces"
+                ],
+                "summary": "Create trace",
+                "parameters": [
+                    {
+                        "description": "Trace data",
+                        "name": "trace",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/handlers.CreateTraceRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/handlers.TraceResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/handlers.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/traces/{id}": {
+            "get": {
+                "description": "Get a trace by its ID",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "traces"
+                ],
+                "summary": "Get trace",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Trace ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/handlers.TraceResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/handlers.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        }
+    },
+    "definitions": {
+        "handlers.CreateTraceRequest": {
+            "type": "object",
+            "required": [
+                "span_id",
+                "trace_id"
+            ],
+            "properties": {
+                "span_id": {
+                    "type": "string",
+                    "example": "def456"
+                },
+                "tags": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    },
+                    "example": {
+                        "service": "api",
+                        "version": "1.0"
+                    }
+                },
+                "timestamp": {
+                    "type": "string",
+                    "example": "2023-01-01T00:00:00Z"
+                },
+                "trace_id": {
+                    "type": "string",
+                    "example": "abc123"
+                }
+            }
+        },
+        "handlers.ErrorResponse": {
+            "type": "object",
+            "properties": {
+                "error": {
+                    "type": "string",
+                    "example": "Invalid request"
+                },
+                "message": {
+                    "type": "string",
+                    "example": "Field validation failed"
+                }
+            }
+        },
+        "handlers.TraceResponse": {
+            "type": "object",
+            "properties": {
+                "created_at": {
+                    "type": "string",
+                    "example": "2023-01-01T00:00:00Z"
+                },
+                "id": {
+                    "type": "string",
+                    "example": "1"
+                },
+                "trace_id": {
+                    "type": "string",
+                    "example": "abc123"
+                }
+            }
+        }
+    }
+}

@@ -1,0 +1,39 @@
+# Git
+.git
+.gitignore
+
+# Documentation
+README.md
+docs/
+
+# Development files
+.env
+.env.local
+*.log
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Go
+*.test
+*.out
+go.work
+
+# Build artifacts
+bin/
+dist/
+build/
+
+# Temporary files
+tmp/
+temp/
+
+# Node modules (if any)
+node_modules/

@@ -1,0 +1,102 @@
+basePath: /api/v1
+definitions:
+  handlers.CreateTraceRequest:
+    properties:
+      span_id:
+        example: def456
+        type: string
+      tags:
+        additionalProperties:
+          type: string
+        example:
+          service: api
+          version: "1.0"
+        type: object
+      timestamp:
+        example: "2023-01-01T00:00:00Z"
+        type: string
+      trace_id:
+        example: abc123
+        type: string
+    required:
+    - span_id
+    - trace_id
+    type: object
+  handlers.ErrorResponse:
+    properties:
+      error:
+        example: Invalid request
+        type: string
+      message:
+        example: Field validation failed
+        type: string
+    type: object
+  handlers.TraceResponse:
+    properties:
+      created_at:
+        example: "2023-01-01T00:00:00Z"
+        type: string
+      id:
+        example: "1"
+        type: string
+      trace_id:
+        example: abc123
+        type: string
+    type: object
+host: localhost:8080
+info:
+  contact: {}
+  description: Distributed systems event replay backend
+  title: Playback Backend API
+  version: "1.0"
+paths:
+  /api/v1/traces:
+    post:
+      consumes:
+      - application/json
+      description: Create a new distributed trace
+      parameters:
+      - description: Trace data
+        in: body
+        name: trace
+        required: true
+        schema:
+          $ref: '#/definitions/handlers.CreateTraceRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/handlers.TraceResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+      summary: Create trace
+      tags:
+      - traces
+  /api/v1/traces/{id}:
+    get:
+      description: Get a trace by its ID
+      parameters:
+      - description: Trace ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handlers.TraceResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+      summary: Get trace
+      tags:
+      - traces
+swagger: "2.0"

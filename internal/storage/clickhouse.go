@@ -65,17 +65,17 @@ func NewClickHouseClient(cfg *ClickHouseConfig) (*ClickHouseClient, error) {
 
 	// Test if tables exist
 	var tableCount uint64
-	err = conn.QueryRow(context.Background(), "SELECT count() FROM system.tables WHERE database = ? AND name = 'traces'", cfg.Database).Scan(&tableCount)
+	err = conn.QueryRow(context.Background(), "SELECT count() FROM system.tables WHERE database = ? AND name = 'spans'", cfg.Database).Scan(&tableCount)
 	if err != nil {
 		conn.Close()
-		return nil, fmt.Errorf("failed to check traces table: %w", err)
+		return nil, fmt.Errorf("failed to check spans table: %w", err)
 	}
 
 	logger.Info("Connected to ClickHouse", 
 		zap.String("host", cfg.Host),
 		zap.String("database", cfg.Database),
 		zap.String("current_database", currentDB),
-		zap.Uint64("traces_table_exists", tableCount))
+		zap.Uint64("spans_table_exists", tableCount))
 
 	return &ClickHouseClient{conn: conn}, nil
 }
@@ -85,15 +85,24 @@ func (ch *ClickHouseClient) Close() error {
 }
 
 func (ch *ClickHouseClient) InsertTrace(ctx context.Context, event *streaming.TelemetryEvent) error {
+	// Debug: Log entry into InsertTrace
+	logger.Info("DEBUG: InsertTrace called", 
+		zap.String("trace_id", event.TraceID),
+		zap.String("service_name", event.ServiceName),
+		zap.String("type", event.Type))
+	
 	// Parse OTLP trace data from the event
 	traceData, err := ch.parseTraceData(event.Data)
 	if err != nil {
+		logger.Error("DEBUG: parseTraceData failed", zap.Error(err))
 		return fmt.Errorf("failed to parse trace data: %w", err)
 	}
+	
+	logger.Info("DEBUG: parseTraceData returned", zap.Int("trace_count", len(traceData)))
 
 	// Use batch insert for better performance and reliability
 	batch, err := ch.conn.PrepareBatch(ctx, `
-		INSERT INTO traces (
+		INSERT INTO spans (
 			trace_id, span_id, parent_span_id, operation_name, service_name, service_version,
 			start_time, end_time, duration_ns, status_code, status_message,
 			resource_attributes, span_attributes, ingested_at, source_ip
@@ -129,7 +138,7 @@ func (ch *ClickHouseClient) InsertTrace(ctx context.Context, event *streaming.Te
 		return fmt.Errorf("failed to send trace batch: %w", err)
 	}
 
-	logger.Info("Inserted traces into ClickHouse", 
+	logger.Info("Inserted spans into ClickHouse", 
 		zap.String("trace_id", event.TraceID),
 		zap.Int("spans", len(traceData)))
 
@@ -282,6 +291,9 @@ func (ch *ClickHouseClient) parseTraceData(data interface{}) ([]TraceData, error
 	if err != nil {
 		return nil, err
 	}
+	
+	// Debug: Log the actual JSON structure
+	logger.Info("DEBUG: parseTraceData JSON structure", zap.String("json", string(jsonData)))
 
 	var otlp struct {
 		ResourceSpans []struct {

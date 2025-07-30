@@ -18,8 +18,8 @@ import (
 	"go.opentelemetry.io/otel/exporters/stdout/stdoutlog"
 	"go.opentelemetry.io/otel/exporters/stdout/stdouttrace"
 	"go.opentelemetry.io/otel/exporters/stdout/stdoutmetric"
-	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp"
-	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
+	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc"
+	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
 	"go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/sdk/resource"
@@ -185,8 +185,11 @@ func initObservability() {
 }
 
 func initTracing() {
-	// Create OTLP HTTP exporter
-	otlpExporter, err := otlptracehttp.New(context.Background())
+	// Create OTLP gRPC exporter
+	otlpExporter, err := otlptracegrpc.New(context.Background(),
+		otlptracegrpc.WithEndpoint("playback-backend:4317"),
+		otlptracegrpc.WithInsecure(),
+	)
 	if err != nil {
 		log.Fatal("Failed to create OTLP exporter:", err)
 	}
@@ -218,8 +221,11 @@ func initTracing() {
 }
 
 func initMetrics() {
-	// Create OTLP HTTP exporter for metrics
-	otlpExporter, err := otlpmetrichttp.New(context.Background())
+	// Create OTLP gRPC exporter for metrics
+	otlpExporter, err := otlpmetricgrpc.New(context.Background(),
+		otlpmetricgrpc.WithEndpoint("playback-backend:4317"),
+		otlpmetricgrpc.WithInsecure(),
+	)
 	if err != nil {
 		log.Fatal("Failed to create OTLP metrics exporter:", err)
 	}

@@ -1,5 +1,5 @@
--- Simplified ClickHouse table schema for OpenTelemetry traces
-CREATE TABLE IF NOT EXISTS traces (
+-- Simplified ClickHouse table schema for OpenTelemetry spans
+CREATE TABLE IF NOT EXISTS spans (
     -- Core trace identifiers
     trace_id String CODEC(ZSTD(3)),
     span_id String CODEC(ZSTD(3)),

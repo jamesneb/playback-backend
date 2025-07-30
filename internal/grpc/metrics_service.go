@@ -28,6 +28,9 @@ func (s *MetricsService) Export(ctx context.Context, req *metricscollectorpb.Exp
 	logger.Info("Received gRPC metrics export request", 
 		zap.Int("resource_metrics", len(req.ResourceMetrics)))
 
+	// Extract client IP from gRPC context
+	clientIP := ExtractClientIP(ctx)
+
 	// Convert OTLP protobuf to our internal telemetry event format
 	for _, resourceMetric := range req.ResourceMetrics {
 		event := &streaming.TelemetryEvent{
@@ -36,7 +39,7 @@ func (s *MetricsService) Export(ctx context.Context, req *metricscollectorpb.Exp
 			Data:        convertResourceMetricToMap(resourceMetric),
 			Metadata: streaming.TelemetryMetadata{
 				IngestedAt: time.Now(),
-				SourceIP:   "grpc-client",
+				SourceIP:   clientIP,
 			},
 		}
 
@@ -94,3 +97,4 @@ func countMetrics(resourceMetrics []*metricspb.ResourceMetrics) int {
 	}
 	return count
 }
+

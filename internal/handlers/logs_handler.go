@@ -1,16 +1,25 @@
 package handlers
 
 import (
+	"context"
+	"encoding/json"
 	"net/http"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/jamesneb/playback-backend/internal/streaming"
+	"github.com/jamesneb/playback-backend/pkg/logger"
+	"go.uber.org/zap"
 )
 
-type LogsHandler struct{}
+type LogsHandler struct{
+	kinesisClient *streaming.KinesisClient
+}
 
-func NewLogsHandler() *LogsHandler {
-	return &LogsHandler{}
+func NewLogsHandler(kinesisClient *streaming.KinesisClient) *LogsHandler {
+	return &LogsHandler{
+		kinesisClient: kinesisClient,
+	}
 }
 
 // CreateLogs receives log data
@@ -24,25 +33,77 @@ func NewLogsHandler() *LogsHandler {
 // @Failure 400 {object} ErrorResponse
 // @Router /api/v1/logs [post]
 func (h *LogsHandler) CreateLogs(c *gin.Context) {
-	var req LogsRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
+	// Parse the OTLP logs data (raw JSON)
+	var otlpData json.RawMessage
+	if err := c.ShouldBindJSON(&otlpData); err != nil {
+		logger.Error("Failed to parse OTLP logs data",
+			zap.Error(err),
+			zap.String("client_ip", c.ClientIP()),
+			zap.String("user_agent", c.GetHeader("User-Agent")),
+		)
 		c.JSON(http.StatusBadRequest, ErrorResponse{
-			Error:   "Invalid logs request",
+			Error:   "Invalid OTLP logs data",
 			Message: err.Error(),
 		})
 		return
 	}
 
-	// In a real implementation, you'd store this in a log storage system
-	// like Elasticsearch, Loki, or a database with full-text search
+	// Extract service name and trace ID for logging and partitioning
+	serviceName := extractLogsServiceName(otlpData)
+	traceID := extractLogsTraceID(otlpData)
+	logsCount := countLogs(otlpData)
 
+	// Log the ingestion event
+	logger.Info("Received OTLP logs data",
+		zap.String("service_name", serviceName),
+		zap.String("trace_id", traceID),
+		zap.Int("logs_count", logsCount),
+		zap.String("client_ip", c.ClientIP()),
+		zap.String("user_agent", c.GetHeader("User-Agent")),
+		zap.Int("data_size_bytes", len(otlpData)),
+	)
+
+	// Publish to Kinesis
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	err := h.kinesisClient.PublishLogs(
+		ctx,
+		otlpData,
+		serviceName,
+		traceID,
+		c.ClientIP(),
+		c.GetHeader("User-Agent"),
+	)
+	if err != nil {
+		logger.Error("Failed to publish logs to Kinesis",
+			zap.Error(err),
+			zap.String("service_name", serviceName),
+			zap.String("trace_id", traceID),
+			zap.Int("logs_count", logsCount),
+		)
+		c.JSON(http.StatusInternalServerError, ErrorResponse{
+			Error:   "Failed to process logs data",
+			Message: "Internal server error",
+		})
+		return
+	}
+
+	// Log successful ingestion
+	logger.Info("Successfully published logs to Kinesis",
+		zap.String("service_name", serviceName),
+		zap.String("trace_id", traceID),
+		zap.Int("logs_count", logsCount),
+	)
+
+	// Return success response
 	response := LogsResponse{
-		Received:  len(req.ResourceLogs),
+		Received:  logsCount,
 		Timestamp: time.Now(),
 		Status:    "accepted",
 	}
 
-	c.JSON(http.StatusOK, response)
+	c.JSON(http.StatusAccepted, response)
 }
 
 // GetLogs retrieves logs (placeholder for querying)
@@ -158,4 +219,92 @@ type LogEntry struct {
 	TraceID    string                 `json:"trace_id,omitempty" example:"abc123def456"`
 	SpanID     string                 `json:"span_id,omitempty" example:"789xyz"`
 	Attributes map[string]interface{} `json:"attributes,omitempty"`
+}
+
+// Helper functions for extracting metadata from OTLP logs data
+func extractLogsServiceName(data json.RawMessage) string {
+	// Parse OTLP logs structure to extract service name
+	var otlp struct {
+		ResourceLogs []struct {
+			Resource struct {
+				Attributes []struct {
+					Key   string `json:"key"`
+					Value struct {
+						StringValue string `json:"stringValue"`
+					} `json:"value"`
+				} `json:"attributes"`
+			} `json:"resource"`
+		} `json:"resourceLogs"`
+	}
+
+	if err := json.Unmarshal(data, &otlp); err != nil {
+		return "unknown"
+	}
+
+	for _, rl := range otlp.ResourceLogs {
+		for _, attr := range rl.Resource.Attributes {
+			if attr.Key == "service.name" {
+				return attr.Value.StringValue
+			}
+		}
+	}
+
+	return "unknown"
+}
+
+func extractLogsTraceID(data json.RawMessage) string {
+	// Parse OTLP logs structure to extract trace ID
+	var otlp struct {
+		ResourceLogs []struct {
+			ScopeLogs []struct {
+				LogRecords []struct {
+					TraceID string `json:"traceId"`
+				} `json:"logRecords"`
+			} `json:"scopeLogs"`
+		} `json:"resourceLogs"`
+	}
+
+	if err := json.Unmarshal(data, &otlp); err != nil {
+		return ""
+	}
+
+	for _, rl := range otlp.ResourceLogs {
+		for _, sl := range rl.ScopeLogs {
+			for _, logRecord := range sl.LogRecords {
+				if logRecord.TraceID != "" {
+					return logRecord.TraceID
+				}
+			}
+		}
+	}
+
+	return ""
+}
+
+func countLogs(data json.RawMessage) int {
+	// Parse OTLP logs structure to count log records
+	var otlp struct {
+		ResourceLogs []struct {
+			ScopeLogs []struct {
+				LogRecords []struct {
+					Body struct {
+						StringValue string `json:"stringValue"`
+					} `json:"body"`
+				} `json:"logRecords"`
+			} `json:"scopeLogs"`
+		} `json:"resourceLogs"`
+	}
+
+	if err := json.Unmarshal(data, &otlp); err != nil {
+		return 0
+	}
+
+	count := 0
+	for _, rl := range otlp.ResourceLogs {
+		for _, sl := range rl.ScopeLogs {
+			count += len(sl.LogRecords)
+		}
+	}
+
+	return count
 }

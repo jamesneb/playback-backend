@@ -23,6 +23,7 @@ type Config struct {
 	Features    FeaturesConfig    `yaml:"features"`
 	Performance PerformanceConfig `yaml:"performance"`
 	Development DevelopmentConfig `yaml:"development"`
+	Swagger     SwaggerConfig     `yaml:"swagger"`
 }
 
 type AppConfig struct {
@@ -250,6 +251,11 @@ type DevelopmentConfig struct {
 	EnableRequestLogging   bool `yaml:"enable_request_logging"`
 }
 
+type SwaggerConfig struct {
+	Enabled bool   `yaml:"enabled"`
+	Path    string `yaml:"path"`
+}
+
 // Load reads configuration from YAML file with environment variable overrides
 func Load(configPath string) (*Config, error) {
 	// Set default config path if not provided
@@ -333,6 +339,20 @@ func applyEnvOverrides(config *Config) {
 	}
 	if password := os.Getenv("REDIS_PASSWORD"); password != "" {
 		config.Database.Redis.Password = password
+	}
+
+	// Kinesis/AWS overrides
+	if endpointURL := os.Getenv("AWS_ENDPOINT_URL"); endpointURL != "" {
+		config.Streaming.Kinesis.EndpointURL = endpointURL
+	}
+	if region := os.Getenv("AWS_DEFAULT_REGION"); region != "" {
+		config.Streaming.Kinesis.Region = region
+	}
+	if accessKey := os.Getenv("AWS_ACCESS_KEY_ID"); accessKey != "" {
+		config.Streaming.Kinesis.AccessKeyID = accessKey
+	}
+	if secretKey := os.Getenv("AWS_SECRET_ACCESS_KEY"); secretKey != "" {
+		config.Streaming.Kinesis.SecretAccessKey = secretKey
 	}
 }
 

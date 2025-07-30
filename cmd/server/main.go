@@ -3,13 +3,23 @@ package main
 import (
 	"fmt"
 	"log"
+	"os"
+	"os/signal"
+	"sync"
+	"syscall"
 
 	"github.com/gin-gonic/gin"
 	_ "github.com/jamesneb/playback-backend/docs" // Import generated docs
+	grpcserver "github.com/jamesneb/playback-backend/internal/grpc"
 	"github.com/jamesneb/playback-backend/internal/handlers"
+	"github.com/jamesneb/playback-backend/internal/handlers/realtime"
+	"github.com/jamesneb/playback-backend/internal/storage"
+	"github.com/jamesneb/playback-backend/internal/streaming"
 	"github.com/jamesneb/playback-backend/pkg/config"
+	"github.com/jamesneb/playback-backend/pkg/logger"
 	swaggerFiles "github.com/swaggo/files"
 	ginSwagger "github.com/swaggo/gin-swagger"
+	"go.uber.org/zap"
 )
 
 // @title Playback Backend API
@@ -27,10 +37,33 @@ func main() {
 	// Set Gin mode from config
 	gin.SetMode(cfg.Server.Mode)
 
-	// Create Gin engine without default middleware to avoid warning
-	r := gin.New()
+	// Initialize ClickHouse client for real-time path
+	clickhouseClient, err := storage.NewClickHouseClient(&storage.ClickHouseConfig{
+		Host:               cfg.Database.ClickHouse.Host,
+		Database:           cfg.Database.ClickHouse.Database,
+		Username:           cfg.Database.ClickHouse.Username,
+		Password:           cfg.Database.ClickHouse.Password,
+		MaxConnections:     10,
+		MaxIdleConnections: 5,
+	})
+	if err != nil {
+		log.Fatalf("Failed to initialize ClickHouse client: %v", err)
+	}
+	defer clickhouseClient.Close()
 
-	// Add middleware manually for better control
+	// Initialize Kinesis client
+	kinesisClient, err := streaming.NewKinesisClient(&cfg.Streaming.Kinesis)
+	if err != nil {
+		log.Fatalf("Failed to initialize Kinesis client: %v", err)
+	}
+	defer kinesisClient.Close()
+
+	// Create handlers
+	kinesisHandler := streaming.NewKinesisHandler(kinesisClient)
+	clickhouseHandler := realtime.NewClickHouseHandler(clickhouseClient)
+
+	// Create HTTP server
+	r := gin.New()
 	r.Use(gin.Logger())
 	r.Use(gin.Recovery())
 
@@ -38,31 +71,32 @@ func main() {
 	if len(cfg.Server.TrustedProxies) > 0 {
 		r.SetTrustedProxies(cfg.Server.TrustedProxies)
 	} else {
-		// Disable all proxy trust for security
 		r.SetTrustedProxies(nil)
 	}
 
-	// Swagger endpoint (only in debug mode)
-	if cfg.Swagger.Enabled && cfg.Server.Mode != "release" {
+	// Swagger endpoint
+	if cfg.Swagger.Enabled {
 		r.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
 	}
 
-	// Initialize handlers
-	traceHandler := handlers.NewTraceHandler()
-	metricsHandler := handlers.NewMetricsHandler()
-	logsHandler := handlers.NewLogsHandler()
+	// Initialize HTTP handlers with Kinesis client (legacy compatibility)
+	traceHandler := handlers.NewTraceHandler(kinesisClient)
+	metricsHandler := handlers.NewMetricsHandler(kinesisClient)
+	logsHandler := handlers.NewLogsHandler(kinesisClient)
 
 	// API routes
 	api := r.Group("/api/v1")
 	{
 		api.GET("/health", func(c *gin.Context) {
 			c.JSON(200, gin.H{
-				"status": "ok",
-				"mode":   cfg.Server.Mode,
+				"status":    "ok",
+				"mode":      cfg.Server.Mode,
+				"version":   cfg.App.Version,
+				"protocols": []string{"HTTP/JSON", "gRPC/OTLP"},
 			})
 		})
 
-		// OpenTelemetry endpoints
+		// OpenTelemetry HTTP endpoints (legacy)
 		api.POST("/traces", traceHandler.CreateTrace)
 		api.GET("/traces/:id", traceHandler.GetTrace)
 
@@ -73,8 +107,58 @@ func main() {
 		api.GET("/logs", logsHandler.GetLogs)
 	}
 
-	// Start server
-	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)
-	log.Printf("Starting server in %s mode on %s", cfg.Server.Mode, addr)
-	r.Run(addr)
+	// Create gRPC server
+	grpcAddr := fmt.Sprintf("%s:%d", cfg.Server.Host, 4317) // Standard OTLP gRPC port
+	grpcSrv := grpcserver.NewServer(grpcAddr, kinesisHandler, clickhouseHandler)
+
+	// Setup graceful shutdown
+	// Note: ctx is used for potential future cancellation context
+
+	var wg sync.WaitGroup
+
+	// Start HTTP server
+	httpAddr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		logger.Info("Starting HTTP server",
+			zap.String("address", httpAddr),
+			zap.String("protocols", "HTTP/JSON"))
+		if err := r.Run(httpAddr); err != nil {
+			logger.Error("HTTP server failed", zap.Error(err))
+		}
+	}()
+
+	// Start gRPC server
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		logger.Info("Starting gRPC server",
+			zap.String("address", grpcAddr),
+			zap.String("protocols", "OTLP/gRPC"))
+		if err := grpcSrv.Start(); err != nil {
+			logger.Error("gRPC server failed", zap.Error(err))
+		}
+	}()
+
+	// Wait for shutdown signal
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+
+	logger.Info("Playback backend started successfully",
+		zap.String("http_address", httpAddr),
+		zap.String("grpc_address", grpcAddr),
+		zap.String("version", cfg.App.Version))
+
+	<-sigCh
+	logger.Info("Shutdown signal received, stopping servers...")
+
+	// Stop gRPC server
+	grpcSrv.Stop()
+
+	// Wait for goroutines to finish
+	wg.Wait()
+	logger.Info("All servers stopped successfully")
+
+	defer logger.Sync()
 }

@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   # ClickHouse - Primary analytical database
   clickhouse:
@@ -10,12 +8,13 @@ services:
       - "9000:9000"     # Native TCP interface
     volumes:
       - clickhouse_data:/var/lib/clickhouse
-      - ./clickhouse/config.xml:/etc/clickhouse-server/config.xml
-      - ./clickhouse/users.xml:/etc/clickhouse-server/users.xml
+      - ./clickhouse/config-simple.xml:/etc/clickhouse-server/config.xml
+      - ./clickhouse/users-simple.xml:/etc/clickhouse-server/users.xml
+      # Add SQL init files back with simplified schemas
       - ../../scripts/data/init-clickhouse.sql:/docker-entrypoint-initdb.d/01-init.sql
-      - ../../config/schemas/traces.sql:/docker-entrypoint-initdb.d/02-traces.sql
-      - ../../config/schemas/metrics.sql:/docker-entrypoint-initdb.d/03-metrics.sql
-      - ../../config/schemas/logs.sql:/docker-entrypoint-initdb.d/04-logs.sql
+      - ../../config/schemas/traces-simple.sql:/docker-entrypoint-initdb.d/02-traces.sql
+      - ../../config/schemas/metrics-simple.sql:/docker-entrypoint-initdb.d/03-metrics.sql
+      - ../../config/schemas/logs-simple.sql:/docker-entrypoint-initdb.d/04-logs.sql
     networks:
       - telemetry_network
     healthcheck:
@@ -74,10 +73,12 @@ services:
   playback-backend:
     build:
       context: ../..
-      dockerfile: Dockerfile
+      dockerfile: deployments/Dockerfile
+      target: server
     hostname: playback-backend
     ports:
-      - "8080:8080"
+      - "8080:8080"    # HTTP/JSON API
+      - "4317:4317"    # gRPC/OTLP
     environment:
       - ENV=local
       - CLICKHOUSE_HOST=clickhouse:9000
@@ -97,6 +98,33 @@ services:
       clickhouse:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      localstack:
+        condition: service_healthy
+    networks:
+      - telemetry_network
+    volumes:
+      - ../../config:/app/config:ro
+
+  # Kinesis Consumer - Processes stream data and writes to ClickHouse
+  kinesis-consumer:
+    build:
+      context: ../..
+      dockerfile: deployments/Dockerfile
+      target: consumer
+    hostname: kinesis-consumer
+    environment:
+      - ENV=local
+      - CLICKHOUSE_HOST=clickhouse:9000
+      - CLICKHOUSE_DB=telemetry
+      - CLICKHOUSE_USER=admin
+      - CLICKHOUSE_PASSWORD=admin123
+      - AWS_ENDPOINT_URL=http://localstack:4566
+      - AWS_DEFAULT_REGION=us-east-1
+      - AWS_ACCESS_KEY_ID=test
+      - AWS_SECRET_ACCESS_KEY=test
+    depends_on:
+      clickhouse:
         condition: service_healthy
       localstack:
         condition: service_healthy

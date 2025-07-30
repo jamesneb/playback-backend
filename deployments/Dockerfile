@@ -1,5 +1,5 @@
 # Build stage
-FROM golang:1.22-alpine AS builder
+FROM golang:1.23-alpine AS builder
 
 # Build arguments
 ARG ENV=dev
@@ -19,11 +19,12 @@ RUN go mod download
 # Copy source code
 COPY . .
 
-# Build the application
+# Build the applications
 RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o server cmd/server/main.go
+RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o consumer cmd/consumer/main.go
 
-# Final stage
-FROM alpine:latest
+# Server stage
+FROM alpine:latest AS server
 
 # Install ca-certificates for HTTPS calls
 RUN apk --no-cache add ca-certificates tzdata
@@ -59,3 +60,34 @@ ENV ENV=$ENV
 
 # Run the application
 CMD ["./server"]
+
+# Consumer stage
+FROM alpine:latest AS consumer
+
+# Install ca-certificates for HTTPS calls
+RUN apk --no-cache add ca-certificates tzdata
+
+# Create non-root user
+RUN addgroup -g 1001 -S appuser && \
+    adduser -u 1001 -S appuser -G appuser
+
+WORKDIR /app
+
+# Copy binary from builder
+COPY --from=builder /app/consumer .
+
+# Copy all config files
+COPY --from=builder /app/config/ ./config/
+
+# Change ownership to non-root user
+RUN chown -R appuser:appuser /app
+
+# Switch to non-root user
+USER appuser
+
+# Set environment from build arg
+ARG ENV=dev
+ENV ENV=$ENV
+
+# Run the consumer
+CMD ["./consumer"]

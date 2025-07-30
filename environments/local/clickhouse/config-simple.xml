@@ -14,25 +14,9 @@
     
     <!-- Native TCP server configuration -->
     <tcp_port>9000</tcp_port>
-    
-    <!-- Inter-server HTTP port -->
-    <interserver_http_port>9009</interserver_http_port>
-
-    <!-- Hostname that will be used by other replicas to request this server -->
-    <interserver_http_host>clickhouse</interserver_http_host>
 
     <!-- Listen on all interfaces -->
     <listen_host>0.0.0.0</listen_host>
-
-    <!-- Maximum number of concurrent connections -->
-    <max_connections>4096</max_connections>
-
-    <!-- Maximum number of concurrent SELECT queries -->
-    <max_concurrent_queries>100</max_concurrent_queries>
-
-    <!-- Memory usage limits -->
-    <max_server_memory_usage>0</max_server_memory_usage>
-    <max_thread_pool_size>10000</max_thread_pool_size>
 
     <!-- Data directory -->
     <path>/var/lib/clickhouse/</path>
@@ -51,13 +35,6 @@
     <!-- Timezone -->
     <timezone>UTC</timezone>
 
-    <!-- Part log (for debugging) -->
-    <part_log>
-        <database>system</database>
-        <table>part_log</table>
-        <flush_interval_milliseconds>7500</flush_interval_milliseconds>
-    </part_log>
-
     <!-- Query log -->
     <query_log>
         <database>system</database>
@@ -66,29 +43,9 @@
         <flush_interval_milliseconds>7500</flush_interval_milliseconds>
     </query_log>
 
-    <!-- Trace log -->
-    <trace_log>
-        <database>system</database>
-        <table>trace_log</table>
-        <partition_by>toYYYYMM(event_date)</partition_by>
-        <flush_interval_milliseconds>7500</flush_interval_milliseconds>
-    </trace_log>
-
-    <!-- Crash log -->
-    <crash_log>
-        <database>system</database>
-        <table>crash_log</table>
-        <partition_by>toYYYYMM(event_date)</partition_by>
-        <flush_interval_milliseconds>1000</flush_interval_milliseconds>
-    </crash_log>
-
     <!-- Performance optimizations for development -->
     <background_pool_size>16</background_pool_size>
-    <background_merges_mutations_concurrency_ratio>2</background_merges_mutations_concurrency_ratio>
     
     <!-- Disable some features for local development -->
     <send_crash_reports>false</send_crash_reports>
-    
-    <!-- Format schemas -->
-    <format_schema_path>/var/lib/clickhouse/format_schemas/</format_schema_path>
 </clickhouse>

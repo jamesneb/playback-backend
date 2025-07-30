@@ -15,6 +15,174 @@ const docTemplate = `{
     "host": "{{.Host}}",
     "basePath": "{{.BasePath}}",
     "paths": {
+        "/api/v1/logs": {
+            "get": {
+                "description": "Get log data for analysis",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "logs"
+                ],
+                "summary": "Get logs",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Service name",
+                        "name": "service",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Log level",
+                        "name": "level",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Start time (RFC3339)",
+                        "name": "from",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "End time (RFC3339)",
+                        "name": "to",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Search query",
+                        "name": "q",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/handlers.LogsQueryResponse"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "description": "Receive log data from OpenTelemetry",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "logs"
+                ],
+                "summary": "Receive logs",
+                "parameters": [
+                    {
+                        "description": "Log data",
+                        "name": "logs",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/handlers.LogsRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/handlers.LogsResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/handlers.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/metrics": {
+            "get": {
+                "description": "Get metrics data for analysis",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "metrics"
+                ],
+                "summary": "Get metrics",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Service name",
+                        "name": "service",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Start time (RFC3339)",
+                        "name": "from",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "End time (RFC3339)",
+                        "name": "to",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/handlers.MetricsQueryResponse"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "description": "Receive metrics data from OpenTelemetry",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "metrics"
+                ],
+                "summary": "Receive metrics",
+                "parameters": [
+                    {
+                        "description": "Metrics data",
+                        "name": "metrics",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/handlers.MetricsRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/handlers.MetricsResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/handlers.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/traces": {
             "post": {
                 "description": "Create a new distributed trace",
@@ -92,6 +260,34 @@ const docTemplate = `{
         }
     },
     "definitions": {
+        "handlers.Attribute": {
+            "type": "object",
+            "properties": {
+                "key": {
+                    "type": "string"
+                },
+                "value": {
+                    "$ref": "#/definitions/handlers.AttributeValue"
+                }
+            }
+        },
+        "handlers.AttributeValue": {
+            "type": "object",
+            "properties": {
+                "boolValue": {
+                    "type": "boolean"
+                },
+                "doubleValue": {
+                    "type": "number"
+                },
+                "intValue": {
+                    "type": "integer"
+                },
+                "stringValue": {
+                    "type": "string"
+                }
+            }
+        },
         "handlers.CreateTraceRequest": {
             "type": "object",
             "required": [
@@ -136,6 +332,435 @@ const docTemplate = `{
                 }
             }
         },
+        "handlers.Gauge": {
+            "type": "object",
+            "properties": {
+                "dataPoints": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/handlers.NumberDataPoint"
+                    }
+                }
+            }
+        },
+        "handlers.Histogram": {
+            "type": "object",
+            "properties": {
+                "aggregationTemporality": {
+                    "type": "integer"
+                },
+                "dataPoints": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/handlers.HistogramDataPoint"
+                    }
+                }
+            }
+        },
+        "handlers.HistogramDataPoint": {
+            "type": "object",
+            "properties": {
+                "attributes": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/handlers.Attribute"
+                    }
+                },
+                "bucketCounts": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "count": {
+                    "type": "integer"
+                },
+                "explicitBounds": {
+                    "type": "array",
+                    "items": {
+                        "type": "number"
+                    }
+                },
+                "startTimeUnixNano": {
+                    "type": "integer"
+                },
+                "sum": {
+                    "type": "number"
+                },
+                "timeUnixNano": {
+                    "type": "integer"
+                }
+            }
+        },
+        "handlers.LogEntry": {
+            "type": "object",
+            "properties": {
+                "attributes": {
+                    "type": "object",
+                    "additionalProperties": true
+                },
+                "level": {
+                    "type": "string",
+                    "example": "INFO"
+                },
+                "message": {
+                    "type": "string",
+                    "example": "Order creation started"
+                },
+                "service": {
+                    "type": "string",
+                    "example": "order-service"
+                },
+                "span_id": {
+                    "type": "string",
+                    "example": "789xyz"
+                },
+                "timestamp": {
+                    "type": "string",
+                    "example": "2023-01-01T00:00:00Z"
+                },
+                "trace_id": {
+                    "type": "string",
+                    "example": "abc123def456"
+                }
+            }
+        },
+        "handlers.LogRecord": {
+            "type": "object",
+            "properties": {
+                "attributes": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/handlers.Attribute"
+                    }
+                },
+                "body": {
+                    "$ref": "#/definitions/handlers.LogRecordBody"
+                },
+                "droppedAttributesCount": {
+                    "type": "integer"
+                },
+                "flags": {
+                    "type": "integer"
+                },
+                "observedTimeUnixNano": {
+                    "type": "integer"
+                },
+                "severityNumber": {
+                    "type": "integer"
+                },
+                "severityText": {
+                    "type": "string"
+                },
+                "spanId": {
+                    "type": "string"
+                },
+                "timeUnixNano": {
+                    "type": "integer"
+                },
+                "traceId": {
+                    "type": "string"
+                }
+            }
+        },
+        "handlers.LogRecordBody": {
+            "type": "object",
+            "properties": {
+                "stringValue": {
+                    "type": "string"
+                }
+            }
+        },
+        "handlers.LogsQueryResponse": {
+            "type": "object",
+            "properties": {
+                "level": {
+                    "type": "string",
+                    "example": "INFO"
+                },
+                "logs": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/handlers.LogEntry"
+                    }
+                },
+                "query": {
+                    "type": "string",
+                    "example": "order failed"
+                },
+                "service": {
+                    "type": "string",
+                    "example": "order-service"
+                },
+                "time_range": {
+                    "$ref": "#/definitions/handlers.TimeRange"
+                }
+            }
+        },
+        "handlers.LogsRequest": {
+            "type": "object",
+            "properties": {
+                "resourceLogs": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/handlers.ResourceLog"
+                    }
+                }
+            }
+        },
+        "handlers.LogsResponse": {
+            "type": "object",
+            "properties": {
+                "received": {
+                    "type": "integer",
+                    "example": 10
+                },
+                "status": {
+                    "type": "string",
+                    "example": "accepted"
+                },
+                "timestamp": {
+                    "type": "string",
+                    "example": "2023-01-01T00:00:00Z"
+                }
+            }
+        },
+        "handlers.Metric": {
+            "type": "object",
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "gauge": {
+                    "$ref": "#/definitions/handlers.Gauge"
+                },
+                "histogram": {
+                    "$ref": "#/definitions/handlers.Histogram"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "sum": {
+                    "$ref": "#/definitions/handlers.Sum"
+                },
+                "unit": {
+                    "type": "string"
+                }
+            }
+        },
+        "handlers.MetricData": {
+            "type": "object",
+            "properties": {
+                "labels": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    },
+                    "example": {
+                        "status": "success"
+                    }
+                },
+                "name": {
+                    "type": "string",
+                    "example": "orders_total"
+                },
+                "timestamp": {
+                    "type": "string",
+                    "example": "2023-01-01T00:00:00Z"
+                },
+                "type": {
+                    "type": "string",
+                    "example": "counter"
+                },
+                "value": {
+                    "type": "number",
+                    "example": 156
+                }
+            }
+        },
+        "handlers.MetricsQueryResponse": {
+            "type": "object",
+            "properties": {
+                "metrics": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/handlers.MetricData"
+                    }
+                },
+                "service": {
+                    "type": "string",
+                    "example": "order-service"
+                },
+                "time_range": {
+                    "$ref": "#/definitions/handlers.TimeRange"
+                }
+            }
+        },
+        "handlers.MetricsRequest": {
+            "type": "object",
+            "properties": {
+                "resourceMetrics": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/handlers.ResourceMetric"
+                    }
+                }
+            }
+        },
+        "handlers.MetricsResponse": {
+            "type": "object",
+            "properties": {
+                "received": {
+                    "type": "integer",
+                    "example": 5
+                },
+                "status": {
+                    "type": "string",
+                    "example": "accepted"
+                },
+                "timestamp": {
+                    "type": "string",
+                    "example": "2023-01-01T00:00:00Z"
+                }
+            }
+        },
+        "handlers.NumberDataPoint": {
+            "type": "object",
+            "properties": {
+                "asDouble": {
+                    "type": "number"
+                },
+                "asInt": {
+                    "type": "integer"
+                },
+                "attributes": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/handlers.Attribute"
+                    }
+                },
+                "startTimeUnixNano": {
+                    "type": "integer"
+                },
+                "timeUnixNano": {
+                    "type": "integer"
+                }
+            }
+        },
+        "handlers.Resource": {
+            "type": "object",
+            "properties": {
+                "attributes": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/handlers.Attribute"
+                    }
+                }
+            }
+        },
+        "handlers.ResourceLog": {
+            "type": "object",
+            "properties": {
+                "resource": {
+                    "$ref": "#/definitions/handlers.Resource"
+                },
+                "schemaUrl": {
+                    "type": "string"
+                },
+                "scopeLogs": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/handlers.ScopeLog"
+                    }
+                }
+            }
+        },
+        "handlers.ResourceMetric": {
+            "type": "object",
+            "properties": {
+                "resource": {
+                    "$ref": "#/definitions/handlers.Resource"
+                },
+                "schemaUrl": {
+                    "type": "string"
+                },
+                "scopeMetrics": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/handlers.ScopeMetric"
+                    }
+                }
+            }
+        },
+        "handlers.Scope": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string"
+                },
+                "version": {
+                    "type": "string"
+                }
+            }
+        },
+        "handlers.ScopeLog": {
+            "type": "object",
+            "properties": {
+                "logRecords": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/handlers.LogRecord"
+                    }
+                },
+                "scope": {
+                    "$ref": "#/definitions/handlers.Scope"
+                }
+            }
+        },
+        "handlers.ScopeMetric": {
+            "type": "object",
+            "properties": {
+                "metrics": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/handlers.Metric"
+                    }
+                },
+                "scope": {
+                    "$ref": "#/definitions/handlers.Scope"
+                }
+            }
+        },
+        "handlers.Sum": {
+            "type": "object",
+            "properties": {
+                "aggregationTemporality": {
+                    "type": "integer"
+                },
+                "dataPoints": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/handlers.NumberDataPoint"
+                    }
+                },
+                "isMonotonic": {
+                    "type": "boolean"
+                }
+            }
+        },
+        "handlers.TimeRange": {
+            "type": "object",
+            "properties": {
+                "from": {
+                    "type": "string",
+                    "example": "2023-01-01T00:00:00Z"
+                },
+                "to": {
+                    "type": "string",
+                    "example": "2023-01-01T01:00:00Z"
+                }
+            }
+        },
         "handlers.TraceResponse": {
             "type": "object",
             "properties": {
@@ -166,6 +791,8 @@ var SwaggerInfo = &swag.Spec{
 	Description:      "Distributed systems event replay backend",
 	InfoInstanceName: "swagger",
 	SwaggerTemplate:  docTemplate,
+	LeftDelim:        "{{",
+	RightDelim:       "}}",
 }
 
 func init() {

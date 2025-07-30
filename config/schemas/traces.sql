@@ -23,6 +23,7 @@ CREATE TABLE IF NOT EXISTS traces (
     -- Timing information
     start_time DateTime64(9) CODEC(Delta, ZSTD(3)),
     end_time DateTime64(9) CODEC(Delta, ZSTD(3)),
+    start_time_date DateTime MATERIALIZED toDateTime(start_time) CODEC(ZSTD(3)),
     duration_ns UInt64 CODEC(ZSTD(3)),
 
     -- Status information
@@ -57,9 +58,9 @@ CREATE TABLE IF NOT EXISTS traces (
     source_ip IPv4 DEFAULT toIPv4('0.0.0.0') CODEC(ZSTD(3))
 
 ) ENGINE = MergeTree()
-PARTITION BY toYYYYMM(start_time)
+PARTITION BY toYYYYMM(start_time_date)
 ORDER BY (service_name, operation_name, start_time, trace_id, span_id)
-TTL start_time + INTERVAL 30 DAY DELETE
+TTL start_time_date + INTERVAL 30 DAY DELETE
 SETTINGS
     index_granularity = 8192,
     ttl_only_drop_parts = 1,

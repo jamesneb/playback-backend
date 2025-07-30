@@ -1,5 +1,23 @@
 basePath: /api/v1
 definitions:
+  handlers.Attribute:
+    properties:
+      key:
+        type: string
+      value:
+        $ref: '#/definitions/handlers.AttributeValue'
+    type: object
+  handlers.AttributeValue:
+    properties:
+      boolValue:
+        type: boolean
+      doubleValue:
+        type: number
+      intValue:
+        type: integer
+      stringValue:
+        type: string
+    type: object
   handlers.CreateTraceRequest:
     properties:
       span_id:
@@ -31,6 +49,292 @@ definitions:
         example: Field validation failed
         type: string
     type: object
+  handlers.Gauge:
+    properties:
+      dataPoints:
+        items:
+          $ref: '#/definitions/handlers.NumberDataPoint'
+        type: array
+    type: object
+  handlers.Histogram:
+    properties:
+      aggregationTemporality:
+        type: integer
+      dataPoints:
+        items:
+          $ref: '#/definitions/handlers.HistogramDataPoint'
+        type: array
+    type: object
+  handlers.HistogramDataPoint:
+    properties:
+      attributes:
+        items:
+          $ref: '#/definitions/handlers.Attribute'
+        type: array
+      bucketCounts:
+        items:
+          type: integer
+        type: array
+      count:
+        type: integer
+      explicitBounds:
+        items:
+          type: number
+        type: array
+      startTimeUnixNano:
+        type: integer
+      sum:
+        type: number
+      timeUnixNano:
+        type: integer
+    type: object
+  handlers.LogEntry:
+    properties:
+      attributes:
+        additionalProperties: true
+        type: object
+      level:
+        example: INFO
+        type: string
+      message:
+        example: Order creation started
+        type: string
+      service:
+        example: order-service
+        type: string
+      span_id:
+        example: 789xyz
+        type: string
+      timestamp:
+        example: "2023-01-01T00:00:00Z"
+        type: string
+      trace_id:
+        example: abc123def456
+        type: string
+    type: object
+  handlers.LogRecord:
+    properties:
+      attributes:
+        items:
+          $ref: '#/definitions/handlers.Attribute'
+        type: array
+      body:
+        $ref: '#/definitions/handlers.LogRecordBody'
+      droppedAttributesCount:
+        type: integer
+      flags:
+        type: integer
+      observedTimeUnixNano:
+        type: integer
+      severityNumber:
+        type: integer
+      severityText:
+        type: string
+      spanId:
+        type: string
+      timeUnixNano:
+        type: integer
+      traceId:
+        type: string
+    type: object
+  handlers.LogRecordBody:
+    properties:
+      stringValue:
+        type: string
+    type: object
+  handlers.LogsQueryResponse:
+    properties:
+      level:
+        example: INFO
+        type: string
+      logs:
+        items:
+          $ref: '#/definitions/handlers.LogEntry'
+        type: array
+      query:
+        example: order failed
+        type: string
+      service:
+        example: order-service
+        type: string
+      time_range:
+        $ref: '#/definitions/handlers.TimeRange'
+    type: object
+  handlers.LogsRequest:
+    properties:
+      resourceLogs:
+        items:
+          $ref: '#/definitions/handlers.ResourceLog'
+        type: array
+    type: object
+  handlers.LogsResponse:
+    properties:
+      received:
+        example: 10
+        type: integer
+      status:
+        example: accepted
+        type: string
+      timestamp:
+        example: "2023-01-01T00:00:00Z"
+        type: string
+    type: object
+  handlers.Metric:
+    properties:
+      description:
+        type: string
+      gauge:
+        $ref: '#/definitions/handlers.Gauge'
+      histogram:
+        $ref: '#/definitions/handlers.Histogram'
+      name:
+        type: string
+      sum:
+        $ref: '#/definitions/handlers.Sum'
+      unit:
+        type: string
+    type: object
+  handlers.MetricData:
+    properties:
+      labels:
+        additionalProperties:
+          type: string
+        example:
+          status: success
+        type: object
+      name:
+        example: orders_total
+        type: string
+      timestamp:
+        example: "2023-01-01T00:00:00Z"
+        type: string
+      type:
+        example: counter
+        type: string
+      value:
+        example: 156
+        type: number
+    type: object
+  handlers.MetricsQueryResponse:
+    properties:
+      metrics:
+        items:
+          $ref: '#/definitions/handlers.MetricData'
+        type: array
+      service:
+        example: order-service
+        type: string
+      time_range:
+        $ref: '#/definitions/handlers.TimeRange'
+    type: object
+  handlers.MetricsRequest:
+    properties:
+      resourceMetrics:
+        items:
+          $ref: '#/definitions/handlers.ResourceMetric'
+        type: array
+    type: object
+  handlers.MetricsResponse:
+    properties:
+      received:
+        example: 5
+        type: integer
+      status:
+        example: accepted
+        type: string
+      timestamp:
+        example: "2023-01-01T00:00:00Z"
+        type: string
+    type: object
+  handlers.NumberDataPoint:
+    properties:
+      asDouble:
+        type: number
+      asInt:
+        type: integer
+      attributes:
+        items:
+          $ref: '#/definitions/handlers.Attribute'
+        type: array
+      startTimeUnixNano:
+        type: integer
+      timeUnixNano:
+        type: integer
+    type: object
+  handlers.Resource:
+    properties:
+      attributes:
+        items:
+          $ref: '#/definitions/handlers.Attribute'
+        type: array
+    type: object
+  handlers.ResourceLog:
+    properties:
+      resource:
+        $ref: '#/definitions/handlers.Resource'
+      schemaUrl:
+        type: string
+      scopeLogs:
+        items:
+          $ref: '#/definitions/handlers.ScopeLog'
+        type: array
+    type: object
+  handlers.ResourceMetric:
+    properties:
+      resource:
+        $ref: '#/definitions/handlers.Resource'
+      schemaUrl:
+        type: string
+      scopeMetrics:
+        items:
+          $ref: '#/definitions/handlers.ScopeMetric'
+        type: array
+    type: object
+  handlers.Scope:
+    properties:
+      name:
+        type: string
+      version:
+        type: string
+    type: object
+  handlers.ScopeLog:
+    properties:
+      logRecords:
+        items:
+          $ref: '#/definitions/handlers.LogRecord'
+        type: array
+      scope:
+        $ref: '#/definitions/handlers.Scope'
+    type: object
+  handlers.ScopeMetric:
+    properties:
+      metrics:
+        items:
+          $ref: '#/definitions/handlers.Metric'
+        type: array
+      scope:
+        $ref: '#/definitions/handlers.Scope'
+    type: object
+  handlers.Sum:
+    properties:
+      aggregationTemporality:
+        type: integer
+      dataPoints:
+        items:
+          $ref: '#/definitions/handlers.NumberDataPoint'
+        type: array
+      isMonotonic:
+        type: boolean
+    type: object
+  handlers.TimeRange:
+    properties:
+      from:
+        example: "2023-01-01T00:00:00Z"
+        type: string
+      to:
+        example: "2023-01-01T01:00:00Z"
+        type: string
+    type: object
   handlers.TraceResponse:
     properties:
       created_at:
@@ -50,6 +354,116 @@ info:
   title: Playback Backend API
   version: "1.0"
 paths:
+  /api/v1/logs:
+    get:
+      description: Get log data for analysis
+      parameters:
+      - description: Service name
+        in: query
+        name: service
+        type: string
+      - description: Log level
+        in: query
+        name: level
+        type: string
+      - description: Start time (RFC3339)
+        in: query
+        name: from
+        type: string
+      - description: End time (RFC3339)
+        in: query
+        name: to
+        type: string
+      - description: Search query
+        in: query
+        name: q
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handlers.LogsQueryResponse'
+      summary: Get logs
+      tags:
+      - logs
+    post:
+      consumes:
+      - application/json
+      description: Receive log data from OpenTelemetry
+      parameters:
+      - description: Log data
+        in: body
+        name: logs
+        required: true
+        schema:
+          $ref: '#/definitions/handlers.LogsRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handlers.LogsResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+      summary: Receive logs
+      tags:
+      - logs
+  /api/v1/metrics:
+    get:
+      description: Get metrics data for analysis
+      parameters:
+      - description: Service name
+        in: query
+        name: service
+        type: string
+      - description: Start time (RFC3339)
+        in: query
+        name: from
+        type: string
+      - description: End time (RFC3339)
+        in: query
+        name: to
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handlers.MetricsQueryResponse'
+      summary: Get metrics
+      tags:
+      - metrics
+    post:
+      consumes:
+      - application/json
+      description: Receive metrics data from OpenTelemetry
+      parameters:
+      - description: Metrics data
+        in: body
+        name: metrics
+        required: true
+        schema:
+          $ref: '#/definitions/handlers.MetricsRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handlers.MetricsResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+      summary: Receive metrics
+      tags:
+      - metrics
   /api/v1/traces:
     post:
       consumes:

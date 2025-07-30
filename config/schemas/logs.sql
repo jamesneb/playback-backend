@@ -6,6 +6,7 @@ CREATE TABLE IF NOT EXISTS logs (
     -- Timing
     timestamp DateTime64(9) CODEC(Delta, ZSTD(3)),
     observed_timestamp DateTime64(9) CODEC(Delta, ZSTD(3)),
+    timestamp_date DateTime MATERIALIZED toDateTime(timestamp) CODEC(ZSTD(3)),
 
     -- Trace correlation
     trace_id String CODEC(ZSTD(3)),
@@ -59,9 +60,9 @@ CREATE TABLE IF NOT EXISTS logs (
     source_ip IPv4 DEFAULT toIPv4('0.0.0.0') CODEC(ZSTD(3))
 
 ) ENGINE = MergeTree()
-PARTITION BY toYYYYMM(timestamp)
+PARTITION BY toYYYYMM(timestamp_date)
 ORDER BY (service_name, severity_number, timestamp, trace_id)
-TTL timestamp + INTERVAL 30 DAY DELETE
+TTL timestamp_date + INTERVAL 30 DAY DELETE
 SETTINGS
     index_granularity = 8192,
     ttl_only_drop_parts = 1,

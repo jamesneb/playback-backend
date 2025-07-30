@@ -187,3 +187,8 @@ development:
   seed_test_data: true
   enable_query_logging: true
   enable_request_logging: true
+
+# Swagger documentation
+swagger:
+  enabled: true
+  path: "/swagger"

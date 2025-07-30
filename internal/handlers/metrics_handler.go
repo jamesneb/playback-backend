@@ -1,16 +1,25 @@
 package handlers
 
 import (
+	"context"
+	"encoding/json"
 	"net/http"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/jamesneb/playback-backend/internal/streaming"
+	"github.com/jamesneb/playback-backend/pkg/logger"
+	"go.uber.org/zap"
 )
 
-type MetricsHandler struct{}
+type MetricsHandler struct{
+	kinesisClient *streaming.KinesisClient
+}
 
-func NewMetricsHandler() *MetricsHandler {
-	return &MetricsHandler{}
+func NewMetricsHandler(kinesisClient *streaming.KinesisClient) *MetricsHandler {
+	return &MetricsHandler{
+		kinesisClient: kinesisClient,
+	}
 }
 
 // CreateMetrics receives metrics data
@@ -24,25 +33,72 @@ func NewMetricsHandler() *MetricsHandler {
 // @Failure 400 {object} ErrorResponse
 // @Router /api/v1/metrics [post]
 func (h *MetricsHandler) CreateMetrics(c *gin.Context) {
-	var req MetricsRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
+	// Parse the OTLP metrics data (raw JSON)
+	var otlpData json.RawMessage
+	if err := c.ShouldBindJSON(&otlpData); err != nil {
+		logger.Error("Failed to parse OTLP metrics data",
+			zap.Error(err),
+			zap.String("client_ip", c.ClientIP()),
+			zap.String("user_agent", c.GetHeader("User-Agent")),
+		)
 		c.JSON(http.StatusBadRequest, ErrorResponse{
-			Error:   "Invalid metrics request",
+			Error:   "Invalid OTLP metrics data",
 			Message: err.Error(),
 		})
 		return
 	}
 
-	// In a real implementation, you'd store this in a time-series database
-	// like InfluxDB, Prometheus, or TimescaleDB
+	// Extract service name for logging and partitioning
+	serviceName := extractMetricsServiceName(otlpData)
+	metricsCount := countMetrics(otlpData)
 
+	// Log the ingestion event
+	logger.Info("Received OTLP metrics data",
+		zap.String("service_name", serviceName),
+		zap.Int("metrics_count", metricsCount),
+		zap.String("client_ip", c.ClientIP()),
+		zap.String("user_agent", c.GetHeader("User-Agent")),
+		zap.Int("data_size_bytes", len(otlpData)),
+	)
+
+	// Publish to Kinesis
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	err := h.kinesisClient.PublishMetrics(
+		ctx,
+		otlpData,
+		serviceName,
+		c.ClientIP(),
+		c.GetHeader("User-Agent"),
+	)
+	if err != nil {
+		logger.Error("Failed to publish metrics to Kinesis",
+			zap.Error(err),
+			zap.String("service_name", serviceName),
+			zap.Int("metrics_count", metricsCount),
+		)
+		c.JSON(http.StatusInternalServerError, ErrorResponse{
+			Error:   "Failed to process metrics data",
+			Message: "Internal server error",
+		})
+		return
+	}
+
+	// Log successful ingestion
+	logger.Info("Successfully published metrics to Kinesis",
+		zap.String("service_name", serviceName),
+		zap.Int("metrics_count", metricsCount),
+	)
+
+	// Return success response
 	response := MetricsResponse{
-		Received:  len(req.ResourceMetrics),
+		Received:  metricsCount,
 		Timestamp: time.Now(),
 		Status:    "accepted",
 	}
 
-	c.JSON(http.StatusOK, response)
+	c.JSON(http.StatusAccepted, response)
 }
 
 // GetMetrics retrieves metrics (placeholder for querying)
@@ -188,4 +244,61 @@ type MetricData struct {
 	Value     float64           `json:"value" example:"156"`
 	Labels    map[string]string `json:"labels" example:"status:success"`
 	Timestamp time.Time         `json:"timestamp" example:"2023-01-01T00:00:00Z"`
+}
+
+// Helper functions for extracting metadata from OTLP metrics data
+func extractMetricsServiceName(data json.RawMessage) string {
+	// Parse OTLP metrics structure to extract service name
+	var otlp struct {
+		ResourceMetrics []struct {
+			Resource struct {
+				Attributes []struct {
+					Key   string `json:"key"`
+					Value struct {
+						StringValue string `json:"stringValue"`
+					} `json:"value"`
+				} `json:"attributes"`
+			} `json:"resource"`
+		} `json:"resourceMetrics"`
+	}
+
+	if err := json.Unmarshal(data, &otlp); err != nil {
+		return "unknown"
+	}
+
+	for _, rm := range otlp.ResourceMetrics {
+		for _, attr := range rm.Resource.Attributes {
+			if attr.Key == "service.name" {
+				return attr.Value.StringValue
+			}
+		}
+	}
+
+	return "unknown"
+}
+
+func countMetrics(data json.RawMessage) int {
+	// Parse OTLP metrics structure to count metrics
+	var otlp struct {
+		ResourceMetrics []struct {
+			ScopeMetrics []struct {
+				Metrics []struct {
+					Name string `json:"name"`
+				} `json:"metrics"`
+			} `json:"scopeMetrics"`
+		} `json:"resourceMetrics"`
+	}
+
+	if err := json.Unmarshal(data, &otlp); err != nil {
+		return 0
+	}
+
+	count := 0
+	for _, rm := range otlp.ResourceMetrics {
+		for _, sm := range rm.ScopeMetrics {
+			count += len(sm.Metrics)
+		}
+	}
+
+	return count
 }

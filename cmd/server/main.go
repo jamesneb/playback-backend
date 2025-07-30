@@ -65,10 +65,10 @@ func main() {
 		// OpenTelemetry endpoints
 		api.POST("/traces", traceHandler.CreateTrace)
 		api.GET("/traces/:id", traceHandler.GetTrace)
-		
+
 		api.POST("/metrics", metricsHandler.CreateMetrics)
 		api.GET("/metrics", metricsHandler.GetMetrics)
-		
+
 		api.POST("/logs", logsHandler.CreateLogs)
 		api.GET("/logs", logsHandler.GetLogs)
 	}

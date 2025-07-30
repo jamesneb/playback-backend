@@ -53,7 +53,7 @@ func (h *TraceHandler) CreateTrace(c *gin.Context) {
 // @Router /api/v1/traces/{id} [get]
 func (h *TraceHandler) GetTrace(c *gin.Context) {
 	id := c.Param("id")
-	
+
 	response := TraceResponse{
 		ID:        id,
 		TraceID:   "sample-trace-" + id,

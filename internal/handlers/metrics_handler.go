@@ -35,7 +35,7 @@ func (h *MetricsHandler) CreateMetrics(c *gin.Context) {
 
 	// In a real implementation, you'd store this in a time-series database
 	// like InfluxDB, Prometheus, or TimescaleDB
-	
+
 	response := MetricsResponse{
 		Received:  len(req.ResourceMetrics),
 		Timestamp: time.Now(),
@@ -91,9 +91,9 @@ type MetricsRequest struct {
 }
 
 type ResourceMetric struct {
-	Resource          Resource           `json:"resource"`
-	ScopeMetrics      []ScopeMetric      `json:"scopeMetrics"`
-	SchemaURL         string             `json:"schemaUrl,omitempty"`
+	Resource     Resource      `json:"resource"`
+	ScopeMetrics []ScopeMetric `json:"scopeMetrics"`
+	SchemaURL    string        `json:"schemaUrl,omitempty"`
 }
 
 type Resource struct {
@@ -111,23 +111,23 @@ type Scope struct {
 }
 
 type Metric struct {
-	Name        string      `json:"name"`
-	Description string      `json:"description,omitempty"`
-	Unit        string      `json:"unit,omitempty"`
-	Sum         *Sum        `json:"sum,omitempty"`
-	Histogram   *Histogram  `json:"histogram,omitempty"`
-	Gauge       *Gauge      `json:"gauge,omitempty"`
+	Name        string     `json:"name"`
+	Description string     `json:"description,omitempty"`
+	Unit        string     `json:"unit,omitempty"`
+	Sum         *Sum       `json:"sum,omitempty"`
+	Histogram   *Histogram `json:"histogram,omitempty"`
+	Gauge       *Gauge     `json:"gauge,omitempty"`
 }
 
 type Sum struct {
-	DataPoints            []NumberDataPoint `json:"dataPoints"`
-	AggregationTemporality int              `json:"aggregationTemporality"`
-	IsMonotonic           bool             `json:"isMonotonic"`
+	DataPoints             []NumberDataPoint `json:"dataPoints"`
+	AggregationTemporality int               `json:"aggregationTemporality"`
+	IsMonotonic            bool              `json:"isMonotonic"`
 }
 
 type Histogram struct {
-	DataPoints            []HistogramDataPoint `json:"dataPoints"`
-	AggregationTemporality int                 `json:"aggregationTemporality"`
+	DataPoints             []HistogramDataPoint `json:"dataPoints"`
+	AggregationTemporality int                  `json:"aggregationTemporality"`
 }
 
 type Gauge struct {
@@ -153,15 +153,15 @@ type HistogramDataPoint struct {
 }
 
 type Attribute struct {
-	Key   string      `json:"key"`
+	Key   string         `json:"key"`
 	Value AttributeValue `json:"value"`
 }
 
 type AttributeValue struct {
-	StringValue *string `json:"stringValue,omitempty"`
-	IntValue    *int64  `json:"intValue,omitempty"`
+	StringValue *string  `json:"stringValue,omitempty"`
+	IntValue    *int64   `json:"intValue,omitempty"`
 	DoubleValue *float64 `json:"doubleValue,omitempty"`
-	BoolValue   *bool   `json:"boolValue,omitempty"`
+	BoolValue   *bool    `json:"boolValue,omitempty"`
 }
 
 // Response types

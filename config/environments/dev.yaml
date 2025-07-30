@@ -1,17 +1,17 @@
-# Local Development Environment Configuration
-# Complete configuration for local development
+# Development Environment Configuration
+# Complete configuration for development environment
 
 app:
   name: "playback-backend"
   version: "1.0.0"
   description: "Distributed System Request Replayer and System Map"
-  environment: "local"
+  environment: "dev"
 
 # Server configuration
 server:
   host: "0.0.0.0"
   port: 8080
-  mode: "debug"  # gin mode: debug, release, test
+  mode: "release"  # gin mode: debug, release, test
   trusted_proxies: []
   read_timeout: "30s"
   write_timeout: "30s"
@@ -20,7 +20,7 @@ server:
 
 # Logging configuration
 logging:
-  level: "debug"  # debug, info, warn, error
+  level: "info"  # debug, info, warn, error
   format: "json"  # json, text
   output: "stdout"
   enable_caller: true
@@ -32,38 +32,38 @@ api:
   prefix: "/api/v1"
   enable_cors: true
   cors:
-    allowed_origins: ["*"]
+    allowed_origins: ["https://dev.playback-backend.com"]
     allowed_methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
     allowed_headers: ["*"]
     max_age: 3600
   rate_limiting:
     enabled: true
-    requests_per_second: 1000
-    burst: 2000
+    requests_per_second: 500
+    burst: 1000
   timeout: "30s"
   max_request_size: "10MB"
 
 # Database connections
 database:
   clickhouse:
-    host: "localhost:9000"
-    http_host: "localhost:8123"
+    host: "clickhouse-dev.internal:9000"
+    http_host: "clickhouse-dev.internal:8123"
     database: "telemetry"
-    username: "admin"
-    password: "admin123"
-    max_connections: 10
-    max_idle_connections: 5
+    username: "${CLICKHOUSE_USER}"
+    password: "${CLICKHOUSE_PASSWORD}"
+    max_connections: 20
+    max_idle_connections: 10
     connection_timeout: "30s"
     read_timeout: "30s"
     write_timeout: "30s"
     enable_compression: true
     
   redis:
-    host: "localhost:6379"
-    password: "redis123"
+    host: "${REDIS_HOST}"
+    password: "${REDIS_PASSWORD}"
     database: 0
-    max_connections: 10
-    max_idle_connections: 5
+    max_connections: 20
+    max_idle_connections: 10
     connection_timeout: "5s"
     read_timeout: "3s"
     write_timeout: "3s"
@@ -73,15 +73,12 @@ database:
 streaming:
   provider: "kinesis"  # kinesis, kafka, pubsub
   kinesis:
-    region: "us-east-1"
-    endpoint_url: "http://localhost:4566"  # LocalStack
-    access_key_id: "test"
-    secret_access_key: "test"
+    region: "${AWS_REGION}"
     streams:
-      traces: "telemetry-traces"
-      metrics: "telemetry-metrics"
-      logs: "telemetry-logs"
-    batch_size: 100
+      traces: "playback-traces-dev"
+      metrics: "playback-metrics-dev"
+      logs: "playback-logs-dev"
+    batch_size: 500
     flush_interval: "5s"
     max_retries: 3
     retry_delay: "1s"
@@ -89,26 +86,26 @@ streaming:
 # Data processing
 processing:
   batch_size: 1000
-  flush_interval: "5s"
-  max_queue_size: 10000
-  worker_count: 4
+  flush_interval: "10s"
+  max_queue_size: 50000
+  worker_count: 8
   retry_attempts: 3
-  retry_delay: "1s"
+  retry_delay: "2s"
   enable_compression: true
   compression_type: "gzip"
 
 # Data retention policies (in days)
 retention:
-  traces: 7
-  metrics: 30
-  logs: 7
-  service_dependencies: 90
+  traces: 30
+  metrics: 90
+  logs: 30
+  service_dependencies: 365
 
 # Caching configuration
 cache:
   redis:
     enabled: true
-    default_ttl: "5m"
+    default_ttl: "1h"
     max_memory_policy: "allkeys-lru"
   application:
     enabled: true
@@ -118,7 +115,7 @@ cache:
 # Monitoring and observability
 monitoring:
   enable_metrics: true
-  enable_profiling: true
+  enable_profiling: false
   enable_tracing: true
   metrics_endpoint: "/metrics"
   health_endpoint: "/health"
@@ -126,7 +123,7 @@ monitoring:
   profiling_endpoint: "/debug/pprof"
   
   jaeger:
-    endpoint: ""
+    endpoint: "${JAEGER_ENDPOINT}"
     service_name: "playback-backend"
     
   prometheus:
@@ -136,9 +133,9 @@ monitoring:
 
 # Security settings
 security:
-  enable_auth: false  # Disabled for local development
+  enable_auth: true
   jwt:
-    secret: "dev-secret-key"
+    secret: "${JWT_SECRET}"
     expiry: "24h"
     issuer: "playback-backend"
   cors:
@@ -152,38 +149,38 @@ security:
 features:
   replay:
     enabled: true
-    max_concurrent_replays: 5
-    replay_timeout: "2m"
+    max_concurrent_replays: 10
+    replay_timeout: "5m"
   system_map:
     enabled: true
-    update_interval: "10s"
-    max_nodes: 500
+    update_interval: "30s"
+    max_nodes: 1000
   real_time_processing:
     enabled: true
-    buffer_size: 5000
+    buffer_size: 10000
   batch_processing:
     enabled: true
-    batch_interval: "30s"
+    batch_interval: "1m"
   data_export:
     enabled: true
-    formats: ["json", "csv"]
-    max_export_size: "50MB"
+    formats: ["json", "csv", "parquet"]
+    max_export_size: "100MB"
 
 # Performance tuning
 performance:
   enable_compression: true
-  compression_level: 3
+  compression_level: 6
   enable_connection_pooling: true
-  max_idle_connections: 50
-  connection_max_lifetime: "30m"
+  max_idle_connections: 100
+  connection_max_lifetime: "1h"
   enable_query_cache: true
-  query_cache_size: "128MB"
+  query_cache_size: "256MB"
 
-# Development settings
+# Development settings (minimal for dev)
 development:
-  enable_debug_endpoints: true
-  enable_hot_reload: true
-  mock_external_services: true
-  seed_test_data: true
-  enable_query_logging: true
+  enable_debug_endpoints: false
+  enable_hot_reload: false
+  mock_external_services: false
+  seed_test_data: false
+  enable_query_logging: false
   enable_request_logging: true

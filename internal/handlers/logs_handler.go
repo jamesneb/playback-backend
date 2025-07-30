@@ -35,7 +35,7 @@ func (h *LogsHandler) CreateLogs(c *gin.Context) {
 
 	// In a real implementation, you'd store this in a log storage system
 	// like Elasticsearch, Loki, or a database with full-text search
-	
+
 	response := LogsResponse{
 		Received:  len(req.ResourceLogs),
 		Timestamp: time.Now(),
@@ -108,27 +108,27 @@ type LogsRequest struct {
 }
 
 type ResourceLog struct {
-	Resource   Resource    `json:"resource"`
-	ScopeLogs  []ScopeLog  `json:"scopeLogs"`
-	SchemaURL  string      `json:"schemaUrl,omitempty"`
+	Resource  Resource   `json:"resource"`
+	ScopeLogs []ScopeLog `json:"scopeLogs"`
+	SchemaURL string     `json:"schemaUrl,omitempty"`
 }
 
 type ScopeLog struct {
-	Scope      Scope        `json:"scope"`
-	LogRecords []LogRecord  `json:"logRecords"`
+	Scope      Scope       `json:"scope"`
+	LogRecords []LogRecord `json:"logRecords"`
 }
 
 type LogRecord struct {
-	TimeUnixNano         uint64                 `json:"timeUnixNano"`
-	ObservedTimeUnixNano uint64                 `json:"observedTimeUnixNano,omitempty"`
-	SeverityNumber       int32                  `json:"severityNumber,omitempty"`
-	SeverityText         string                 `json:"severityText,omitempty"`
-	Body                 LogRecordBody          `json:"body,omitempty"`
-	Attributes           []Attribute            `json:"attributes,omitempty"`
-	DroppedAttributesCount uint32               `json:"droppedAttributesCount,omitempty"`
-	Flags                uint32                 `json:"flags,omitempty"`
-	TraceID              string                 `json:"traceId,omitempty"`
-	SpanID               string                 `json:"spanId,omitempty"`
+	TimeUnixNano           uint64        `json:"timeUnixNano"`
+	ObservedTimeUnixNano   uint64        `json:"observedTimeUnixNano,omitempty"`
+	SeverityNumber         int32         `json:"severityNumber,omitempty"`
+	SeverityText           string        `json:"severityText,omitempty"`
+	Body                   LogRecordBody `json:"body,omitempty"`
+	Attributes             []Attribute   `json:"attributes,omitempty"`
+	DroppedAttributesCount uint32        `json:"droppedAttributesCount,omitempty"`
+	Flags                  uint32        `json:"flags,omitempty"`
+	TraceID                string        `json:"traceId,omitempty"`
+	SpanID                 string        `json:"spanId,omitempty"`
 }
 
 type LogRecordBody struct {

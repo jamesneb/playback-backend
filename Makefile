@@ -100,8 +100,29 @@ destroy-terraform: ## Destroy Terraform infrastructure for environment
 
 build: ## Build the application
 	@echo "Building playback-backend..."
+	@mkdir -p bin
 	@go build -o bin/playback-backend ./cmd/server
 	@echo "✅ Build complete"
+
+build-all: lint test build docs docker-build ## Complete build pipeline (lint, test, build, docs, docker)
+	@echo "🎉 Complete build pipeline finished successfully!"
+
+docker-build: ## Build Docker image for current environment
+	@echo "Building Docker image..."
+	@docker build -t playback-backend:latest -f deployments/Dockerfile .
+	@echo "✅ Docker image built"
+
+docker-build-env: ## Build Docker image for specific environment (ENV=dev|staging|prod)
+	@echo "Building Docker image for $(ENV) environment..."
+	@docker build -t playback-backend:$(ENV) -f deployments/Dockerfile --build-arg ENV=$(ENV) .
+	@echo "✅ Docker image built for $(ENV)"
+
+docs: ## Generate documentation
+	@echo "Generating documentation..."
+	@mkdir -p docs/generated
+	@go doc -all ./... > docs/generated/api-docs.txt 2>/dev/null || echo "No docs generated"
+	@which swag > /dev/null && swag init -g cmd/server/main.go -o docs/swagger || echo "⚠️  Swagger not installed, skipping API docs"
+	@echo "✅ Documentation generated"
 
 test: ## Run tests
 	@echo "Running tests..."
@@ -162,5 +183,46 @@ install-deps: ## Install development dependencies
 	@echo "Installing development dependencies..."
 	@go mod download
 	@which golangci-lint > /dev/null || go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
+	@which swag > /dev/null || go install github.com/swaggo/swag/cmd/swag@latest
 	@which jq > /dev/null || (echo "Please install jq: https://stedolan.github.io/jq/" && exit 1)
 	@echo "✅ Dependencies installed"
+
+# Environment-specific build targets
+build-local: ## Build and start local environment
+	@$(MAKE) build-all ENV=local
+	@$(MAKE) start-local
+
+build-dev: ## Build for development environment
+	@$(MAKE) build-all ENV=dev
+	@$(MAKE) docker-build-env ENV=dev
+
+build-staging: ## Build for staging environment
+	@$(MAKE) build-all ENV=staging
+	@$(MAKE) docker-build-env ENV=staging
+
+build-prod: ## Build for production environment
+	@$(MAKE) build-all ENV=prod
+	@$(MAKE) docker-build-env ENV=prod
+
+# CI/CD Pipeline targets
+ci: install-deps lint test ## CI pipeline: install deps, lint, test
+	@echo "✅ CI pipeline completed"
+
+cd: build-all ## CD pipeline: complete build including docs and docker
+	@echo "✅ CD pipeline completed"
+
+pre-commit: fmt lint test ## Pre-commit checks
+	@echo "✅ Pre-commit checks passed"
+
+# Release targets
+release-local: build-local ## Release to local environment
+	@echo "✅ Released to local environment"
+
+release-dev: build-dev deploy-dev ## Release to development environment
+	@echo "✅ Released to development environment"
+
+release-staging: build-staging deploy-staging ## Release to staging environment
+	@echo "✅ Released to staging environment"
+
+release-prod: build-prod deploy-prod ## Release to production environment
+	@echo "✅ Released to production environment"

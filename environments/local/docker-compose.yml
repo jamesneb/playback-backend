@@ -8,13 +8,13 @@ services:
       - "9000:9000"     # Native TCP interface
     volumes:
       - clickhouse_data:/var/lib/clickhouse
-      - ./clickhouse/config-simple.xml:/etc/clickhouse-server/config.xml
-      - ./clickhouse/users-simple.xml:/etc/clickhouse-server/users.xml
-      # Add SQL init files back with simplified schemas
+      - ./clickhouse/config-local.xml:/etc/clickhouse-server/config.xml
+      - ./clickhouse/users-local.xml:/etc/clickhouse-server/users.xml
+      # Add SQL init files back with local schemas
       - ../../scripts/data/init-clickhouse.sql:/docker-entrypoint-initdb.d/01-init.sql
-      - ../../config/schemas/traces-simple.sql:/docker-entrypoint-initdb.d/02-traces.sql
-      - ../../config/schemas/metrics-simple.sql:/docker-entrypoint-initdb.d/03-metrics.sql
-      - ../../config/schemas/logs-simple.sql:/docker-entrypoint-initdb.d/04-logs.sql
+      - ../../config/schemas/traces-local.sql:/docker-entrypoint-initdb.d/02-traces.sql
+      - ../../config/schemas/metrics-local.sql:/docker-entrypoint-initdb.d/03-metrics.sql
+      - ../../config/schemas/logs-local.sql:/docker-entrypoint-initdb.d/04-logs.sql
     networks:
       - telemetry_network
     healthcheck:

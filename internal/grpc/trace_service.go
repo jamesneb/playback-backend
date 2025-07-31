@@ -2,15 +2,15 @@ package grpc
 
 import (
 	"context"
-	"fmt"
+	"encoding/json"
 	"time"
 
-	commonpb "go.opentelemetry.io/proto/otlp/common/v1"
 	tracecollectorpb "go.opentelemetry.io/proto/otlp/collector/trace/v1"
 	tracepb "go.opentelemetry.io/proto/otlp/trace/v1"
 	"github.com/jamesneb/playback-backend/internal/streaming"
 	"github.com/jamesneb/playback-backend/pkg/logger"
 	"go.uber.org/zap"
+	"google.golang.org/protobuf/encoding/protojson"
 )
 
 type TraceService struct {
@@ -33,13 +33,20 @@ func (s *TraceService) Export(ctx context.Context, req *tracecollectorpb.ExportT
 	// Extract client IP from gRPC context
 	clientIP := ExtractClientIP(ctx)
 
-	// Convert OTLP protobuf to our internal telemetry event format
+	// Minimal processing: Convert OTLP protobuf to raw JSON for ClickHouse processing
 	for _, resourceSpan := range req.ResourceSpans {
+		// Convert protobuf to JSON with minimal processing
+		rawOTLP, err := protojson.Marshal(resourceSpan)
+		if err != nil {
+			logger.Error("Failed to marshal resource span to JSON", zap.Error(err))
+			continue
+		}
+		
 		event := &streaming.TelemetryEvent{
-			Type:      "traces",
-			TraceID:   extractTraceID(resourceSpan),
-			ServiceName: extractServiceName(resourceSpan),
-			Data:      convertResourceSpanToMap(resourceSpan),
+			Type:        "traces",
+			TraceID:     extractTraceID(resourceSpan),    // Still need for Kinesis partitioning
+			ServiceName: extractServiceName(resourceSpan), // Still need for ClickHouse partitioning
+			Data:        json.RawMessage(rawOTLP),         // Raw JSON - no complex processing
 			Metadata: streaming.TelemetryMetadata{
 				IngestedAt: time.Now(),
 				SourceIP:   clientIP,
@@ -94,81 +101,7 @@ func extractServiceName(resourceSpan *tracepb.ResourceSpans) string {
 	return "unknown"
 }
 
-func convertResourceSpanToMap(resourceSpan *tracepb.ResourceSpans) interface{} {
-	// Convert protobuf to the JSON structure expected by parseTraceData
-	resource := make(map[string]interface{})
-	
-	// Convert resource attributes
-	if resourceSpan.Resource != nil {
-		attributes := make([]map[string]interface{}, 0, len(resourceSpan.Resource.Attributes))
-		for _, attr := range resourceSpan.Resource.Attributes {
-			// Simplified attribute structure that parseTraceData expects
-			attrMap := map[string]interface{}{
-				"key": attr.Key,
-				"value": map[string]interface{}{
-					"stringValue": "", // Default empty string
-				},
-			}
-			
-			// Extract string value (simplified - just string values for now)
-			if attr.Value != nil {
-				switch v := attr.Value.Value.(type) {
-				case *commonpb.AnyValue_StringValue:
-					attrMap["value"].(map[string]interface{})["stringValue"] = v.StringValue
-				case *commonpb.AnyValue_IntValue:
-					attrMap["value"].(map[string]interface{})["stringValue"] = fmt.Sprintf("%d", v.IntValue)
-				case *commonpb.AnyValue_DoubleValue:
-					attrMap["value"].(map[string]interface{})["stringValue"] = fmt.Sprintf("%f", v.DoubleValue)
-				case *commonpb.AnyValue_BoolValue:
-					attrMap["value"].(map[string]interface{})["stringValue"] = fmt.Sprintf("%t", v.BoolValue)
-				}
-			}
-			attributes = append(attributes, attrMap)
-		}
-		
-		resource["attributes"] = attributes
-	}
-	
-	// Convert scope spans to the structure parseTraceData expects
-	scopeSpans := make([]map[string]interface{}, 0, len(resourceSpan.ScopeSpans))
-	for _, ss := range resourceSpan.ScopeSpans {
-		spans := make([]map[string]interface{}, 0, len(ss.Spans))
-		for _, span := range ss.Spans {
-			spanMap := map[string]interface{}{
-				"traceId":           bytesToHex(span.TraceId),
-				"spanId":            bytesToHex(span.SpanId),
-				"parentSpanId":      bytesToHex(span.ParentSpanId),
-				"name":              span.Name,
-				"startTimeUnixNano": span.StartTimeUnixNano,
-				"endTimeUnixNano":   span.EndTimeUnixNano,
-			}
-			spans = append(spans, spanMap)
-		}
-		
-		scopeSpanMap := map[string]interface{}{
-			"spans": spans,
-		}
-		scopeSpans = append(scopeSpans, scopeSpanMap)
-	}
-	
-	// Return the structure that parseTraceData expects
-	return map[string]interface{}{
-		"resourceSpans": []map[string]interface{}{
-			{
-				"resource":   resource,
-				"scopeSpans": scopeSpans,
-			},
-		},
-	}
-}
-
-// Helper function to convert byte arrays to hex strings
-func bytesToHex(b []byte) string {
-	if len(b) == 0 {
-		return ""
-	}
-	return fmt.Sprintf("%x", b)
-}
+// Complex processing functions removed - all moved to ClickHouse materialized views
 
 func countSpans(resourceSpans []*tracepb.ResourceSpans) int {
 	count := 0

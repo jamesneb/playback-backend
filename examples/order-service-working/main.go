@@ -205,9 +205,12 @@ func initTracing() {
 	// Create enhanced resource with environment detection
 	res := createEnhancedResource()
 
-	// Create trace provider with both exporters
+	// Create trace provider with both exporters and shorter batch timeout
 	tp := sdktrace.NewTracerProvider(
-		sdktrace.WithBatcher(otlpExporter),
+		sdktrace.WithBatcher(otlpExporter, 
+			sdktrace.WithBatchTimeout(1*time.Second),  // Flush every 1 second
+			sdktrace.WithMaxExportBatchSize(10),       // Smaller batch size
+		),
 		sdktrace.WithBatcher(stdoutExporter),
 		sdktrace.WithResource(res),
 		sdktrace.WithSampler(sdktrace.AlwaysSample()),

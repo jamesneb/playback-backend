@@ -2,6 +2,7 @@ package streaming
 
 import (
 	"context"
+	"encoding/json"
 	"time"
 )
 
@@ -15,7 +16,7 @@ type TelemetryEvent struct {
 	Type        string                `json:"type"`         // "traces", "metrics", "logs"
 	ServiceName string                `json:"service_name"` // for partitioning
 	TraceID     string                `json:"trace_id,omitempty"`
-	Data        interface{}           `json:"data"`
+	Data        json.RawMessage       `json:"data"`         // Raw JSON data preserved
 	Metadata    TelemetryMetadata     `json:"metadata"`
 }
 

@@ -198,18 +198,41 @@ func (kc *KinesisConsumer) pollStream(ctx context.Context, streamType, streamNam
 		kc.mu.Unlock()
 	}
 
-	// Process records
+	// Process records in batches for better performance
 	if len(resp.Records) > 0 {
 		logger.Info("Processing records", 
 			zap.String("stream", streamName), 
 			zap.Int("count", len(resp.Records)))
 
+		// Collect events for batch processing
+		events := make([]*streaming.TelemetryEvent, 0, len(resp.Records))
+		
 		for _, record := range resp.Records {
-			if err := kc.processRecord(ctx, streamType, record); err != nil {
-				logger.Error("Failed to process record", 
+			var event streaming.TelemetryEvent
+			if err := json.Unmarshal(record.Data, &event); err != nil {
+				logger.Error("Failed to unmarshal record", 
 					zap.String("stream", streamName),
 					zap.String("sequenceNumber", *record.SequenceNumber),
 					zap.Error(err))
+				continue
+			}
+			events = append(events, &event)
+		}
+
+		// Batch insert into ClickHouse
+		if len(events) > 0 {
+			if err := kc.processBatch(ctx, streamType, events); err != nil {
+				logger.Error("Failed to process batch", 
+					zap.String("stream", streamName),
+					zap.Int("batch_size", len(events)),
+					zap.Error(err))
+				
+				// Fallback: process individually
+				for _, event := range events {
+					if err := kc.processRecordDirect(ctx, streamType, event); err != nil {
+						logger.Error("Failed to process individual record after batch failure", zap.Error(err))
+					}
+				}
 			}
 		}
 	}
@@ -217,21 +240,62 @@ func (kc *KinesisConsumer) pollStream(ctx context.Context, streamType, streamNam
 	return nil
 }
 
+func (kc *KinesisConsumer) processBatch(ctx context.Context, streamType string, events []*streaming.TelemetryEvent) error {
+	logger.Debug("Processing batch", 
+		zap.String("stream_type", streamType),
+		zap.Int("batch_size", len(events)))
+
+	// For now, process individually - in the future we could add batch ClickHouse operations
+	for _, event := range events {
+		switch streamType {
+		case "traces":
+			if err := kc.clickhouse.InsertTrace(ctx, event); err != nil {
+				return fmt.Errorf("failed to insert trace: %w", err)
+			}
+		case "metrics":
+			if err := kc.clickhouse.InsertMetric(ctx, event); err != nil {
+				return fmt.Errorf("failed to insert metric: %w", err)
+			}
+		case "logs":
+			if err := kc.clickhouse.InsertLog(ctx, event); err != nil {
+				return fmt.Errorf("failed to insert log: %w", err)
+			}
+		default:
+			return fmt.Errorf("unknown stream type: %s", streamType)
+		}
+	}
+
+	logger.Info("Successfully processed batch", 
+		zap.String("stream_type", streamType),
+		zap.Int("events_processed", len(events)))
+
+	return nil
+}
+
 func (kc *KinesisConsumer) processRecord(ctx context.Context, streamType string, record types.Record) error {
-	// Parse the telemetry event
+	// Parse the telemetry event (now contains raw JSON data)
 	var event streaming.TelemetryEvent
 	if err := json.Unmarshal(record.Data, &event); err != nil {
 		return fmt.Errorf("failed to unmarshal telemetry event: %w", err)
 	}
 
-	// Insert into ClickHouse based on event type
+	return kc.processRecordDirect(ctx, streamType, &event)
+}
+
+func (kc *KinesisConsumer) processRecordDirect(ctx context.Context, streamType string, event *streaming.TelemetryEvent) error {
+	logger.Debug("Processing Kinesis record", 
+		zap.String("stream_type", streamType),
+		zap.String("trace_id", event.TraceID),
+		zap.String("service_name", event.ServiceName))
+
+	// Insert raw data into ClickHouse - materialized views will handle processing
 	switch streamType {
 	case "traces":
-		return kc.clickhouse.InsertTrace(ctx, &event)
+		return kc.clickhouse.InsertTrace(ctx, event)
 	case "metrics":
-		return kc.clickhouse.InsertMetric(ctx, &event)
+		return kc.clickhouse.InsertMetric(ctx, event)
 	case "logs":
-		return kc.clickhouse.InsertLog(ctx, &event)
+		return kc.clickhouse.InsertLog(ctx, event)
 	default:
 		return fmt.Errorf("unknown stream type: %s", streamType)
 	}

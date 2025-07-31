@@ -15,8 +15,14 @@ import (
 )
 
 type KinesisClient struct {
-	client  *kinesis.Client
-	streams map[string]string // stream name mapping
+	client      *kinesis.Client
+	streams     map[string]string // stream name mapping
+	
+	// Batching support
+	batchChannels map[string]chan TelemetryEvent
+	stopBatching  chan struct{}
+	batchSize     int
+	flushInterval time.Duration
 }
 
 // Note: TelemetryEvent and TelemetryMetadata are now defined in handler.go
@@ -45,8 +51,12 @@ func NewKinesisClient(cfg *config.KinesisConfig) (*KinesisClient, error) {
 	}
 
 	kc := &KinesisClient{
-		client:  client,
-		streams: streams,
+		client:        client,
+		streams:       streams,
+		batchChannels: make(map[string]chan TelemetryEvent),
+		stopBatching:  make(chan struct{}),
+		batchSize:     100,                // Default batch size
+		flushInterval: 5 * time.Second,    // Default flush interval
 	}
 
 	// Verify streams exist
@@ -76,7 +86,7 @@ func (kc *KinesisClient) verifyStreams(ctx context.Context) error {
 	return nil
 }
 
-func (kc *KinesisClient) PublishTrace(ctx context.Context, traceData interface{}, serviceName, traceID, sourceIP, userAgent string) error {
+func (kc *KinesisClient) PublishTrace(ctx context.Context, traceData json.RawMessage, serviceName, traceID, sourceIP, userAgent string) error {
 	event := TelemetryEvent{
 		Type:        "traces",
 		ServiceName: serviceName,
@@ -102,7 +112,7 @@ func (kc *KinesisClient) PublishTrace(ctx context.Context, traceData interface{}
 	return kc.publishEvent(ctx, "traces", event, partitionKey)
 }
 
-func (kc *KinesisClient) PublishMetrics(ctx context.Context, metricsData interface{}, serviceName, sourceIP, userAgent string) error {
+func (kc *KinesisClient) PublishMetrics(ctx context.Context, metricsData json.RawMessage, serviceName, sourceIP, userAgent string) error {
 	event := TelemetryEvent{
 		Type:        "metrics",
 		ServiceName: serviceName,
@@ -120,7 +130,7 @@ func (kc *KinesisClient) PublishMetrics(ctx context.Context, metricsData interfa
 	return kc.publishEvent(ctx, "metrics", event, partitionKey)
 }
 
-func (kc *KinesisClient) PublishLogs(ctx context.Context, logsData interface{}, serviceName, traceID, sourceIP, userAgent string) error {
+func (kc *KinesisClient) PublishLogs(ctx context.Context, logsData json.RawMessage, serviceName, traceID, sourceIP, userAgent string) error {
 	event := TelemetryEvent{
 		Type:        "logs",
 		ServiceName: serviceName,
@@ -226,8 +236,118 @@ func (kc *KinesisClient) PublishBatch(ctx context.Context, streamType string, ev
 	return nil
 }
 
+// StartBatchProcessor enables high-throughput batch processing for traces
+func (kc *KinesisClient) StartBatchProcessor(ctx context.Context) error {
+	// Initialize batch channels for each stream type
+	for streamType := range kc.streams {
+		kc.batchChannels[streamType] = make(chan TelemetryEvent, kc.batchSize*2) // Buffer size
+		go kc.processBatch(ctx, streamType)
+	}
+	
+	log.Printf("Started Kinesis batch processors for %d streams (batch_size=%d, flush_interval=%v)", 
+		len(kc.streams), kc.batchSize, kc.flushInterval)
+	return nil
+}
+
+// PublishAsync sends events to batch processor for high-throughput scenarios
+func (kc *KinesisClient) PublishAsync(streamType string, event TelemetryEvent) error {
+	batchChannel, exists := kc.batchChannels[streamType]
+	if !exists {
+		return fmt.Errorf("batch channel not initialized for stream type: %s", streamType)
+	}
+	
+	select {
+	case batchChannel <- event:
+		return nil
+	default:
+		// Channel full - fall back to direct publish
+		log.Printf("Batch channel full for %s, falling back to direct publish", streamType)
+		return kc.publishEvent(context.Background(), streamType, event, event.TraceID)
+	}
+}
+
+// processBatch handles batching logic for a specific stream type
+func (kc *KinesisClient) processBatch(ctx context.Context, streamType string) {
+	eventBuffer := make([]TelemetryEvent, 0, kc.batchSize)
+	ticker := time.NewTicker(kc.flushInterval)
+	defer ticker.Stop()
+	
+	batchChannel := kc.batchChannels[streamType]
+	
+	for {
+		select {
+		case <-ctx.Done():
+			// Flush remaining events before shutting down
+			if len(eventBuffer) > 0 {
+				kc.flushBatch(ctx, streamType, eventBuffer)
+			}
+			return
+			
+		case <-kc.stopBatching:
+			// Flush remaining events before shutting down
+			if len(eventBuffer) > 0 {
+				kc.flushBatch(ctx, streamType, eventBuffer)
+			}
+			return
+			
+		case event := <-batchChannel:
+			eventBuffer = append(eventBuffer, event)
+			
+			// Flush when batch is full
+			if len(eventBuffer) >= kc.batchSize {
+				kc.flushBatch(ctx, streamType, eventBuffer)
+				eventBuffer = eventBuffer[:0] // Reset buffer
+			}
+			
+		case <-ticker.C:
+			// Periodic flush even if batch isn't full
+			if len(eventBuffer) > 0 {
+				kc.flushBatch(ctx, streamType, eventBuffer)
+				eventBuffer = eventBuffer[:0] // Reset buffer
+			}
+		}
+	}
+}
+
+// flushBatch sends accumulated events to Kinesis
+func (kc *KinesisClient) flushBatch(ctx context.Context, streamType string, events []TelemetryEvent) {
+	if len(events) == 0 {
+		return
+	}
+	
+	if err := kc.PublishBatch(ctx, streamType, events); err != nil {
+		log.Printf("Failed to flush batch for %s: %v", streamType, err)
+		
+		// Fallback: try individual publishes for failed batch
+		for _, event := range events {
+			partitionKey := event.TraceID
+			if partitionKey == "" {
+				partitionKey = event.ServiceName
+			}
+			if err := kc.publishEvent(ctx, streamType, event, partitionKey); err != nil {
+				log.Printf("Failed to publish individual event after batch failure: %v", err)
+			}
+		}
+	} else {
+		log.Printf("Successfully flushed batch of %d events to %s", len(events), streamType)
+	}
+}
+
+// SetBatchConfig allows customization of batching parameters
+func (kc *KinesisClient) SetBatchConfig(batchSize int, flushInterval time.Duration) {
+	kc.batchSize = batchSize
+	kc.flushInterval = flushInterval
+}
+
 func (kc *KinesisClient) Close() error {
-	// AWS SDK v2 doesn't require explicit closing
-	log.Println("Kinesis client closed")
+	// Stop batch processors
+	close(kc.stopBatching)
+	
+	// Close batch channels
+	for _, ch := range kc.batchChannels {
+		close(ch)
+	}
+	
+	log.Println("Kinesis client closed with batch processors stopped")
 	return nil
 }

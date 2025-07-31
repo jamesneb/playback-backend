@@ -2,6 +2,7 @@ package grpc
 
 import (
 	"context"
+	"encoding/json"
 	"time"
 
 	metricscollectorpb "go.opentelemetry.io/proto/otlp/collector/metrics/v1"
@@ -9,6 +10,7 @@ import (
 	"github.com/jamesneb/playback-backend/internal/streaming"
 	"github.com/jamesneb/playback-backend/pkg/logger"
 	"go.uber.org/zap"
+	"google.golang.org/protobuf/encoding/protojson"
 )
 
 type MetricsService struct {
@@ -31,12 +33,19 @@ func (s *MetricsService) Export(ctx context.Context, req *metricscollectorpb.Exp
 	// Extract client IP from gRPC context
 	clientIP := ExtractClientIP(ctx)
 
-	// Convert OTLP protobuf to our internal telemetry event format
+	// Minimal processing: Convert OTLP protobuf to raw JSON for ClickHouse processing
 	for _, resourceMetric := range req.ResourceMetrics {
+		// Convert protobuf to JSON with minimal processing
+		rawOTLP, err := protojson.Marshal(resourceMetric)
+		if err != nil {
+			logger.Error("Failed to marshal resource metric to JSON", zap.Error(err))
+			continue
+		}
+		
 		event := &streaming.TelemetryEvent{
 			Type:        "metrics",
 			ServiceName: extractServiceNameFromMetrics(resourceMetric),
-			Data:        convertResourceMetricToMap(resourceMetric),
+			Data:        json.RawMessage(rawOTLP),
 			Metadata: streaming.TelemetryMetadata{
 				IngestedAt: time.Now(),
 				SourceIP:   clientIP,

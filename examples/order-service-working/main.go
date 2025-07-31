@@ -15,11 +15,14 @@ import (
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/log/global"
 	"go.opentelemetry.io/otel/exporters/stdout/stdoutlog"
 	"go.opentelemetry.io/otel/exporters/stdout/stdouttrace"
 	"go.opentelemetry.io/otel/exporters/stdout/stdoutmetric"
+	"go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploggrpc"
 	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
+	otellog "go.opentelemetry.io/otel/log"
 	"go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/sdk/resource"
@@ -74,6 +77,7 @@ var (
 	tracer trace.Tracer
 	meter  metric.Meter
 	logger *zap.Logger
+	otelLogger otellog.Logger
 	httpClient *http.Client
 	
 	// Metrics
@@ -281,8 +285,17 @@ func initMetrics() {
 }
 
 func initLogging() {
-	// Create stdout exporter for logs (since OTLP logs are experimental)
-	exporter, err := stdoutlog.New()
+	// Create OTLP gRPC exporter for logs
+	otlpExporter, err := otlploggrpc.New(context.Background(),
+		otlploggrpc.WithEndpoint("playback-backend:4317"),
+		otlploggrpc.WithInsecure(),
+	)
+	if err != nil {
+		log.Fatal("Failed to create OTLP log exporter:", err)
+	}
+
+	// Create stdout exporter for console visibility
+	stdoutExporter, err := stdoutlog.New()
 	if err != nil {
 		log.Fatal("Failed to create stdout logs exporter:", err)
 	}
@@ -290,14 +303,37 @@ func initLogging() {
 	// Create enhanced resource with environment detection
 	res := createEnhancedResource()
 
-	// Create log provider
-	_ = sdklog.NewLoggerProvider(
-		sdklog.WithProcessor(sdklog.NewBatchProcessor(exporter)),
+	// Create log provider with simple processors for immediate export
+	loggerProvider := sdklog.NewLoggerProvider(
+		sdklog.WithProcessor(sdklog.NewSimpleProcessor(otlpExporter)),
+		sdklog.WithProcessor(sdklog.NewSimpleProcessor(stdoutExporter)),
 		sdklog.WithResource(res),
 	)
+	
+	// Set the global logger provider
+	global.SetLoggerProvider(loggerProvider)
+	
+	// Initialize OTel logger
+	otelLogger = global.GetLoggerProvider().Logger("order-service")
 
+	// Test log emission on startup
+	log.Printf("OTLP log exporter initialized - endpoint: playback-backend:4317")
+	
+	// Test OTLP log emission
+	var startupLogRecord otellog.Record
+	startupLogRecord.SetTimestamp(time.Now())
+	startupLogRecord.SetObservedTimestamp(time.Now())
+	startupLogRecord.SetSeverity(otellog.SeverityInfo)
+	startupLogRecord.SetSeverityText("INFO")
+	startupLogRecord.SetBody(otellog.StringValue("Order service OTLP logs initialized"))
+	startupLogRecord.AddAttributes(
+		otellog.String("service.startup", "true"),
+		otellog.String("log.test", "startup"),
+	)
+	otelLogger.Emit(context.Background(), startupLogRecord)
+	log.Printf("Emitted startup OTLP log record")
 
-	// Create structured logger with OTel integration
+	// Create structured logger  
 	config := zap.NewProductionConfig()
 	config.Level = zap.NewAtomicLevelAt(zapcore.InfoLevel)
 	
@@ -348,7 +384,22 @@ func createOrder(c *gin.Context) {
 	logger.Info("Order creation started", 
 		zap.String("endpoint", "/orders"),
 		zap.String("method", "POST"),
+		zap.String("event.type", "order.started"),
 	)
+	
+	// Direct OTLP log emission
+	var logRecord otellog.Record
+	logRecord.SetTimestamp(start)
+	logRecord.SetObservedTimestamp(start)
+	logRecord.SetSeverity(otellog.SeverityInfo)
+	logRecord.SetSeverityText("INFO")
+	logRecord.SetBody(otellog.StringValue("Order creation started"))
+	logRecord.AddAttributes(
+		otellog.String("endpoint", "/orders"),
+		otellog.String("method", "POST"),
+		otellog.String("event.type", "order.started"),
+	)
+	otelLogger.Emit(ctx, logRecord)
 	
 	var order Order
 	if err := c.ShouldBindJSON(&order); err != nil {
@@ -456,7 +507,26 @@ func createOrder(c *gin.Context) {
 		zap.String("order_id", order.ID),
 		zap.Duration("processing_time", time.Since(start)),
 		zap.String("status", order.Status),
+		zap.Float64("order_total", order.Total),
+		zap.String("event.type", "order.completed"),
 	)
+	
+	// Direct OTLP log completion record
+	now := time.Now()
+	var completionLogRecord otellog.Record
+	completionLogRecord.SetTimestamp(now)
+	completionLogRecord.SetObservedTimestamp(now)
+	completionLogRecord.SetSeverity(otellog.SeverityInfo)
+	completionLogRecord.SetSeverityText("INFO")
+	completionLogRecord.SetBody(otellog.StringValue("Order completed successfully"))
+	completionLogRecord.AddAttributes(
+		otellog.String("order.id", order.ID),
+		otellog.String("order.status", order.Status),
+		otellog.Float64("order.total", order.Total),
+		otellog.Int64("processing_time_ms", time.Since(start).Milliseconds()),
+		otellog.String("event.type", "order.completed"),
+	)
+	otelLogger.Emit(ctx, completionLogRecord)
 
 	c.JSON(201, order)
 }

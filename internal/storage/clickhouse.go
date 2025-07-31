@@ -2,7 +2,9 @@ package storage
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
@@ -285,21 +287,130 @@ func (ch *ClickHouseClient) parseMetricsData(data interface{}) ([]MetricData, er
 }
 
 func (ch *ClickHouseClient) parseLogsData(data interface{}) ([]LogData, error) {
-	// Simplified logs parsing - in production this would handle the full OTLP logs structure
-	return []LogData{
-		{
-			Timestamp:          time.Now(),
-			ObservedTimestamp:  time.Now(),
-			TraceID:            "",
-			SpanID:             "",
-			TraceFlags:         0,
-			SeverityNumber:     9, // INFO level
-			SeverityText:       "INFO",
-			Body:               "Example log message",
-			ServiceName:        "unknown",
-			ServiceVersion:     "",
-			Attributes:         make(map[string]string),
-			ResourceAttributes: make(map[string]string),
-		},
-	}, nil
+	// Parse JSON raw message
+	rawJSON, ok := data.(json.RawMessage)
+	if !ok {
+		return nil, fmt.Errorf("data is not json.RawMessage")
+	}
+
+	// Parse the OTLP ResourceLogs structure
+	var resourceLog struct {
+		Resource struct {
+			Attributes []struct {
+				Key   string `json:"key"`
+				Value struct {
+					StringValue string `json:"stringValue,omitempty"`
+				} `json:"value"`
+			} `json:"attributes"`
+		} `json:"resource"`
+		ScopeLogs []struct {
+			LogRecords []struct {
+				TimeUnixNano         string      `json:"timeUnixNano"`
+				ObservedTimeUnixNano string      `json:"observedTimeUnixNano"`
+				SeverityNumber       interface{} `json:"severityNumber"`
+				SeverityText         string      `json:"severityText"`
+				Body                 struct {
+					StringValue string `json:"stringValue"`
+				} `json:"body"`
+				Attributes []struct {
+					Key   string `json:"key"`
+					Value struct {
+						StringValue string `json:"stringValue,omitempty"`
+					} `json:"value"`
+				} `json:"attributes"`
+				TraceId []byte `json:"traceId,omitempty"`
+				SpanId  []byte `json:"spanId,omitempty"`
+				Flags   int    `json:"flags,omitempty"`
+			} `json:"logRecords"`
+		} `json:"scopeLogs"`
+	}
+
+	if err := json.Unmarshal(rawJSON, &resourceLog); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal logs JSON: %w", err)
+	}
+
+	var logs []LogData
+
+	// Extract service name from resource attributes
+	serviceName := "unknown"
+	serviceVersion := ""
+	resourceAttrs := make(map[string]string)
+	
+	for _, attr := range resourceLog.Resource.Attributes {
+		if attr.Key == "service.name" {
+			serviceName = attr.Value.StringValue
+		} else if attr.Key == "service.version" {
+			serviceVersion = attr.Value.StringValue
+		}
+		resourceAttrs[attr.Key] = attr.Value.StringValue
+	}
+
+	// Process each log record
+	for _, scopeLog := range resourceLog.ScopeLogs {
+		for _, logRecord := range scopeLog.LogRecords {
+			// Parse timestamps
+			timestamp := time.Now()
+			observedTimestamp := time.Now()
+			
+			if logRecord.TimeUnixNano != "" {
+				if nanos, err := strconv.ParseInt(logRecord.TimeUnixNano, 10, 64); err == nil {
+					timestamp = time.Unix(0, nanos)
+				}
+			}
+			
+			if logRecord.ObservedTimeUnixNano != "" {
+				if nanos, err := strconv.ParseInt(logRecord.ObservedTimeUnixNano, 10, 64); err == nil {
+					observedTimestamp = time.Unix(0, nanos)
+				}
+			}
+
+			// Parse log attributes
+			logAttrs := make(map[string]string)
+			for _, attr := range logRecord.Attributes {
+				logAttrs[attr.Key] = attr.Value.StringValue
+			}
+
+			// Convert trace/span IDs from bytes to hex strings
+			traceID := ""
+			spanID := ""
+			if len(logRecord.TraceId) > 0 {
+				traceID = fmt.Sprintf("%x", logRecord.TraceId)
+			}
+			if len(logRecord.SpanId) > 0 {
+				spanID = fmt.Sprintf("%x", logRecord.SpanId)
+			}
+
+			// Handle severity number conversion from interface{} 
+			var severityNumber uint8 = 9 // Default to INFO level
+			if logRecord.SeverityNumber != nil {
+				switch v := logRecord.SeverityNumber.(type) {
+				case int:
+					severityNumber = uint8(v)
+				case float64:
+					severityNumber = uint8(v)
+				case string:
+					if num, err := strconv.Atoi(v); err == nil {
+						severityNumber = uint8(num)
+					}
+				}
+			}
+
+			logs = append(logs, LogData{
+				Timestamp:          timestamp,
+				ObservedTimestamp:  observedTimestamp,
+				TraceID:            traceID,
+				SpanID:             spanID,
+				TraceFlags:         uint8(logRecord.Flags),
+				SeverityNumber:     severityNumber,
+				SeverityText:       logRecord.SeverityText,
+				Body:               logRecord.Body.StringValue,
+				ServiceName:        serviceName,
+				ServiceVersion:     serviceVersion,
+				Attributes:         logAttrs,
+				ResourceAttributes: resourceAttrs,
+			})
+		}
+	}
+
+	return logs, nil
 }

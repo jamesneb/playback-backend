@@ -149,6 +149,23 @@ services:
     networks:
       - telemetry_network
 
+  # Load Test - Continuous order generation for telemetry
+  load-test:
+    build:
+      context: ../../examples/load-test
+      dockerfile: Dockerfile
+    hostname: load-test
+    environment:
+      - ORDER_SERVICE_URL=http://order-service:8081
+      - REQUESTS_PER_SEC=5
+      - DURATION_SEC=3600  # Run for 1 hour
+      - MAX_CONCURRENT=10
+    depends_on:
+      - order-service
+    networks:
+      - telemetry_network
+    restart: unless-stopped
+
 networks:
   telemetry_network:
     driver: bridge

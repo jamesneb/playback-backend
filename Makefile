@@ -124,10 +124,27 @@ docs: ## Generate documentation
 	@which swag > /dev/null && swag init -g cmd/server/main.go -o docs/swagger || echo "⚠️  Swagger not installed, skipping API docs"
 	@echo "✅ Documentation generated"
 
-test: ## Run tests
-	@echo "Running tests..."
-	@go test -v ./...
+test: ## Run all unit tests with coverage
+	@echo "Running comprehensive test suite..."
+	@./test.sh
 	@echo "✅ Tests complete"
+
+test-verbose: ## Run tests with verbose output
+	@go test -v ./...
+
+test-coverage: ## Run tests with coverage report
+	@go test -v -race -coverprofile=coverage.out -covermode=atomic ./...
+	@go tool cover -html=coverage.out -o coverage.html
+	@echo "Coverage report generated: coverage.html"
+
+test-race: ## Run tests with race detection
+	@go test -race ./...
+
+test-bench: ## Run benchmarks
+	@./test.sh --bench
+
+test-package: ## Run tests for specific package
+	@read -p "Enter package path: " pkg; ./test.sh --package $$pkg
 
 lint: ## Run linter
 	@echo "Running linter..."

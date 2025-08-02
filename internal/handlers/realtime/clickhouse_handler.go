@@ -21,6 +21,14 @@ func NewClickHouseHandler(client *storage.ClickHouseClient) *ClickHouseHandler {
 }
 
 func (h *ClickHouseHandler) HandleTelemetryEvent(ctx context.Context, event *streaming.TelemetryEvent) error {
+	// Check if client is available
+	if h.client == nil {
+		logger.Warn("ClickHouse client not available, skipping telemetry event",
+			zap.String("type", event.Type),
+			zap.String("service", event.ServiceName))
+		return nil // Don't fail - just skip the insertion
+	}
+
 	switch event.Type {
 	case "traces":
 		if err := h.client.InsertTrace(ctx, event); err != nil {

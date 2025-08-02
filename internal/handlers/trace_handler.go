@@ -164,7 +164,7 @@ func extractServiceName(data json.RawMessage) string {
 
 	for _, rs := range otlp.ResourceSpans {
 		for _, attr := range rs.Resource.Attributes {
-			if attr.Key == "service.name" {
+			if attr.Key == "service.name" && attr.Value.StringValue != "" {
 				return attr.Value.StringValue
 			}
 		}

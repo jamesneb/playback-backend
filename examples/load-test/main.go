@@ -7,6 +7,8 @@ import (
 	"log"
 	"math/rand"
 	"net/http"
+	"os"
+	"strconv"
 	"sync"
 	"time"
 )
@@ -41,17 +43,34 @@ type TestResult struct {
 
 func main() {
 	config := LoadTestConfig{
-		OrderServiceURL: "http://localhost:8081",
-		RequestsPerSec:  10,  // Start with 10 RPS
-		DurationSec:     60,  // 1 minute test
-		MaxConcurrent:   50,  // Max 50 concurrent requests
+		OrderServiceURL: getEnvString("ORDER_SERVICE_URL", "http://localhost:8081"),
+		RequestsPerSec:  getEnvInt("REQUESTS_PER_SEC", 10),
+		DurationSec:     getEnvInt("DURATION_SEC", 60),
+		MaxConcurrent:   getEnvInt("MAX_CONCURRENT", 50),
 	}
 
-	log.Printf("Starting load test: %d RPS for %d seconds", config.RequestsPerSec, config.DurationSec)
+	log.Printf("Starting load test: %d RPS for %d seconds to %s", 
+		config.RequestsPerSec, config.DurationSec, config.OrderServiceURL)
 	
 	result := runLoadTest(config)
 	
 	printResults(result)
+}
+
+func getEnvString(key, defaultValue string) string {
+	if value := os.Getenv(key); value != "" {
+		return value
+	}
+	return defaultValue
+}
+
+func getEnvInt(key string, defaultValue int) int {
+	if value := os.Getenv(key); value != "" {
+		if intValue, err := strconv.Atoi(value); err == nil {
+			return intValue
+		}
+	}
+	return defaultValue
 }
 
 func runLoadTest(config LoadTestConfig) TestResult {

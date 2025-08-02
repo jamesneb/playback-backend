@@ -68,7 +68,7 @@ func (s *Server) Stop() {
 func ExtractClientIP(ctx context.Context) string {
 	// Extract peer information from gRPC context
 	if p, ok := peer.FromContext(ctx); ok {
-		if tcpAddr, ok := p.Addr.(*net.TCPAddr); ok {
+		if tcpAddr, ok := p.Addr.(*net.TCPAddr); ok && tcpAddr.IP != nil {
 			ip := tcpAddr.IP.String()
 			// Handle IPv6 loopback and convert to IPv4
 			if ip == "::1" {

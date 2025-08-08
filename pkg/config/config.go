@@ -109,6 +109,7 @@ type RedisConfig struct {
 type StreamingConfig struct {
 	Provider string        `yaml:"provider"`
 	Kinesis  KinesisConfig `yaml:"kinesis"`
+	S3       S3Config      `yaml:"s3"`
 }
 
 type KinesisConfig struct {
@@ -121,6 +122,15 @@ type KinesisConfig struct {
 	FlushInterval   string            `yaml:"flush_interval"`
 	MaxRetries      int               `yaml:"max_retries"`
 	RetryDelay      string            `yaml:"retry_delay"`
+}
+
+type S3Config struct {
+	Region          string `yaml:"region"`
+	EndpointURL     string `yaml:"endpoint_url,omitempty"`
+	AccessKeyID     string `yaml:"access_key_id,omitempty"`
+	SecretAccessKey string `yaml:"secret_access_key,omitempty"`
+	Bucket          string `yaml:"bucket"`
+	ForcePathStyle  bool   `yaml:"force_path_style,omitempty"`
 }
 
 type ProcessingConfig struct {

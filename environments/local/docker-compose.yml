@@ -69,6 +69,21 @@ services:
       timeout: 10s
       retries: 5
 
+  # S3 bucket initialization
+  s3-init:
+    image: curlimages/curl:latest
+    depends_on:
+      localstack:
+        condition: service_healthy
+    command: |
+      sh -c "
+        echo 'Creating S3 bucket: replays'
+        curl -X PUT http://localstack:4566/replays
+        echo 'S3 bucket created successfully'
+      "
+    networks:
+      - telemetry_network
+
   # Playback Backend - Your main service
   playback-backend:
     build:

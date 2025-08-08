@@ -58,6 +58,19 @@ func main() {
 	}
 	defer kinesisClient.Close()
 
+	// Initialize S3 client for replay files
+	s3Client, err := storage.NewS3Client(&storage.S3Config{
+		Region:          cfg.Streaming.Kinesis.Region, // Reuse Kinesis config
+		EndpointURL:     cfg.Streaming.Kinesis.EndpointURL,
+		AccessKeyID:     cfg.Streaming.Kinesis.AccessKeyID,
+		SecretAccessKey: cfg.Streaming.Kinesis.SecretAccessKey,
+		Bucket:          "replays", // Match S3 init bucket name
+		ForcePathStyle:  true,               // For LocalStack compatibility
+	})
+	if err != nil {
+		log.Fatalf("Failed to initialize S3 client: %v", err)
+	}
+
 	// Create handlers
 	kinesisHandler := streaming.NewKinesisHandler(kinesisClient)
 	clickhouseHandler := realtime.NewClickHouseHandler(clickhouseClient)
@@ -66,6 +79,20 @@ func main() {
 	r := gin.New()
 	r.Use(gin.Logger())
 	r.Use(gin.Recovery())
+	
+	// Add CORS middleware for frontend communication
+	r.Use(func(c *gin.Context) {
+		c.Header("Access-Control-Allow-Origin", "*")
+		c.Header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+		c.Header("Access-Control-Allow-Headers", "Content-Type, Authorization, Cache-Control, Pragma, Expires")
+		
+		if c.Request.Method == "OPTIONS" {
+			c.AbortWithStatus(204)
+			return
+		}
+		
+		c.Next()
+	})
 
 	// Set trusted proxies
 	if len(cfg.Server.TrustedProxies) > 0 {
@@ -83,6 +110,7 @@ func main() {
 	traceHandler := handlers.NewTraceHandler(kinesisClient)
 	metricsHandler := handlers.NewMetricsHandler(kinesisClient)
 	logsHandler := handlers.NewLogsHandler(kinesisClient)
+	replayHandler := handlers.NewReplayHandler(s3Client, "replays")
 
 	// API routes
 	api := r.Group("/api/v1")
@@ -105,6 +133,10 @@ func main() {
 
 		api.POST("/logs", logsHandler.CreateLogs)
 		api.GET("/logs", logsHandler.GetLogs)
+
+		// Replay endpoints
+		api.GET("/replays/list", replayHandler.ListReplays)
+		api.POST("/replays/download", replayHandler.DownloadReplay)
 	}
 
 	// Create gRPC server

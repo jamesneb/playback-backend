@@ -16,6 +16,7 @@ services:
       - ../../config/schemas/metrics-local.sql:/docker-entrypoint-initdb.d/03-metrics.sql
       - ../../config/schemas/logs-local.sql:/docker-entrypoint-initdb.d/04-logs.sql
       - ../../config/schemas/calibrations-local.sql:/docker-entrypoint-initdb/05-calibrations.sql
+      - ../../config/schemas/events-local.sql:/docker-entrypoint-initdb/06-events.sql
     networks:
       - telemetry_network
     healthcheck:

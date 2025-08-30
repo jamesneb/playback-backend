@@ -1,0 +1,193 @@
+# Production Environment Configuration
+# Configuration for production deployment
+
+app:
+  name: "playback-backend"
+  version: "1.0.0"
+  description: "Distributed System Request Replayer and System Map"
+  environment: "prod"
+
+# Server configuration
+server:
+  host: "0.0.0.0"
+  port: 8080
+  mode: "release" # gin mode: debug, release, test
+  trusted_proxies: [] # Configure with actual proxy IPs
+  read_timeout: "60s"
+  write_timeout: "60s"
+  idle_timeout: "120s"
+  max_header_bytes: 1048576 # 1MB
+
+# Logging configuration
+logging:
+  level: "warn" # debug, info, warn, error
+  format: "json" # json, text
+  output: "stdout"
+  enable_caller: false
+  enable_stacktrace: false
+
+# API configuration
+api:
+  version: "v1"
+  prefix: "/api/v1"
+  enable_cors: true
+  cors:
+    allowed_origins: ["https://app.example.com"] # Configure with actual domain
+    allowed_methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
+    allowed_headers: ["Authorization", "Content-Type"]
+    max_age: 3600
+  rate_limiting:
+    enabled: true
+    requests_per_second: 200
+    burst: 500
+  timeout: "60s"
+  max_request_size: "5MB"
+
+# Database connections - Production configuration
+database:
+  clickhouse:
+    host: "${CLICKHOUSE_HOST}" # Set via environment variable
+    http_host: "${CLICKHOUSE_HTTP_HOST}"
+    database: "telemetry"
+    username: "${CLICKHOUSE_USERNAME}"
+    password: "${CLICKHOUSE_PASSWORD}"
+    max_connections: 50
+    max_idle_connections: 25
+    connection_timeout: "30s"
+    read_timeout: "60s"
+    write_timeout: "60s"
+    enable_compression: true
+
+  redis:
+    host: "${REDIS_HOST}"
+    password: "${REDIS_PASSWORD}"
+    database: 0
+    max_connections: 50
+    max_idle_connections: 25
+    connection_timeout: "10s"
+    read_timeout: "5s"
+    write_timeout: "5s"
+    enable_cluster: true # Enable clustering in production
+
+# Message streaming
+streaming:
+  provider: "kinesis" # kinesis, kafka, pubsub
+  kinesis:
+    region: "${AWS_REGION}"
+    access_key_id: "${AWS_ACCESS_KEY_ID}"
+    secret_access_key: "${AWS_SECRET_ACCESS_KEY}"
+    streams:
+      traces: "prod-telemetry-traces"
+      metrics: "prod-telemetry-metrics"
+      logs: "prod-telemetry-logs"
+    batch_size: 500
+    flush_interval: "10s"
+    max_retries: 5
+    retry_delay: "2s"
+
+# Data processing
+processing:
+  batch_size: 5000
+  flush_interval: "10s"
+  max_queue_size: 50000
+  worker_count: 16
+  retry_attempts: 5
+  retry_delay: "2s"
+  enable_compression: true
+  compression_type: "gzip"
+
+# Data retention policies (in days) - Production retention
+retention:
+  traces: 30
+  metrics: 365
+  logs: 30
+  service_dependencies: 365
+
+# Caching configuration
+cache:
+  redis:
+    enabled: true
+    default_ttl: "30m"
+    max_memory_policy: "allkeys-lru"
+  application:
+    enabled: true
+    size: 10000
+    ttl: "30m"
+
+# Monitoring and observability
+monitoring:
+  enable_metrics: true
+  enable_profiling: false # Disabled in production
+  enable_tracing: true
+  metrics_endpoint: "/metrics"
+  health_endpoint: "/health"
+  ready_endpoint: "/ready"
+  profiling_endpoint: "" # Disabled
+
+  jaeger:
+    endpoint: "${JAEGER_ENDPOINT}"
+    service_name: "playback-backend"
+
+  prometheus:
+    enabled: true
+    port: 9090
+    path: "/metrics"
+
+# Security settings - Production security
+security:
+  enable_auth: true
+  jwt:
+    secret: "${JWT_SECRET}" # Must be set securely
+    expiry: "8h"
+    issuer: "playback-backend"
+  cors:
+    enabled: true
+  tls:
+    enabled: true
+    cert_file: "${TLS_CERT_FILE}"
+    key_file: "${TLS_KEY_FILE}"
+
+# Feature flags - Production settings
+features:
+  replay:
+    enabled: true
+    max_concurrent_replays: 20
+    replay_timeout: "10m"
+  system_map:
+    enabled: true
+    update_interval: "60s"
+    max_nodes: 5000
+  real_time_processing:
+    enabled: true
+    buffer_size: 25000
+  batch_processing:
+    enabled: true
+    batch_interval: "5m"
+  data_export:
+    enabled: true
+    formats: ["json", "csv"]
+    max_export_size: "500MB"
+
+# Performance tuning - Production optimized
+performance:
+  enable_compression: true
+  compression_level: 9
+  enable_connection_pooling: true
+  max_idle_connections: 200
+  connection_max_lifetime: "120m"
+  enable_query_cache: true
+  query_cache_size: "1GB"
+
+# Development settings - All disabled for production
+development:
+  enable_debug_endpoints: false
+  enable_hot_reload: false
+  mock_external_services: false
+  seed_test_data: false
+  enable_query_logging: false
+  enable_request_logging: false
+
+# Swagger documentation - Disabled for production security
+swagger:
+  enabled: false
+  path: "/swagger"

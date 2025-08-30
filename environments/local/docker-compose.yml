@@ -10,13 +10,6 @@ services:
       - clickhouse_data:/var/lib/clickhouse
       - ./clickhouse/config-local.xml:/etc/clickhouse-server/config.xml
       - ./clickhouse/users-local.xml:/etc/clickhouse-server/users.xml
-      # Add SQL init files back with local schemas
-      - ../../scripts/data/init-clickhouse.sql:/docker-entrypoint-initdb.d/01-init.sql
-      - ../../config/schemas/traces-local.sql:/docker-entrypoint-initdb.d/02-traces.sql
-      - ../../config/schemas/metrics-local.sql:/docker-entrypoint-initdb.d/03-metrics.sql
-      - ../../config/schemas/logs-local.sql:/docker-entrypoint-initdb.d/04-logs.sql
-      - ../../config/schemas/calibrations-local.sql:/docker-entrypoint-initdb/05-calibrations.sql
-      - ../../config/schemas/events-local.sql:/docker-entrypoint-initdb/06-events.sql
     networks:
       - telemetry_network
     healthcheck:
@@ -79,6 +72,25 @@ services:
       timeout: 10s
       retries: 5
 
+  # Database migration service
+  db-migrate:
+    build:
+      context: ../..
+      dockerfile: Dockerfile.migrate
+    environment:
+      - ENV=local-docker
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+    volumes:
+      - ../../db:/app/db:ro
+      - ../../config:/app/config:ro
+      - ../../environments:/app/environments:ro
+      - ../../pkg:/app/pkg:ro
+    networks:
+      - telemetry_network
+    restart: "no"
+
   # S3 bucket initialization
   s3-init:
     image: curlimages/curl:latest
@@ -91,6 +103,33 @@ services:
         curl -X PUT http://localstack:4566/replays
         echo 'S3 bucket created successfully'
       "
+    networks:
+      - telemetry_network
+
+  # Kinesis streams initialization  
+  kinesis-init:
+    image: localstack/localstack-pro:latest
+    depends_on:
+      localstack:
+        condition: service_healthy
+    environment:
+      - AWS_DEFAULT_REGION=us-east-1
+      - AWS_ACCESS_KEY_ID=test
+      - AWS_SECRET_ACCESS_KEY=test
+    entrypoint: []
+    command:
+      - sh
+      - -c
+      - |
+        echo 'Installing awscli...'
+        apk add --no-cache aws-cli
+        echo 'Creating Kinesis streams...'
+        aws kinesis create-stream --stream-name telemetry-traces --shard-count 1 --endpoint-url http://localstack:4566 --region us-east-1 || echo 'Stream creation failed'
+        aws kinesis create-stream --stream-name telemetry-metrics --shard-count 1 --endpoint-url http://localstack:4566 --region us-east-1 || echo 'Stream creation failed'  
+        aws kinesis create-stream --stream-name telemetry-logs --shard-count 1 --endpoint-url http://localstack:4566 --region us-east-1 || echo 'Stream creation failed'
+        echo 'Checking streams...'
+        aws kinesis list-streams --endpoint-url http://localstack:4566 --region us-east-1
+        echo 'Kinesis streams setup completed'
     networks:
       - telemetry_network
 
@@ -126,6 +165,10 @@ services:
         condition: service_healthy
       localstack:
         condition: service_healthy
+      db-migrate:
+        condition: service_completed_successfully
+      kinesis-init:
+        condition: service_completed_successfully
     networks:
       - telemetry_network
     volumes:
@@ -153,6 +196,8 @@ services:
         condition: service_healthy
       localstack:
         condition: service_healthy
+      db-migrate:
+        condition: service_completed_successfully
     networks:
       - telemetry_network
     volumes:

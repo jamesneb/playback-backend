@@ -1,0 +1,33 @@
+# Dockerfile for database migrations
+FROM golang:1.23-alpine AS builder
+
+WORKDIR /app
+
+# Copy go mod files
+COPY go.mod go.sum ./
+RUN go mod download
+
+# Copy source code
+COPY pkg/ ./pkg/
+COPY db/ ./db/
+
+# Build the migration binary
+RUN CGO_ENABLED=0 go build -o migrate ./db/scripts/migrate.go
+
+# Final image
+FROM alpine:latest
+
+RUN apk --no-cache add ca-certificates
+
+WORKDIR /app
+
+# Copy the migration binary
+COPY --from=builder /app/migrate .
+
+# Copy necessary files
+COPY db/ ./db/
+COPY config/ ./config/
+COPY environments/ ./environments/
+
+# Default command
+CMD ["./migrate"]

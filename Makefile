@@ -19,10 +19,9 @@ help: ## Show this help message
 setup-local: ## Set up local development environment
 	@echo "Setting up local development environment..."
 	@mkdir -p environments/local/clickhouse
-	@mkdir -p scripts/data
+	@mkdir -p bin
 	@mkdir -p config/environments
 	@mkdir -p infrastructure/terraform
-	@mkdir -p deployments/lambda
 	@docker network create telemetry_network 2>/dev/null || true
 	@echo "✅ Local environment setup complete"
 
@@ -185,11 +184,27 @@ backup-local: ## Backup local data
 	@docker-compose -f $(COMPOSE_FILE) exec -T clickhouse clickhouse-client -u admin --password admin123 --query "BACKUP DATABASE telemetry TO File('/var/lib/clickhouse/backups/backup.zip')"
 	@echo "✅ Backup created"
 
+# Database migration targets
+migrate: ## Run database migrations for local environment
+	@echo "Running database migrations..."
+	@ENV=local go run db/scripts/migrate.go
+
+migrate-dev: ## Run database migrations for dev environment
+	@echo "Running database migrations for dev environment..."
+	@ENV=dev go run db/scripts/migrate.go
+
+migrate-prod: ## Run database migrations for prod environment
+	@echo "Running database migrations for prod environment..."
+	@ENV=prod go run db/scripts/migrate.go
+
+verify-migrations: ## Verify migrations are idempotent and correct
+	@echo "Verifying database migrations..."
+	@./db/scripts/verify.sh
+
 # Development helpers
 generate-data: ## Generate test data
 	@echo "Generating test data..."
-	@cd scripts/data && go run generate-test-data.go
-	@echo "✅ Test data generated"
+	@echo "⚠️  Test data generation not implemented yet"
 
 clean-build: ## Clean build artifacts
 	@rm -rf bin/

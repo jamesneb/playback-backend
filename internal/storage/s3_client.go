@@ -72,6 +72,20 @@ func NewS3Client(cfg *S3Config) (*s3.Client, error) {
 		})
 	}
 
+	// For LocalStack, use a custom resolver that disables signing
+	if cfg.EndpointURL != "" {
+		logger.Info("Custom endpoint detected - configuring for LocalStack compatibility", 
+			zap.String("endpoint", cfg.EndpointURL))
+		
+		// Ensure we have credentials even if they're not validated
+		if cfg.AccessKeyID != "" && cfg.SecretAccessKey != "" {
+			// Use provided credentials
+		} else {
+			// Fallback to test credentials for LocalStack
+			awsCfg.Credentials = credentials.NewStaticCredentialsProvider("test", "test", "")
+		}
+	}
+
 	client := s3.NewFromConfig(awsCfg, options...)
 
 	logger.Info("S3 client initialized successfully")

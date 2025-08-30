@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -48,11 +49,20 @@ type DownloadRequest struct {
 func (h *ReplayHandler) ListReplays(c *gin.Context) {
 	ctx := context.Background()
 	
-	// List objects in the replays bucket
-	listOutput, err := h.s3Client.ListObjectsV2(ctx, &s3.ListObjectsV2Input{
+	logger.Info("Starting to list replay files", 
+		zap.String("bucket", h.bucketName),
+		zap.String("prefix", "tenants/default/replay-deltas/"))
+	
+	// List objects in the replays bucket - try without prefix first for debugging
+	input := &s3.ListObjectsV2Input{
 		Bucket: aws.String(h.bucketName),
-		Prefix: aws.String("replays/"), // Filter to replay files
-	})
+		// Prefix: aws.String("tenants/default/replay-deltas/"),
+	}
+	
+	logger.Info("Making S3 ListObjectsV2 call", 
+		zap.String("bucket", *input.Bucket))
+	
+	listOutput, err := h.s3Client.ListObjectsV2(ctx, input)
 	
 	if err != nil {
 		logger.Error("Failed to list S3 objects", zap.Error(err))
@@ -62,14 +72,25 @@ func (h *ReplayHandler) ListReplays(c *gin.Context) {
 		return
 	}
 	
+	logger.Info("S3 ListObjectsV2 succeeded", 
+		zap.Int("object_count", len(listOutput.Contents)),
+		zap.Bool("is_truncated", listOutput.IsTruncated != nil && *listOutput.IsTruncated))
+	
 	files := make([]ReplayFile, 0)
 	for _, obj := range listOutput.Contents {
-		// Extract job ID from key if possible (e.g., "replays/job-123.arrow" -> "job-123")
+		// Extract job ID from key (e.g., "tenants/default/replay-deltas/abc123/timestamp.arrow" -> "abc123")
 		jobID := ""
-		if obj.Key != nil && len(*obj.Key) > 8 { // "replays/" = 8 chars
-			keyPart := (*obj.Key)[8:] // Remove "replays/" prefix
-			if len(keyPart) > 6 {     // Remove ".arrow" suffix
-				jobID = keyPart[:len(keyPart)-6]
+		if obj.Key != nil {
+			key := *obj.Key
+			// Remove the prefix "tenants/default/replay-deltas/"
+			prefix := "tenants/default/replay-deltas/"
+			if strings.HasPrefix(key, prefix) {
+				remaining := key[len(prefix):] // Remove prefix
+				// Find the next slash to get the job ID
+				slashIndex := strings.Index(remaining, "/")
+				if slashIndex > 0 {
+					jobID = remaining[:slashIndex]
+				}
 			}
 		}
 		
@@ -90,6 +111,7 @@ func (h *ReplayHandler) ListReplays(c *gin.Context) {
 	c.Header("Cache-Control", "no-cache, no-store, must-revalidate")
 	c.Header("Pragma", "no-cache")
 	c.Header("Expires", "0")
+	
 	
 	logger.Info("Listed replay files", zap.Int("count", len(files)))
 	c.JSON(http.StatusOK, files)
@@ -156,3 +178,4 @@ func (h *ReplayHandler) DownloadReplay(c *gin.Context) {
 	// Return the binary data
 	c.Data(http.StatusOK, "application/octet-stream", buf.Bytes())
 }
+

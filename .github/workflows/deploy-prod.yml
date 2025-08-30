@@ -1,0 +1,191 @@
+name: Deploy to Production
+
+on:
+  push:
+    branches: [main]
+  release:
+    types: [created]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to deploy'
+        required: true
+      approval_required:
+        description: 'Require manual approval'
+        required: false
+        default: 'true'
+
+env:
+  ENVIRONMENT: prod
+  AWS_REGION: us-east-1
+  ECR_REPOSITORY: playback-backend
+
+jobs:
+  pre-deployment-checks:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Verify staging deployment
+      run: |
+        # Ensure staging is healthy before prod deployment
+        curl -f https://api-staging.playback-backend.com/health
+        
+        # Check staging metrics
+        curl -f https://api-staging.playback-backend.com/metrics
+
+    - name: Run security audit
+      run: |
+        go mod download
+        go list -json -deps ./... | nancy sleuth
+
+  manual-approval:
+    runs-on: ubuntu-latest
+    needs: pre-deployment-checks
+    if: github.event.inputs.approval_required != 'false'
+    environment: production-approval
+    steps:
+    - name: Wait for approval
+      run: echo "Deployment approved manually"
+
+  production-deployment:
+    runs-on: ubuntu-latest
+    needs: [pre-deployment-checks, manual-approval]
+    if: always() && (needs.manual-approval.result == 'success' || needs.manual-approval.result == 'skipped')
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID_PROD }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY_PROD }}
+        aws-region: ${{ env.AWS_REGION }}
+
+    - name: Login to Amazon ECR
+      id: login-ecr
+      uses: aws-actions/amazon-ecr-login@v2
+
+    - name: Create deployment
+      id: deployment
+      uses: chrnorm/deployment-action@v2
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+        environment: production
+
+    - name: Build and push Docker image
+      env:
+        ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        IMAGE_TAG: ${{ github.sha }}
+        VERSION: ${{ github.event.release.tag_name || github.event.inputs.version || github.sha }}
+      run: |
+        # Build with production environment
+        docker build \
+          --build-arg ENV=${{ env.ENVIRONMENT }} \
+          --build-arg VERSION=$VERSION \
+          -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG \
+          -t $ECR_REGISTRY/$ECR_REPOSITORY:${{ env.ENVIRONMENT }}-latest \
+          -t $ECR_REGISTRY/$ECR_REPOSITORY:$VERSION \
+          -f deployments/Dockerfile .
+        
+        docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+        docker push $ECR_REGISTRY/$ECR_REPOSITORY:${{ env.ENVIRONMENT }}-latest
+        docker push $ECR_REGISTRY/$ECR_REPOSITORY:$VERSION
+
+    - name: Deploy infrastructure
+      run: |
+        cd infrastructure/terraform/environments/${{ env.ENVIRONMENT }}
+        terraform init
+        terraform plan -var-file="../../../environments/${{ env.ENVIRONMENT }}/terraform.tfvars"
+        terraform apply -auto-approve -var-file="../../../environments/${{ env.ENVIRONMENT }}/terraform.tfvars"
+
+    - name: Canary deployment
+      env:
+        ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        IMAGE_TAG: ${{ github.sha }}
+      run: |
+        # Start with 10% traffic to new version
+        aws elbv2 modify-listener \
+          --listener-arn ${{ secrets.PROD_LISTENER_ARN }} \
+          --default-actions file://canary-10-percent.json
+        
+        echo "Canary deployment started with 10% traffic"
+
+    - name: Monitor canary
+      run: |
+        # Monitor for 10 minutes
+        for i in {1..10}; do
+          echo "Monitoring canary deployment... ($i/10)"
+          
+          # Check error rates, response times, etc.
+          ERROR_RATE=$(curl -s https://api.playback-backend.com/metrics | grep error_rate | awk '{print $2}')
+          
+          if (( $(echo "$ERROR_RATE > 0.01" | bc -l) )); then
+            echo "Error rate too high: $ERROR_RATE"
+            exit 1
+          fi
+          
+          sleep 60
+        done
+
+    - name: Promote to full deployment
+      run: |
+        # Gradually increase traffic
+        aws elbv2 modify-listener \
+          --listener-arn ${{ secrets.PROD_LISTENER_ARN }} \
+          --default-actions file://canary-50-percent.json
+        
+        sleep 300  # Wait 5 minutes
+        
+        # Full deployment
+        aws elbv2 modify-listener \
+          --listener-arn ${{ secrets.PROD_LISTENER_ARN }} \
+          --default-actions file://canary-100-percent.json
+
+    - name: Post-deployment verification
+      run: |
+        # Comprehensive health checks
+        curl -f https://api.playback-backend.com/health
+        curl -f https://api.playback-backend.com/ready
+        
+        # Business logic tests
+        make test-production-smoke
+
+    - name: Update deployment status
+      if: always()
+      uses: chrnorm/deployment-status@v2
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+        deployment-id: ${{ steps.deployment.outputs.deployment_id }}
+        state: ${{ job.status }}
+        environment-url: https://api.playback-backend.com
+
+    - name: Rollback on failure
+      if: failure()
+      run: |
+        echo "Production deployment failed, initiating rollback..."
+        
+        # Get previous stable version
+        PREVIOUS_VERSION=$(aws ecs describe-services \
+          --cluster playback-backend-prod \
+          --services playback-backend-service \
+          --query 'services[0].taskDefinition' \
+          --output text | grep -o 'prod-[^:]*')
+        
+        # Rollback
+        aws ecs update-service \
+          --cluster playback-backend-prod \
+          --service playback-backend-service \
+          --task-definition $PREVIOUS_VERSION
+
+    - name: Notify stakeholders
+      if: always()
+      uses: 8398a7/action-slack@v3
+      with:
+        status: ${{ job.status }}
+        channel: '#production-deployments'
+        webhook_url: ${{ secrets.SLACK_WEBHOOK_PROD }}
+        fields: repo,message,commit,author,action,eventName,ref,workflow

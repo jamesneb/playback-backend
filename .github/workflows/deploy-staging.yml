@@ -1,0 +1,127 @@
+name: Deploy to Staging
+
+on:
+  push:
+    branches: [staging]
+  workflow_dispatch:
+
+env:
+  ENVIRONMENT: staging
+  AWS_REGION: us-east-1
+  ECR_REPOSITORY: playback-backend
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: '1.22'
+
+    - name: Run comprehensive tests
+      run: |
+        make ci
+        make integration-tests
+
+  security-scan:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Run security scan
+      uses: securecodewarrior/github-action-add-sarif@v1
+      with:
+        sarif-file: 'security-scan-results.sarif'
+
+    - name: Scan Docker image
+      run: |
+        docker build -t scan-target --build-arg ENV=staging -f deployments/Dockerfile .
+        docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
+          aquasec/trivy image scan-target
+
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    needs: [test, security-scan]
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_REGION }}
+
+    - name: Login to Amazon ECR
+      id: login-ecr
+      uses: aws-actions/amazon-ecr-login@v2
+
+    - name: Build and push Docker image
+      env:
+        ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        IMAGE_TAG: ${{ github.sha }}
+      run: |
+        # Build with staging environment
+        docker build \
+          --build-arg ENV=${{ env.ENVIRONMENT }} \
+          -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG \
+          -t $ECR_REGISTRY/$ECR_REPOSITORY:${{ env.ENVIRONMENT }}-latest \
+          -f deployments/Dockerfile .
+        
+        docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+        docker push $ECR_REGISTRY/$ECR_REPOSITORY:${{ env.ENVIRONMENT }}-latest
+
+    - name: Deploy infrastructure
+      run: |
+        cd infrastructure/terraform/environments/${{ env.ENVIRONMENT }}
+        terraform init
+        terraform plan -var-file="../../../environments/${{ env.ENVIRONMENT }}/terraform.tfvars"
+        terraform apply -auto-approve -var-file="../../../environments/${{ env.ENVIRONMENT }}/terraform.tfvars"
+
+    - name: Blue-Green deployment
+      env:
+        ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        IMAGE_TAG: ${{ github.sha }}
+      run: |
+        # Deploy to green environment first
+        aws ecs update-service \
+          --cluster playback-backend-${{ env.ENVIRONMENT }} \
+          --service playback-backend-service-green \
+          --task-definition playback-backend-${{ env.ENVIRONMENT }}:${{ github.sha }}
+        
+        # Wait for health checks
+        sleep 120
+        
+        # Switch traffic if healthy
+        aws elbv2 modify-listener \
+          --listener-arn ${{ secrets.STAGING_LISTENER_ARN }} \
+          --default-actions Type=forward,TargetGroupArn=${{ secrets.STAGING_GREEN_TG_ARN }}
+
+    - name: Run comprehensive tests
+      run: |
+        # Wait for deployment stability
+        sleep 60
+        
+        # Health checks
+        curl -f https://api-${{ env.ENVIRONMENT }}.playback-backend.com/health
+        
+        # Integration tests
+        make test-integration ENVIRONMENT=${{ env.ENVIRONMENT }}
+        
+        # Performance tests
+        make test-performance ENVIRONMENT=${{ env.ENVIRONMENT }}
+
+    - name: Rollback on failure
+      if: failure()
+      run: |
+        echo "Deployment failed, rolling back..."
+        aws elbv2 modify-listener \
+          --listener-arn ${{ secrets.STAGING_LISTENER_ARN }} \
+          --default-actions Type=forward,TargetGroupArn=${{ secrets.STAGING_BLUE_TG_ARN }}

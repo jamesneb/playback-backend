@@ -1,11 +1,11 @@
 services:
-  # ClickHouse - Primary analytical database
+  # ClickHouse - Primary telemetry database
   clickhouse:
     image: clickhouse/clickhouse-server:23.8
     hostname: clickhouse
     ports:
-      - "8123:8123"     # HTTP interface
-      - "9000:9000"     # Native TCP interface
+      - "8123:8123" # HTTP interface
+      - "9000:9000" # Native TCP interface
     volumes:
       - clickhouse_data:/var/lib/clickhouse
       - ./clickhouse/config-local.xml:/etc/clickhouse-server/config.xml
@@ -15,10 +15,19 @@ services:
       - ../../config/schemas/traces-local.sql:/docker-entrypoint-initdb.d/02-traces.sql
       - ../../config/schemas/metrics-local.sql:/docker-entrypoint-initdb.d/03-metrics.sql
       - ../../config/schemas/logs-local.sql:/docker-entrypoint-initdb.d/04-logs.sql
+      - ../../config/schemas/calibrations-local.sql:/docker-entrypoint-initdb/05-calibrations.sql
     networks:
       - telemetry_network
     healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8123/ping"]
+      test:
+        [
+          "CMD",
+          "wget",
+          "--no-verbose",
+          "--tries=1",
+          "--spider",
+          "http://localhost:8123/ping",
+        ]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -45,8 +54,8 @@ services:
     image: localstack/localstack:2.3
     hostname: localstack
     ports:
-      - "4566:4566"     # LocalStack Gateway
-      - "4510-4559:4510-4559"  # External services port range
+      - "4566:4566" # LocalStack Gateway
+      - "4510-4559:4510-4559" # External services port range
     environment:
       - SERVICES=kinesis,lambda,s3,iam,sts,logs
       - DEBUG=1
@@ -92,8 +101,8 @@ services:
       target: server
     hostname: playback-backend
     ports:
-      - "8080:8080"    # HTTP/JSON API
-      - "4317:4317"    # gRPC/OTLP
+      - "8080:8080" # HTTP/JSON API
+      - "4317:4317" # gRPC/OTLP
     environment:
       - ENV=local
       - CLICKHOUSE_HOST=clickhouse:9000
@@ -173,7 +182,7 @@ services:
     environment:
       - ORDER_SERVICE_URL=http://order-service:8081
       - REQUESTS_PER_SEC=5
-      - DURATION_SEC=3600  # Run for 1 hour
+      - DURATION_SEC=3600 # Run for 1 hour
       - MAX_CONCURRENT=10
     depends_on:
       - order-service
@@ -189,3 +198,4 @@ volumes:
   clickhouse_data:
   redis_data:
   localstack_data:
+

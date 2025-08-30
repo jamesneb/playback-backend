@@ -6,7 +6,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/playback/playback-backend/pkg/config"
+	"github.com/jamesneb/playback-backend/pkg/config"
 )
 
 func main() {

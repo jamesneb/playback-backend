@@ -1,0 +1,188 @@
+package app
+
+import (
+	"context"
+	"fmt"
+	"net/http"
+	"os"
+	"os/signal"
+	"sync"
+	"syscall"
+	"time"
+
+	grpcapi "github.com/jamesneb/playback-backend/api/grpc"
+	"github.com/jamesneb/playback-backend/api/rest"
+	"github.com/jamesneb/playback-backend/pkg/api"
+	"github.com/jamesneb/playback-backend/pkg/config"
+	"github.com/jamesneb/playback-backend/pkg/logger"
+	"go.uber.org/zap"
+)
+
+// Server manages both HTTP and gRPC servers
+type Server struct {
+	cfg      *config.Config
+	services *Services
+	httpSrv  *http.Server
+	grpcSrv  *grpcapi.Server
+}
+
+// NewServer creates a new server instance with all dependencies
+func NewServer(cfg *config.Config, services *Services) *Server {
+	return &Server{
+		cfg:      cfg,
+		services: services,
+	}
+}
+
+// Start starts both HTTP and gRPC servers
+func (s *Server) Start() error {
+	var wg sync.WaitGroup
+	
+	// Start HTTP server
+	if err := s.startHTTPServer(&wg); err != nil {
+		return fmt.Errorf("failed to start HTTP server: %w", err)
+	}
+	
+	// Start gRPC server
+	if err := s.startGRPCServer(&wg); err != nil {
+		return fmt.Errorf("failed to start gRPC server: %w", err)
+	}
+	
+	// Log successful startup
+	logger.Info("Playback backend started successfully",
+		zap.String("http_address", s.httpAddress()),
+		zap.String("grpc_address", s.grpcAddress()),
+		zap.String("version", s.cfg.App.Version))
+	
+	// Wait for shutdown signal
+	s.waitForShutdown()
+	
+	// Graceful shutdown
+	logger.Info("Shutdown signal received, stopping servers...")
+	s.shutdown()
+	
+	// Wait for servers to stop
+	wg.Wait()
+	logger.Info("All servers stopped successfully")
+	
+	return nil
+}
+
+// startHTTPServer starts the HTTP server in a goroutine
+func (s *Server) startHTTPServer(wg *sync.WaitGroup) error {
+	// Create REST API server
+	restDeps := &rest.Dependencies{
+		Config:           s.cfg,
+		KinesisClient:    s.services.KinesisClient,
+		ClickHouseClient: s.services.ClickHouseClient,
+		S3Client:         s.services.S3Client,
+		Endpoints:        api.NewEndpointCollection(""), // Base URL will be set by server
+	}
+	
+	ginEngine := rest.NewServer(restDeps)
+	
+	// Create HTTP server
+	s.httpSrv = &http.Server{
+		Addr:    s.httpAddress(),
+		Handler: ginEngine,
+		ReadTimeout:    parseDuration(s.cfg.Server.ReadTimeout, 30*time.Second),
+		WriteTimeout:   parseDuration(s.cfg.Server.WriteTimeout, 30*time.Second),
+		IdleTimeout:    parseDuration(s.cfg.Server.IdleTimeout, 60*time.Second),
+		MaxHeaderBytes: s.cfg.Server.MaxHeaderBytes,
+	}
+	
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		logger.Info("Starting HTTP server",
+			zap.String("address", s.httpAddress()),
+			zap.String("protocols", "HTTP/JSON"))
+		
+		if err := s.httpSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			logger.Error("HTTP server failed", zap.Error(err))
+		}
+	}()
+	
+	return nil
+}
+
+// startGRPCServer starts the gRPC server in a goroutine
+func (s *Server) startGRPCServer(wg *sync.WaitGroup) error {
+	// Create gRPC service dependencies
+	grpcDeps := &grpcapi.ServiceDependencies{
+		Config:           s.cfg,
+		KinesisClient:    s.services.KinesisClient,
+		ClickHouseClient: s.services.ClickHouseClient,
+	}
+	
+	// Create gRPC services
+	grpcServices := grpcapi.NewServiceCollection(grpcDeps)
+	
+	// Create gRPC server configuration
+	grpcConfig := grpcapi.NewServerConfig(s.grpcAddress())
+	
+	// Create gRPC server
+	s.grpcSrv = grpcapi.NewServer(grpcConfig, grpcServices)
+	
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		if err := s.grpcSrv.Start(); err != nil {
+			logger.Error("gRPC server failed", zap.Error(err))
+		}
+	}()
+	
+	return nil
+}
+
+// waitForShutdown waits for shutdown signal
+func (s *Server) waitForShutdown() {
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+	<-sigCh
+}
+
+// shutdown gracefully shuts down both servers
+func (s *Server) shutdown() {
+	// Shutdown HTTP server with timeout
+	if s.httpSrv != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		
+		if err := s.httpSrv.Shutdown(ctx); err != nil {
+			logger.Error("HTTP server shutdown error", zap.Error(err))
+		}
+	}
+	
+	// Shutdown gRPC server
+	if s.grpcSrv != nil {
+		s.grpcSrv.Stop()
+	}
+}
+
+// httpAddress returns the HTTP server address
+func (s *Server) httpAddress() string {
+	return fmt.Sprintf("%s:%d", s.cfg.Server.Host, s.cfg.Server.Port)
+}
+
+// grpcAddress returns the gRPC server address
+func (s *Server) grpcAddress() string {
+	return fmt.Sprintf("%s:%d", s.cfg.Server.Host, 4317) // Standard OTLP gRPC port
+}
+
+// parseDuration parses duration string with fallback
+func parseDuration(durationStr string, fallback time.Duration) time.Duration {
+	if durationStr == "" {
+		return fallback
+	}
+	
+	duration, err := time.ParseDuration(durationStr)
+	if err != nil {
+		logger.Warn("Invalid duration, using fallback", 
+			zap.String("duration", durationStr), 
+			zap.Duration("fallback", fallback))
+		return fallback
+	}
+	
+	return duration
+}

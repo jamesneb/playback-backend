@@ -2,18 +2,25 @@ package app
 
 import (
 	"fmt"
+	"time"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/jamesneb/playback-backend/internal/handlers"
+	"github.com/jamesneb/playback-backend/internal/resilience"
 	"github.com/jamesneb/playback-backend/internal/storage"
 	"github.com/jamesneb/playback-backend/internal/streaming"
 	"github.com/jamesneb/playback-backend/pkg/config"
+	"golang.org/x/time/rate"
 )
 
 // Services holds all initialized services/clients
 type Services struct {
-	KinesisClient    *streaming.KinesisClient
-	ClickHouseClient *storage.ClickHouseClient
-	S3Client         *s3.Client
+	KinesisClient        *streaming.KinesisClient
+	ClickHouseClient     *storage.ClickHouseClient
+	S3Client             *s3.Client
+	ResilienceComponents *handlers.ResilienceComponents
+	CircuitBreaker       *resilience.CircuitBreaker
 }
 
 // InitializeServices creates and initializes all required services
@@ -55,6 +62,14 @@ func InitializeServices(cfg *config.Config) (*Services, error) {
 	}
 	services.S3Client = s3Client
 	
+	// Initialize resilience components
+	resilienceComponents, circuitBreaker, err := initializeResilienceComponents(cfg, services)
+	if err != nil {
+		return nil, fmt.Errorf("failed to initialize resilience components: %w", err)
+	}
+	services.ResilienceComponents = resilienceComponents
+	services.CircuitBreaker = circuitBreaker
+	
 	return services, nil
 }
 
@@ -81,4 +96,68 @@ func (s *Services) Close() error {
 	}
 	
 	return nil
+}
+
+// initializeResilienceComponents creates and configures all resilience components
+func initializeResilienceComponents(cfg *config.Config, services *Services) (*handlers.ResilienceComponents, *resilience.CircuitBreaker, error) {
+	// Initialize tenant rate limiter
+	rateLimiter := resilience.NewTenantRateLimiter(
+		rate.Every(time.Second/100), // 100 RPS default
+		200, // burst capacity
+	)
+
+	// Initialize circuit breaker for ClickHouse real-time writes
+	circuitBreaker := resilience.NewCircuitBreaker(resilience.Settings{
+		Name:        "clickhouse-realtime",
+		MaxRequests: 10,
+		Interval:    30 * time.Second,
+		Timeout:     10 * time.Second,
+		ReadyToTrip: func(counts resilience.Counts) bool {
+			// Trip if more than 60% of requests fail
+			failureRate := float64(counts.TotalFailures) / float64(counts.Requests)
+			return counts.Requests >= 5 && failureRate > 0.6
+		},
+	})
+
+	// Create AWS config from Kinesis config
+	awsConfig := aws.Config{
+		Region: cfg.Streaming.Kinesis.Region,
+	}
+	if cfg.Streaming.Kinesis.EndpointURL != "" {
+		awsConfig.EndpointResolver = aws.EndpointResolverFunc(func(service, region string) (aws.Endpoint, error) {
+			return aws.Endpoint{
+				URL:               cfg.Streaming.Kinesis.EndpointURL,
+				SigningRegion:     region,
+				HostnameImmutable: true,
+			}, nil
+		})
+	}
+
+	// Initialize dead letter queue (DLQ)
+	dlq := resilience.NewDeadLetterQueue(awsConfig, resilience.DLQConfig{
+		QueueURL:       "https://sqs." + cfg.Streaming.Kinesis.Region + ".amazonaws.com/000000000000/telemetry-dlq",
+		MaxRetries:     3,
+		RetryBaseDelay: 5 * time.Second,
+		RetryMaxDelay:  5 * time.Minute,
+	})
+
+	// Initialize Kinesis buffer
+	kinesisBuffer := resilience.NewKinesisBuffer(
+		services.KinesisClient,
+		rateLimiter,
+		circuitBreaker,
+		dlq,
+		resilience.BufferConfig{
+			MaxBatchSize:    500,
+			MaxBatchWait:    1 * time.Second,
+			FlushInterval:   5 * time.Second,
+			MaxTenantBuffer: 1000,
+		},
+	)
+
+	return &handlers.ResilienceComponents{
+		KinesisBuffer:   kinesisBuffer,
+		RateLimiter:     rateLimiter,
+		DeadLetterQueue: dlq,
+	}, circuitBreaker, nil
 }

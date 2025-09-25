@@ -1,7 +1,7 @@
 services:
   # ClickHouse - Primary telemetry database
   clickhouse:
-    image: clickhouse/clickhouse-server:23.8
+    image: clickhouse/clickhouse-server:25.8
     hostname: clickhouse
     ports:
       - "8123:8123" # HTTP interface
@@ -10,6 +10,7 @@ services:
       - clickhouse_data:/var/lib/clickhouse
       - ./clickhouse/config-local.xml:/etc/clickhouse-server/config.xml
       - ./clickhouse/users-local.xml:/etc/clickhouse-server/users.xml
+      - ../../db/schemas:/var/lib/clickhouse/format_schemas/schemas:ro
     networks:
       - telemetry_network
     healthcheck:

@@ -2,7 +2,6 @@ package grpc
 
 import (
 	"context"
-	"encoding/json"
 	"time"
 
 	metricscollectorpb "go.opentelemetry.io/proto/otlp/collector/metrics/v1"
@@ -10,7 +9,6 @@ import (
 	"github.com/jamesneb/playback-backend/internal/streaming"
 	"github.com/jamesneb/playback-backend/pkg/logger"
 	"go.uber.org/zap"
-	"google.golang.org/protobuf/encoding/protojson"
 )
 
 type MetricsService struct {
@@ -35,34 +33,21 @@ func (s *MetricsService) Export(ctx context.Context, req *metricscollectorpb.Exp
 
 	// Minimal processing: Convert OTLP protobuf to raw JSON for ClickHouse processing
 	for _, resourceMetric := range req.ResourceMetrics {
-		// Convert protobuf to JSON with minimal processing
-		rawOTLP, err := protojson.Marshal(resourceMetric)
-		if err != nil {
-			logger.Error("Failed to marshal resource metric to JSON", zap.Error(err))
-			continue
-		}
+		// Use native protobuf - no JSON conversion needed
 		
-		event := &streaming.TelemetryEvent{
-			Type:        "metrics",
-			ServiceName: extractServiceNameFromMetrics(resourceMetric),
-			Data:        json.RawMessage(rawOTLP),
-			Metadata: streaming.TelemetryMetadata{
-				IngestedAt: time.Now(),
-				SourceIP:   clientIP,
+		event := &streaming.MetricsTelemetryEvent{
+			BaseTelemetryEvent: streaming.BaseTelemetryEvent{
+				Type:        streaming.TelemetryTypeMetrics,
+				ServiceName: extractServiceNameFromMetrics(resourceMetric),
+				Metadata: streaming.TelemetryMetadata{
+					IngestedAt: time.Now(),
+					SourceIP:   clientIP,
+				},
 			},
+			ResourceMetrics: resourceMetric,
 		}
 
-		// Dual path: Send to both real-time processor and durable Kinesis
-		go func(e *streaming.TelemetryEvent) {
-			// Real-time path - direct to ClickHouse (fast)
-			if s.clickhouseHandler != nil {
-				if err := s.clickhouseHandler.HandleTelemetryEvent(ctx, e); err != nil {
-					logger.Error("Failed to handle metrics in real-time path", zap.Error(err))
-				}
-			}
-		}(event)
-
-		// Durable path - to Kinesis for fan-out and replay capability
+		// Single path: Send to Kinesis only - consumer handles ClickHouse insertion
 		if s.streamHandler != nil {
 			if err := s.streamHandler.HandleTelemetryEvent(ctx, event); err != nil {
 				logger.Error("Failed to send metrics to Kinesis", zap.Error(err))

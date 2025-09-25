@@ -8,19 +8,34 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/jamesneb/playback-backend/internal/resilience"
 	"github.com/jamesneb/playback-backend/internal/streaming"
 	"github.com/jamesneb/playback-backend/pkg/logger"
 	"go.uber.org/zap"
 )
 
 type TraceHandler struct{
-	kinesisClient *streaming.KinesisClient
+	kinesisClient   *streaming.KinesisClient
+	// Resilience components
+	kinesisBuffer   *resilience.KinesisBuffer
+	rateLimiter    *resilience.TenantRateLimiter
+	deadLetterQueue *resilience.DeadLetterQueue
 }
 
-func NewTraceHandler(kinesisClient *streaming.KinesisClient) *TraceHandler {
+func NewTraceHandler(kinesisClient *streaming.KinesisClient, resilienceComponents *ResilienceComponents) *TraceHandler {
 	return &TraceHandler{
-		kinesisClient: kinesisClient,
+		kinesisClient:   kinesisClient,
+		kinesisBuffer:   resilienceComponents.KinesisBuffer,
+		rateLimiter:    resilienceComponents.RateLimiter,
+		deadLetterQueue: resilienceComponents.DeadLetterQueue,
 	}
+}
+
+// ResilienceComponents groups resilience-related dependencies for HTTP handlers
+type ResilienceComponents struct {
+	KinesisBuffer   *resilience.KinesisBuffer
+	RateLimiter     *resilience.TenantRateLimiter
+	DeadLetterQueue *resilience.DeadLetterQueue
 }
 
 // CreateTrace creates a new trace
@@ -52,45 +67,126 @@ func (h *TraceHandler) CreateTrace(c *gin.Context) {
 	// Extract service name and trace ID for logging and partitioning
 	serviceName := extractServiceName(otlpData)
 	traceID := extractTraceID(otlpData)
+	
+	// Use service name as tenant ID (you might want a more sophisticated mapping)
+	tenantID := serviceName
+	if tenantID == "" {
+		tenantID = "default"
+	}
+
+	// Apply tenant rate limiting
+	if h.rateLimiter != nil && !h.rateLimiter.Allow(tenantID) {
+		logger.Warn("HTTP trace request rate limited",
+			zap.String("tenant", tenantID),
+			zap.String("client_ip", c.ClientIP()))
+		c.JSON(http.StatusTooManyRequests, ErrorResponse{
+			Error:   "Rate limit exceeded",
+			Message: "Too many requests for this tenant",
+		})
+		return
+	}
 
 	// Log the ingestion event
 	logger.Info("Received OTLP trace data",
 		zap.String("service_name", serviceName),
 		zap.String("trace_id", traceID),
+		zap.String("tenant", tenantID),
 		zap.String("client_ip", c.ClientIP()),
 		zap.String("user_agent", c.GetHeader("User-Agent")),
 		zap.Int("data_size_bytes", len(otlpData)),
 	)
 
-	// Publish to Kinesis
+	// Create legacy telemetry event for HTTP JSON data
+	event := &streaming.LegacyTelemetryEvent{
+		Type:        "traces",
+		Data:        otlpData,
+		ServiceName: serviceName,
+		TraceID:     traceID,
+		Metadata: streaming.LegacyTelemetryMetadata{
+			IngestedAt: time.Now(),
+			SourceIP:   c.ClientIP(),
+			UserAgent:  c.GetHeader("User-Agent"),
+		},
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	err := h.kinesisClient.PublishTrace(
-		ctx,
-		otlpData,
-		serviceName,
-		traceID,
-		c.ClientIP(),
-		c.GetHeader("User-Agent"),
-	)
-	if err != nil {
-		logger.Error("Failed to publish trace to Kinesis",
-			zap.Error(err),
-			zap.String("service_name", serviceName),
-			zap.String("trace_id", traceID),
+	// KINESIS-FIRST: Use resilient buffer if available
+	if h.kinesisBuffer != nil {
+		// Convert to proper telemetry event interface (this needs to be implemented)
+		// For now, fallback to direct Kinesis
+		err := h.kinesisClient.PublishTrace(
+			ctx,
+			otlpData,
+			serviceName,
+			traceID,
+			c.ClientIP(),
+			c.GetHeader("User-Agent"),
 		)
-		c.JSON(http.StatusInternalServerError, ErrorResponse{
-			Error:   "Failed to process trace data",
-			Message: "Internal server error",
-		})
-		return
+		if err != nil {
+			// Send to DLQ if available
+			if h.deadLetterQueue != nil {
+				// Create a basic telemetry event for DLQ
+				basicEvent := &streaming.TraceTelemetryEvent{
+					BaseTelemetryEvent: streaming.BaseTelemetryEvent{
+						Type:        streaming.TelemetryTypeTraces,
+						ServiceName: serviceName,
+						TraceID:     traceID,
+						Metadata: streaming.TelemetryMetadata{
+						IngestedAt: event.Metadata.IngestedAt,
+						SourceIP:   event.Metadata.SourceIP,
+					},
+					},
+					// Note: ResourceSpans would be nil for JSON data
+				}
+				
+				if dlqErr := h.deadLetterQueue.SendToDLQ(ctx, basicEvent, err, tenantID, "http", "kinesis_publish_failed"); dlqErr != nil {
+					logger.Error("Failed to send to DLQ", zap.Error(dlqErr))
+				}
+			}
+			
+			logger.Error("Failed to publish trace to Kinesis",
+				zap.Error(err),
+				zap.String("service_name", serviceName),
+				zap.String("trace_id", traceID),
+				zap.String("tenant", tenantID),
+			)
+			c.JSON(http.StatusServiceUnavailable, ErrorResponse{
+				Error:   "Telemetry pipeline unavailable",
+				Message: "Please try again later",
+			})
+			return
+		}
+	} else {
+		// Fallback to direct Kinesis (original behavior)
+		err := h.kinesisClient.PublishTrace(
+			ctx,
+			otlpData,
+			serviceName,
+			traceID,
+			c.ClientIP(),
+			c.GetHeader("User-Agent"),
+		)
+		if err != nil {
+			logger.Error("Failed to publish trace to Kinesis",
+				zap.Error(err),
+				zap.String("service_name", serviceName),
+				zap.String("trace_id", traceID),
+			)
+			c.JSON(http.StatusInternalServerError, ErrorResponse{
+				Error:   "Failed to process trace data",
+				Message: "Internal server error",
+			})
+			return
+		}
 	}
 
 	// Log successful ingestion
-	logger.Info("Successfully published trace to Kinesis",
+	logger.Info("Successfully processed HTTP trace via Kinesis-first approach",
 		zap.String("service_name", serviceName),
 		zap.String("trace_id", traceID),
+		zap.String("tenant", tenantID),
 	)
 
 	// Return success response

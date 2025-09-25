@@ -1,197 +1,188 @@
 package rest
 
 import (
-	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"context"
+	"errors"
+	"fmt"
+	"net"
+	"time"
+
 	"github.com/gin-gonic/gin"
-	"github.com/jamesneb/playback-backend/internal/handlers"
-	"github.com/jamesneb/playback-backend/internal/storage"
-	"github.com/jamesneb/playback-backend/internal/streaming"
-	"github.com/jamesneb/playback-backend/pkg/api"
 	"github.com/jamesneb/playback-backend/pkg/config"
-	swaggerFiles "github.com/swaggo/files"
-	ginSwagger "github.com/swaggo/gin-swagger"
+	"github.com/jamesneb/playback-backend/pkg/logger"
+	"go.uber.org/zap"
 )
 
-// Dependencies holds all the dependencies needed by the REST API
-type Dependencies struct {
-	Config            *config.Config
-	KinesisClient     *streaming.KinesisClient
-	ClickHouseClient  *storage.ClickHouseClient
-	S3Client          *s3.Client
-	Endpoints         *api.EndpointCollection
-}
+// All constants and type aliases are now imported from constants.go
+
+// Handler management structs and functions moved to handlers.go
 
 // NewServer creates a new Gin HTTP server with all routes configured
-func NewServer(deps *Dependencies) *gin.Engine {
-	// Set Gin mode from config
-	gin.SetMode(deps.Config.Server.Mode)
+func NewServer(deps *Dependencies) (*gin.Engine, error) {
+	if err := validateDependencies(deps); err != nil {
+		return nil, fmt.Errorf("Invalid dependencies: %w", err)
+	}
+
+	if err := applyConfig(deps.Config); err != nil {
+		return nil, fmt.Errorf("failed to configure Gin %w", err)
+	}
 
 	// Create HTTP server
 	r := gin.New()
-	
-	// Add standard middleware
-	setupMiddleware(r, deps.Config)
-	
+	if r == nil {
+		return nil, errors.New(ERROR_GIN_SERVER_CREATION)
+	}
+
+	// Add default middleware
+	if err := setupMiddleware(r, deps.Config); err != nil {
+		return nil, fmt.Errorf("middleware setup failed: %w", err)
+	}
+
 	// Set trusted proxies
-	setupTrustedProxies(r, deps.Config)
-	
+	if err := setupTrustedProxies(r, deps.Config); err != nil {
+		return nil, fmt.Errorf("trusted proxy setup failed: %w", err)
+	}
+
 	// Setup Swagger if enabled
-	setupSwagger(r, deps.Config, deps.Endpoints)
-	
+	if err := setupSwagger(r, deps.Config, deps.Endpoints); err != nil {
+		return nil, fmt.Errorf("Swagger setup failed: %w", err)
+	}
+
 	// Setup API routes
-	setupAPIRoutes(r, deps)
-	
-	return r
+	if err := setupAPIRoutes(r, deps); err != nil {
+		return nil, fmt.Errorf("API Route setup failed: %w", err)
+	}
+
+	if err := verifyServerSetup(r, deps); err != nil {
+		return nil, fmt.Errorf("server verification failed: %w", err)
+
+	}
+	return r, nil
+}
+
+func validateDependencies(deps *Dependencies) error {
+	if deps == nil {
+		return errors.New(ERROR_DEPENDENCIES_NIL);
+	}
+	if deps.Config == nil {
+		return errors.New(ERROR_CONFIG_NIL);
+	}
+	if deps.Endpoints == nil {
+		return errors.New(ERROR_ENDPOINTS_NIL);
+	}
+
+	// validate gin server mode
+	mode := deps.Config.Server.Mode
+	if mode != gin.ReleaseMode && mode != gin.DebugMode && mode != gin.TestMode {
+		return fmt.Errorf("Invalid server mode: '%s', must be one of %s %s %s", mode, gin.ReleaseMode, gin.DebugMode, gin.TestMode)
+	}
+	return nil
+}
+
+func applyConfig(cfg *config.Config) error {
+	originalMode := gin.Mode()
+
+	gin.SetMode(cfg.Server.Mode)
+
+	if gin.Mode() != cfg.Server.Mode {
+		return fmt.Errorf("failed to set gin server mode to '%s', still '%s'", cfg.Server.Mode, gin.Mode())
+
+	}
+
+	logger.Debug("Gin mode configured", zap.String("mode", cfg.Server.Mode), zap.String("previous", originalMode))
+
+	return nil
+
 }
 
 // setupMiddleware configures standard middleware
-func setupMiddleware(r *gin.Engine, cfg *config.Config) {
-	r.Use(gin.Logger())
-	r.Use(gin.Recovery())
-	
+func setupMiddleware(r *gin.Engine, cfg *config.Config) error {
+	if cfg == nil {
+		return errors.New(ERROR_CONFIG_MIDDLEWARE_NIL)
+	}
+	if cfg.API.EnableCORS && len(cfg.API.CORS.AllowedOrigins) == 0 {
+		logger.Warn(CORS_NO_ORIGINS_WARNING)
+	}
+
+	// Request timeout middleware
+	r.Use(timeoutMiddleware(REQUEST_TIMEOUT))
+
+	// Security headers middleware
+	r.Use(securityHeadersMiddleware(cfg))
+
+	// Compression middleware
+	r.Use(compressionMiddleware())
+
+	// Logging and recovery middleware
+	r.Use(gin.LoggerWithConfig(gin.LoggerConfig{
+		Formatter: customLogFormatter,
+		SkipPaths: []string{string(HEALTH_ENDPOINT_PATH), string(METRICS_ENDPOINT_PATH)},
+	}))
+	r.Use(gin.RecoveryWithWriter(gin.DefaultWriter, customRecoveryHandler))
+
+	// Request size limit
+	r.MaxMultipartMemory = MAX_MULTIPART_MEMORY
+
 	// CORS middleware
 	if cfg.API.EnableCORS {
-		r.Use(corsMiddleware(cfg.API.CORS))
+		corsHandler, err := createCorsMiddleware(cfg.API.CORS)
+		if err != nil {
+			return fmt.Errorf("unable to create CORS middleware: %w", err)
+		}
+		r.Use(corsHandler)
 	}
+
+	logger.Info("Middleware configured",
+		zap.Bool("cors_enabled", cfg.API.EnableCORS),
+		zap.Bool("compression_enabled", true),
+		zap.Bool("security_headers_enabled", true),
+		zap.Duration("request_timeout", REQUEST_TIMEOUT))
+	return nil
 }
 
-// corsMiddleware creates CORS middleware from config
-func corsMiddleware(corsConfig config.CORSConfig) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		// Set CORS headers from config
-		if len(corsConfig.AllowedOrigins) > 0 {
-			origin := corsConfig.AllowedOrigins[0] // Use first origin, or implement origin matching
-			if origin == "*" {
-				c.Header("Access-Control-Allow-Origin", "*")
-			} else {
-				c.Header("Access-Control-Allow-Origin", origin)
-			}
+// timeoutMiddleware adds request timeout handling
+func timeoutMiddleware(timeout time.Duration) gin.HandlerFunc {
+	return gin.HandlerFunc(func(c *gin.Context) {
+		// Set request timeout
+		ctx, cancel := c.Request.Context(), func() {}
+		if timeout > 0 {
+			ctx, cancel = context.WithTimeout(c.Request.Context(), timeout)
 		}
-		
-		if len(corsConfig.AllowedMethods) > 0 {
-			methods := ""
-			for i, method := range corsConfig.AllowedMethods {
-				if i > 0 {
-					methods += ", "
-				}
-				methods += method
-			}
-			c.Header("Access-Control-Allow-Methods", methods)
-		}
-		
-		if len(corsConfig.AllowedHeaders) > 0 {
-			headers := ""
-			for i, header := range corsConfig.AllowedHeaders {
-				if i > 0 {
-					headers += ", "
-				}
-				headers += header
-			}
-			c.Header("Access-Control-Allow-Headers", headers)
-		}
-		
-		if c.Request.Method == "OPTIONS" {
-			c.AbortWithStatus(204)
-			return
-		}
-		
+		defer cancel()
+
+		c.Request = c.Request.WithContext(ctx)
 		c.Next()
-	}
+	})
 }
+
+// Security header middleware functions moved to security.go
+
+// Compression middleware functions moved to compression.go
+
+// Logging and recovery middleware functions moved to logging.go
+
+// CORS middleware functions moved to cors.go
 
 // setupTrustedProxies configures trusted proxies
-func setupTrustedProxies(r *gin.Engine, cfg *config.Config) {
-	if len(cfg.Server.TrustedProxies) > 0 {
-		r.SetTrustedProxies(cfg.Server.TrustedProxies)
-	} else {
-		r.SetTrustedProxies(nil)
+func setupTrustedProxies(r *gin.Engine, cfg *config.Config) error {
+	proxies := cfg.Server.TrustedProxies
+
+	for _, proxy := range proxies {
+		if net.ParseIP(proxy) == nil && proxy != LOCAL_HOST {
+			// Try parsing as CIDR
+			if _, _, err := net.ParseCIDR(proxy); err != nil {
+				return fmt.Errorf("invalid trusted proxy address: %s", proxy)
+			}
+		}
 	}
-}
 
-// setupSwagger configures Swagger documentation if enabled
-func setupSwagger(r *gin.Engine, cfg *config.Config, endpoints *api.EndpointCollection) {
-	if cfg.Swagger.Enabled {
-		r.GET(endpoints.SwaggerUI(), ginSwagger.WrapHandler(swaggerFiles.Handler))
+	if err := r.SetTrustedProxies(proxies); err !=  nil {
+		return fmt.Errorf("failed to set trusted proxies %v: %w", proxies, err)
 	}
+
+	logger.Debug("Trusted proxies configured", zap.Strings("proxies", proxies))
+
+	return nil
 }
 
-// setupAPIRoutes configures all API routes
-func setupAPIRoutes(r *gin.Engine, deps *Dependencies) {
-	// Note: kinesisHandler and clickhouseHandler are created elsewhere for gRPC
-	// HTTP handlers use clients directly
-	
-	// Initialize HTTP handlers
-	traceHandler := handlers.NewTraceHandler(deps.KinesisClient)
-	metricsHandler := handlers.NewMetricsHandler(deps.KinesisClient)
-	logsHandler := handlers.NewLogsHandler(deps.KinesisClient)
-	replayHandler := handlers.NewReplayHandler(deps.S3Client, "replays")
-	
-	// API routes using centralized endpoints
-	api := r.Group(deps.Endpoints.BasePath())
-	{
-		// Health check
-		api.GET("/health", healthHandler(deps.Config)) // Note: health is relative to base path
-		
-		// OpenTelemetry HTTP endpoints (legacy)
-		setupTraceRoutes(api, traceHandler, deps.Endpoints)
-		setupMetricsRoutes(api, metricsHandler, deps.Endpoints)
-		setupLogsRoutes(api, logsHandler, deps.Endpoints)
-		
-		// Replay endpoints
-		setupReplayRoutes(api, replayHandler, deps.Endpoints)
-	}
-	
-	// Add monitoring endpoints if enabled
-	if deps.Config.Monitoring.EnableMetrics {
-		setupMonitoringRoutes(r, deps.Config)
-	}
-}
-
-// healthHandler returns the health check handler
-func healthHandler(cfg *config.Config) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		c.JSON(200, gin.H{
-			"status":    "ok",
-			"mode":      cfg.Server.Mode,
-			"version":   cfg.App.Version,
-			"protocols": []string{"HTTP/JSON", "gRPC/OTLP"},
-		})
-	}
-}
-
-// setupTraceRoutes configures trace-related routes
-func setupTraceRoutes(api *gin.RouterGroup, handler *handlers.TraceHandler, endpoints *api.EndpointCollection) {
-	api.POST(endpoints.TracesRelative(), handler.CreateTrace)
-	api.GET(endpoints.TraceByIDRelative(), handler.GetTrace)
-}
-
-// setupMetricsRoutes configures metrics-related routes
-func setupMetricsRoutes(api *gin.RouterGroup, handler *handlers.MetricsHandler, endpoints *api.EndpointCollection) {
-	api.POST(endpoints.MetricsRelative(), handler.CreateMetrics)
-	api.GET(endpoints.MetricsRelative(), handler.GetMetrics)
-}
-
-// setupLogsRoutes configures logs-related routes
-func setupLogsRoutes(api *gin.RouterGroup, handler *handlers.LogsHandler, endpoints *api.EndpointCollection) {
-	api.POST(endpoints.LogsRelative(), handler.CreateLogs)
-	api.GET(endpoints.LogsRelative(), handler.GetLogs)
-}
-
-// setupReplayRoutes configures replay-related routes
-func setupReplayRoutes(api *gin.RouterGroup, handler *handlers.ReplayHandler, endpoints *api.EndpointCollection) {
-	api.GET(endpoints.ReplaysListRelative(), handler.ListReplays)
-	api.POST(endpoints.ReplaysDownloadRelative(), handler.DownloadReplay)
-}
-
-// setupMonitoringRoutes configures monitoring endpoints
-func setupMonitoringRoutes(r *gin.Engine, cfg *config.Config) {
-	if cfg.Monitoring.MetricsEndpoint != "" {
-		// Prometheus metrics endpoint would go here
-		// r.GET(cfg.Monitoring.MetricsEndpoint, prometheusHandler())
-	}
-	
-	if cfg.Development.EnableDebugEndpoints {
-		// pprof endpoints would go here
-		// r.GET("/debug/pprof/*any", pprofHandler())
-	}
-}
+// Route setup and handler functions moved to routes.go

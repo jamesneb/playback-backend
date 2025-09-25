@@ -12,6 +12,7 @@ import (
 	"github.com/jamesneb/playback-backend/internal/streaming"
 	"github.com/jamesneb/playback-backend/pkg/logger"
 	"go.uber.org/zap"
+	"google.golang.org/protobuf/proto"
 )
 
 type ClickHouseClient struct {
@@ -92,28 +93,138 @@ func (ch *ClickHouseClient) Close() error {
 	return ch.conn.Close()
 }
 
-func (ch *ClickHouseClient) InsertTrace(ctx context.Context, event *streaming.TelemetryEvent) error {
+// Query executes a raw SQL query (for admin/debug scripts)
+func (ch *ClickHouseClient) Query(ctx context.Context, query string) (driver.Rows, error) {
+	return ch.conn.Query(ctx, query)
+}
+
+// InsertTraceProtobuf extracts spans from protobuf and inserts as structured data
+func (ch *ClickHouseClient) InsertTraceProtobuf(ctx context.Context, event *streaming.TraceTelemetryEvent) error {
+	if event.ResourceSpans == nil {
+		return fmt.Errorf("protobuf ResourceSpans is nil - cannot extract span data")
+	}
+
+	logger.Debug("Extracting spans from protobuf for structured insertion",
+		zap.String("trace_id", event.GetTraceID()),
+		zap.String("service_name", event.GetServiceName()))
+
+	// Extract spans from the protobuf ResourceSpans
+	spans := make([]map[string]interface{}, 0)
+
+	// Get service name from resource attributes
+	serviceName := ""
+	serviceVersion := ""
+	if event.ResourceSpans.Resource != nil {
+		for _, attr := range event.ResourceSpans.Resource.Attributes {
+			switch attr.Key {
+			case "service.name":
+				if attr.Value.GetStringValue() != "" {
+					serviceName = attr.Value.GetStringValue()
+				}
+			case "service.version":
+				if attr.Value.GetStringValue() != "" {
+					serviceVersion = attr.Value.GetStringValue()
+				}
+			}
+		}
+	}
+
+	// Extract individual spans
+	for _, scopeSpan := range event.ResourceSpans.ScopeSpans {
+		for _, span := range scopeSpan.Spans {
+			spanData := map[string]interface{}{
+				"service_name":          serviceName,
+				"service_version":       serviceVersion,
+				"trace_id":              fmt.Sprintf("%x", span.TraceId),
+				"span_id":               fmt.Sprintf("%x", span.SpanId),
+				"parent_span_id":        fmt.Sprintf("%x", span.ParentSpanId),
+				"name":                  span.Name,
+				"kind":                  int32(span.Kind),
+				"start_time_unix_nano":  span.StartTimeUnixNano,
+				"end_time_unix_nano":    span.EndTimeUnixNano,
+				"status_code":           int32(span.Status.GetCode()),
+				"status_message":        span.Status.GetMessage(),
+				"ingested_at":           event.Metadata.IngestedAt,
+				"source_ip":             event.Metadata.SourceIP,
+				"format_type":           "native",
+			}
+			spans = append(spans, spanData)
+		}
+	}
+
+	if len(spans) == 0 {
+		logger.Debug("No spans found in ResourceSpans", zap.String("trace_id", event.GetTraceID()))
+		return nil
+	}
+
+	// Batch insert all spans
+	batch, err := ch.conn.PrepareBatch(ctx, "INSERT INTO spans_raw")
+	if err != nil {
+		return fmt.Errorf("failed to prepare batch: %w", err)
+	}
+
+	for _, spanData := range spans {
+		err := batch.Append(
+			spanData["service_name"],
+			spanData["service_version"],
+			spanData["trace_id"],
+			spanData["span_id"],
+			spanData["parent_span_id"],
+			spanData["name"],
+			spanData["kind"],
+			spanData["start_time_unix_nano"],
+			spanData["end_time_unix_nano"],
+			spanData["status_code"],
+			spanData["status_message"],
+			spanData["ingested_at"],
+			spanData["source_ip"],
+			spanData["format_type"],
+		)
+		if err != nil {
+			return fmt.Errorf("failed to append span to batch: %w", err)
+		}
+	}
+
+	err = batch.Send()
+	if err != nil {
+		return fmt.Errorf("failed to send batch: %w", err)
+	}
+
+	logger.Info("Successfully inserted protobuf spans as structured data",
+		zap.String("trace_id", event.GetTraceID()),
+		zap.String("service_name", serviceName),
+		zap.Int("spans_count", len(spans)))
+
+	return nil
+}
+
+// InsertTrace handles legacy JSON format for backward compatibility
+func (ch *ClickHouseClient) InsertTrace(ctx context.Context, event streaming.TelemetryEvent) error {
 	// Simplified insertion - just insert raw data, let ClickHouse materialized view handle processing
 	logger.Debug("Inserting raw trace data", 
-		zap.String("trace_id", event.TraceID),
-		zap.String("service_name", event.ServiceName))
+		zap.String("trace_id", event.GetTraceID()),
+		zap.String("service_name", event.GetServiceName()))
 	
-	// Data is already json.RawMessage
-	rawJSON := event.Data
+	// Get serialized data from event (JSON)
+	serializedData, err := event.GetSerializedData()
+	if err != nil {
+		return fmt.Errorf("failed to serialize event data: %w", err)
+	}
 
 	// Insert into raw table - materialized view will handle processing automatically
 	batch, err := ch.conn.PrepareBatch(ctx, `
-		INSERT INTO spans_raw (service_name, trace_id, source_ip, raw_otlp)
+		INSERT INTO spans_raw (service_name, trace_id, source_ip, raw_otlp, format_type)
 	`)
 	if err != nil {
 		return fmt.Errorf("failed to prepare raw trace batch: %w", err)
 	}
 
 	err = batch.Append(
-		event.ServiceName,
-		event.TraceID,
-		event.Metadata.SourceIP,
-		string(rawJSON), // Raw OTLP JSON
+		event.GetServiceName(),
+		event.GetTraceID(),
+		event.GetMetadata().SourceIP,
+		string(serializedData), // Raw OTLP data (JSON)
+		"json",
 	)
 	if err != nil {
 		return fmt.Errorf("failed to append raw trace to batch: %w", err)
@@ -124,16 +235,28 @@ func (ch *ClickHouseClient) InsertTrace(ctx context.Context, event *streaming.Te
 	}
 
 	logger.Info("Inserted raw trace data into ClickHouse", 
-		zap.String("trace_id", event.TraceID),
-		zap.String("service_name", event.ServiceName),
-		zap.Int("raw_json_length", len(string(rawJSON))))
+		zap.String("trace_id", event.GetTraceID()),
+		zap.String("service_name", event.GetServiceName()),
+		zap.Int("serialized_data_length", len(serializedData)))
 
 	return nil
 }
 
-func (ch *ClickHouseClient) InsertMetric(ctx context.Context, event *streaming.TelemetryEvent) error {
+// InsertMetricProtobuf - metrics protobuf insertion not implemented yet
+func (ch *ClickHouseClient) InsertMetricProtobuf(ctx context.Context, event *streaming.MetricsTelemetryEvent) error {
+	logger.Debug("Metrics protobuf insertion not implemented - skipping",
+		zap.String("service_name", event.GetServiceName()))
+	return nil
+}
+
+// InsertMetric handles legacy JSON format for backward compatibility
+func (ch *ClickHouseClient) InsertMetric(ctx context.Context, event streaming.TelemetryEvent) error {
 	// Parse OTLP metrics data from the event
-	metricsData, err := ch.parseMetricsData(event.Data)
+	serializedData, err := event.GetSerializedData()
+	if err != nil {
+		return fmt.Errorf("failed to serialize event data: %w", err)
+	}
+	metricsData, err := ch.parseMetricsData(serializedData)
 	if err != nil {
 		return fmt.Errorf("failed to parse metrics data: %w", err)
 	}
@@ -142,7 +265,7 @@ func (ch *ClickHouseClient) InsertMetric(ctx context.Context, event *streaming.T
 	batch, err := ch.conn.PrepareBatch(ctx, `
 		INSERT INTO metrics (
 			metric_name, service_name, timestamp, metric_type, value,
-			attributes, resource_attributes, ingested_at, source_ip
+			labels, ingested_at, source_ip
 		)`)
 	if err != nil {
 		return fmt.Errorf("failed to prepare metrics batch: %w", err)
@@ -155,10 +278,9 @@ func (ch *ClickHouseClient) InsertMetric(ctx context.Context, event *streaming.T
 			metric.Timestamp,
 			metric.Type,
 			metric.Value,
-			metric.Attributes,
-			metric.ResourceAttributes,
-			event.Metadata.IngestedAt,
-			event.Metadata.SourceIP,
+			metric.Attributes, // This maps to 'labels' column in the table
+			event.GetMetadata().IngestedAt,
+			event.GetMetadata().SourceIP,
 		)
 		if err != nil {
 			return fmt.Errorf("failed to append metric to batch: %w", err)
@@ -170,15 +292,86 @@ func (ch *ClickHouseClient) InsertMetric(ctx context.Context, event *streaming.T
 	}
 
 	logger.Info("Inserted metrics into ClickHouse", 
-		zap.String("service", event.ServiceName),
+		zap.String("service", event.GetServiceName()),
 		zap.Int("metrics", len(metricsData)))
 
 	return nil
 }
 
-func (ch *ClickHouseClient) InsertLog(ctx context.Context, event *streaming.TelemetryEvent) error {
+// InsertLogProtobuf inserts log data using native protobuf format
+func (ch *ClickHouseClient) InsertLogProtobuf(ctx context.Context, event *streaming.LogsTelemetryEvent) error {
+	logger.Debug("Inserting log data using native protobuf", 
+		zap.String("service_name", event.GetServiceName()))
+
+	// Serialize the native protobuf data
+	protobufData, err := proto.Marshal(event.ResourceLogs)
+	if err != nil {
+		return fmt.Errorf("failed to marshal logs protobuf: %w", err)
+	}
+
+	// Insert directly into logs table
+	batch, err := ch.conn.PrepareBatch(ctx, `
+		INSERT INTO logs (
+			timestamp, observed_timestamp, severity_text, severity_number, body,
+			service_name, trace_id, span_id, attributes, ingested_at, source_ip
+		)`)
+	if err != nil {
+		return fmt.Errorf("failed to prepare logs protobuf batch: %w", err)
+	}
+
+	// Extract key log records from protobuf for immediate insertion
+	for _, scopeLog := range event.ResourceLogs.ScopeLogs {
+		for _, logRecord := range scopeLog.LogRecords {
+			timestamp := time.Unix(0, int64(logRecord.TimeUnixNano))
+			observedTimestamp := time.Unix(0, int64(logRecord.ObservedTimeUnixNano))
+
+			attributes := make(map[string]string)
+			for _, attr := range logRecord.Attributes {
+				attributes[attr.Key] = attr.Value.GetStringValue()
+			}
+
+			traceID := fmt.Sprintf("%x", logRecord.TraceId)
+			spanID := fmt.Sprintf("%x", logRecord.SpanId)
+			body := logRecord.Body.GetStringValue()
+
+			err = batch.Append(
+				timestamp,
+				observedTimestamp,
+				logRecord.SeverityText,
+				uint8(logRecord.SeverityNumber),
+				body,
+				event.GetServiceName(),
+				traceID,
+				spanID,
+				attributes,
+				event.GetMetadata().IngestedAt,
+				event.GetMetadata().SourceIP,
+			)
+			if err != nil {
+				return fmt.Errorf("failed to append log record to batch: %w", err)
+			}
+		}
+	}
+
+	if err := batch.Send(); err != nil {
+		return fmt.Errorf("failed to send logs protobuf batch: %w", err)
+	}
+
+	logger.Info("Inserted protobuf logs into ClickHouse", 
+		zap.String("service", event.GetServiceName()),
+		zap.Int("protobuf_data_length", len(protobufData)))
+
+	return nil
+}
+
+// InsertLog handles legacy JSON format for backward compatibility
+func (ch *ClickHouseClient) InsertLog(ctx context.Context, event streaming.TelemetryEvent) error {
 	// Parse OTLP logs data from the event
-	logsData, err := ch.parseLogsData(event.Data)
+	serializedData, err := event.GetSerializedData()
+	if err != nil {
+		return fmt.Errorf("failed to serialize event data: %w", err)
+	}
+	logsData, err := ch.parseLogsData(serializedData)
 	if err != nil {
 		return fmt.Errorf("failed to parse logs data: %w", err)
 	}
@@ -208,8 +401,8 @@ func (ch *ClickHouseClient) InsertLog(ctx context.Context, event *streaming.Tele
 			logRecord.ServiceVersion,
 			logRecord.Attributes,
 			logRecord.ResourceAttributes,
-			event.Metadata.IngestedAt,
-			event.Metadata.SourceIP,
+			event.GetMetadata().IngestedAt,
+			event.GetMetadata().SourceIP,
 		)
 		if err != nil {
 			return fmt.Errorf("failed to append log to batch: %w", err)
@@ -221,7 +414,7 @@ func (ch *ClickHouseClient) InsertLog(ctx context.Context, event *streaming.Tele
 	}
 
 	logger.Info("Inserted logs into ClickHouse", 
-		zap.String("service", event.ServiceName),
+		zap.String("service", event.GetServiceName()),
 		zap.Int("logs", len(logsData)))
 
 	return nil

@@ -2,7 +2,6 @@ package grpc
 
 import (
 	"context"
-	"encoding/json"
 	"time"
 
 	logscollectorpb "go.opentelemetry.io/proto/otlp/collector/logs/v1"
@@ -10,7 +9,6 @@ import (
 	"github.com/jamesneb/playback-backend/internal/streaming"
 	"github.com/jamesneb/playback-backend/pkg/logger"
 	"go.uber.org/zap"
-	"google.golang.org/protobuf/encoding/protojson"
 )
 
 type LogsService struct {
@@ -35,34 +33,21 @@ func (s *LogsService) Export(ctx context.Context, req *logscollectorpb.ExportLog
 
 	// Minimal processing: Convert OTLP protobuf to raw JSON for ClickHouse processing
 	for _, resourceLog := range req.ResourceLogs {
-		// Convert protobuf to JSON with minimal processing
-		rawOTLP, err := protojson.Marshal(resourceLog)
-		if err != nil {
-			logger.Error("Failed to marshal resource log to JSON", zap.Error(err))
-			continue
-		}
+		// Use native protobuf - no JSON conversion needed
 		
-		event := &streaming.TelemetryEvent{
-			Type:        "logs",
-			ServiceName: extractServiceNameFromLogs(resourceLog),
-			Data:        json.RawMessage(rawOTLP),
-			Metadata: streaming.TelemetryMetadata{
-				IngestedAt: time.Now(),
-				SourceIP:   clientIP,
+		event := &streaming.LogsTelemetryEvent{
+			BaseTelemetryEvent: streaming.BaseTelemetryEvent{
+				Type:        streaming.TelemetryTypeLogs,
+				ServiceName: extractServiceNameFromLogs(resourceLog),
+				Metadata: streaming.TelemetryMetadata{
+					IngestedAt: time.Now(),
+					SourceIP:   clientIP,
+				},
 			},
+			ResourceLogs: resourceLog,
 		}
 
-		// Dual path: Send to both real-time processor and durable Kinesis
-		go func(e *streaming.TelemetryEvent) {
-			// Real-time path - direct to ClickHouse (fast)
-			if s.clickhouseHandler != nil {
-				if err := s.clickhouseHandler.HandleTelemetryEvent(ctx, e); err != nil {
-					logger.Error("Failed to handle logs in real-time path", zap.Error(err))
-				}
-			}
-		}(event)
-
-		// Durable path - to Kinesis for fan-out and replay capability
+		// Single path: Send to Kinesis only - consumer handles ClickHouse insertion
 		if s.streamHandler != nil {
 			if err := s.streamHandler.HandleTelemetryEvent(ctx, event); err != nil {
 				logger.Error("Failed to send logs to Kinesis", zap.Error(err))

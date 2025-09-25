@@ -23,8 +23,12 @@
     <tmp_path>/var/lib/clickhouse/tmp/</tmp_path>
     <user_files_path>/var/lib/clickhouse/user_files/</user_files_path>
 
-    <!-- Users configuration file -->
-    <users_config>/etc/clickhouse-server/users.xml</users_config>
+    <!-- Users configuration -->
+    <user_directories>
+        <users_xml>
+            <path>/etc/clickhouse-server/users.xml</path>
+        </users_xml>
+    </user_directories>
 
     <!-- Default profile -->
     <default_profile>default</default_profile>
@@ -48,4 +52,7 @@
     
     <!-- Disable some features for local development -->
     <send_crash_reports>false</send_crash_reports>
+
+    <!-- Format schema path for protobuf support -->
+    <format_schema_path>/var/lib/clickhouse/format_schemas/</format_schema_path>
 </clickhouse>

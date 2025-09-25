@@ -2,77 +2,131 @@ package grpc
 
 import (
 	"context"
-	"encoding/json"
+	"log"
 	"time"
 
-	tracecollectorpb "go.opentelemetry.io/proto/otlp/collector/trace/v1"
-	tracepb "go.opentelemetry.io/proto/otlp/trace/v1"
+	"github.com/jamesneb/playback-backend/internal/resilience"
 	"github.com/jamesneb/playback-backend/internal/streaming"
 	"github.com/jamesneb/playback-backend/pkg/logger"
+	tracecollectorpb "go.opentelemetry.io/proto/otlp/collector/trace/v1"
+	tracepb "go.opentelemetry.io/proto/otlp/trace/v1"
 	"go.uber.org/zap"
-	"google.golang.org/protobuf/encoding/protojson"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 type TraceService struct {
 	tracecollectorpb.UnimplementedTraceServiceServer
-	streamHandler *streaming.KinesisHandler
+	streamHandler     *streaming.KinesisHandler
 	clickhouseHandler streaming.Handler // Direct ClickHouse for real-time path
+	
+	// Resilience components
+	kinesisBuffer     *resilience.KinesisBuffer
+	rateLimiter      *resilience.TenantRateLimiter
+	circuitBreaker   *resilience.CircuitBreaker
+	deadLetterQueue  *resilience.DeadLetterQueue
 }
 
-func NewTraceService(streamHandler *streaming.KinesisHandler, clickhouseHandler streaming.Handler) *TraceService {
+func NewTraceService(streamHandler *streaming.KinesisHandler, clickhouseHandler streaming.Handler, 
+	resilienceComponents *ResilienceComponents) *TraceService {
+	log.Printf("🔥 TRACE SERVICE INIT: NewTraceService called - protobuf debugging enabled!")
 	return &TraceService{
 		streamHandler:     streamHandler,
 		clickhouseHandler: clickhouseHandler,
+		kinesisBuffer:     resilienceComponents.KinesisBuffer,
+		rateLimiter:      resilienceComponents.RateLimiter,
+		circuitBreaker:   resilienceComponents.CircuitBreaker,
+		deadLetterQueue:  resilienceComponents.DeadLetterQueue,
 	}
 }
 
+// ResilienceComponents groups all resilience-related dependencies
+type ResilienceComponents struct {
+	KinesisBuffer   *resilience.KinesisBuffer
+	RateLimiter     *resilience.TenantRateLimiter
+	CircuitBreaker  *resilience.CircuitBreaker
+	DeadLetterQueue *resilience.DeadLetterQueue
+}
+
 func (s *TraceService) Export(ctx context.Context, req *tracecollectorpb.ExportTraceServiceRequest) (*tracecollectorpb.ExportTraceServiceResponse, error) {
-	logger.Info("Received gRPC trace export request", 
+	log.Printf("🔥 GRPC EXPORT START: TraceService.Export called with %d resource spans", len(req.ResourceSpans))
+	logger.Info("Received gRPC trace export request",
 		zap.Int("resource_spans", len(req.ResourceSpans)))
 
 	// Extract client IP from gRPC context
 	clientIP := ExtractClientIP(ctx)
 
-	// Minimal processing: Convert OTLP protobuf to raw JSON for ClickHouse processing
-	for _, resourceSpan := range req.ResourceSpans {
-		// Convert protobuf to JSON with minimal processing
-		rawOTLP, err := protojson.Marshal(resourceSpan)
-		if err != nil {
-			logger.Error("Failed to marshal resource span to JSON", zap.Error(err))
-			continue
-		}
-		
-		event := &streaming.TelemetryEvent{
-			Type:        "traces",
-			TraceID:     extractTraceID(resourceSpan),    // Still need for Kinesis partitioning
-			ServiceName: extractServiceName(resourceSpan), // Still need for ClickHouse partitioning
-			Data:        json.RawMessage(rawOTLP),         // Raw JSON - no complex processing
-			Metadata: streaming.TelemetryMetadata{
-				IngestedAt: time.Now(),
-				SourceIP:   clientIP,
-			},
-		}
-
-		// Dual path: Send to both real-time processor and durable Kinesis
-		go func(e *streaming.TelemetryEvent) {
-			// Real-time path - direct to ClickHouse (fast)
-			if s.clickhouseHandler != nil {
-				if err := s.clickhouseHandler.HandleTelemetryEvent(ctx, e); err != nil {
-					logger.Error("Failed to handle trace in real-time path", zap.Error(err))
-				}
-			}
-		}(event)
-
-		// Durable path - to Kinesis for fan-out and replay capability
-		if s.streamHandler != nil {
-			if err := s.streamHandler.HandleTelemetryEvent(ctx, event); err != nil {
-				logger.Error("Failed to send trace to Kinesis", zap.Error(err))
-				// Don't return error - we still have real-time path
-			}
+	// Extract tenant ID from service name (you might want to extract this differently)
+	tenantID := "default" // TODO: Extract from headers or service metadata
+	if len(req.ResourceSpans) > 0 {
+		serviceName := streaming.ExtractServiceNameFromTraces(req.ResourceSpans[0])
+		if serviceName != "" {
+			tenantID = serviceName // Use service name as tenant ID for now
 		}
 	}
 
-	logger.Info("Successfully processed gRPC trace export", 
+	// Apply global rate limiting first
+	if s.rateLimiter != nil && !s.rateLimiter.Allow(tenantID) {
+		return nil, status.Errorf(codes.ResourceExhausted, "tenant rate limit exceeded")
+	}
+
+	// Process with type-safe protobuf events - KINESIS-FIRST approach
+	for _, resourceSpan := range req.ResourceSpans {
+		// Create type-safe trace event with native protobuf data
+		event := &streaming.TraceTelemetryEvent{
+			BaseTelemetryEvent: streaming.BaseTelemetryEvent{
+				Type:        streaming.TelemetryTypeTraces,
+				ServiceName: streaming.ExtractServiceNameFromTraces(resourceSpan),
+				TraceID:     streaming.ExtractTraceIDFromTraces(resourceSpan),
+				Metadata: streaming.TelemetryMetadata{
+					IngestedAt: time.Now(),
+					SourceIP:   clientIP,
+				},
+			},
+			ResourceSpans: resourceSpan, // Native protobuf - much more efficient!
+		}
+		
+		log.Printf("🔥 GRPC: Created TraceTelemetryEvent for service=%s, traceID=%s, type=%T", 
+			event.ServiceName, event.TraceID, event)
+
+		// Validate the event
+		if err := event.Validate(); err != nil {
+			logger.Error("Invalid trace event", zap.Error(err))
+			continue
+		}
+
+		// KINESIS-FIRST: Primary path through resilient buffer
+		if s.kinesisBuffer != nil {
+			if err := s.kinesisBuffer.BufferEvent(ctx, event, tenantID, "grpc"); err != nil {
+				// If buffering fails, this is a serious issue - fail the request
+				logger.Error("Failed to buffer trace event", 
+					zap.String("tenant", tenantID),
+					zap.Error(err))
+				return nil, status.Errorf(codes.Unavailable, "telemetry pipeline overloaded")
+			}
+			log.Printf("🔥 GRPC: Successfully buffered trace event for tenant=%s", tenantID)
+		} else {
+			// Fallback to direct Kinesis (old behavior)
+			if s.streamHandler != nil {
+				log.Printf("🔥 GRPC: Fallback to direct Kinesis for %T", event)
+				if err := s.streamHandler.HandleTelemetryEvent(ctx, event); err != nil {
+					logger.Error("Failed to send trace to Kinesis", zap.Error(err))
+					// Send to DLQ if available
+					if s.deadLetterQueue != nil {
+						if dlqErr := s.deadLetterQueue.SendToDLQ(ctx, event, err, tenantID, "grpc", "kinesis_direct_failed"); dlqErr != nil {
+							logger.Error("Failed to send to DLQ", zap.Error(dlqErr))
+						}
+					}
+					return nil, status.Errorf(codes.Unavailable, "telemetry pipeline unavailable")
+				}
+			}
+		}
+
+		// Real-time ClickHouse insertion removed - data flows through consumer only
+		// This ensures proper data pipeline: gRPC -> Kinesis -> Consumer -> ClickHouse
+	}
+
+	logger.Info("Successfully processed gRPC trace export",
 		zap.Int("spans_processed", countSpans(req.ResourceSpans)))
 
 	return &tracecollectorpb.ExportTraceServiceResponse{
@@ -82,26 +136,7 @@ func (s *TraceService) Export(ctx context.Context, req *tracecollectorpb.ExportT
 	}, nil
 }
 
-// Helper functions to extract data from OTLP protobuf
-func extractTraceID(resourceSpan *tracepb.ResourceSpans) string {
-	if len(resourceSpan.ScopeSpans) > 0 && len(resourceSpan.ScopeSpans[0].Spans) > 0 {
-		return string(resourceSpan.ScopeSpans[0].Spans[0].TraceId)
-	}
-	return "unknown"
-}
-
-func extractServiceName(resourceSpan *tracepb.ResourceSpans) string {
-	if resourceSpan.Resource != nil {
-		for _, attr := range resourceSpan.Resource.Attributes {
-			if attr.Key == "service.name" && attr.Value.GetStringValue() != "" {
-				return attr.Value.GetStringValue()
-			}
-		}
-	}
-	return "unknown"
-}
-
-// Complex processing functions removed - all moved to ClickHouse materialized views
+// Helper function to count spans for logging
 
 func countSpans(resourceSpans []*tracepb.ResourceSpans) int {
 	count := 0
@@ -112,4 +147,3 @@ func countSpans(resourceSpans []*tracepb.ResourceSpans) int {
 	}
 	return count
 }
-

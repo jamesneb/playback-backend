@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -15,6 +16,10 @@ import (
 	"github.com/jamesneb/playback-backend/internal/streaming"
 	"github.com/jamesneb/playback-backend/pkg/logger"
 	"go.uber.org/zap"
+	logspb "go.opentelemetry.io/proto/otlp/logs/v1"
+	metricspb "go.opentelemetry.io/proto/otlp/metrics/v1"
+	tracepb "go.opentelemetry.io/proto/otlp/trace/v1"
+	"google.golang.org/protobuf/proto"
 )
 
 type KinesisConsumer struct {
@@ -205,18 +210,44 @@ func (kc *KinesisConsumer) pollStream(ctx context.Context, streamType, streamNam
 			zap.Int("count", len(resp.Records)))
 
 		// Collect events for batch processing
-		events := make([]*streaming.TelemetryEvent, 0, len(resp.Records))
+		events := make([]streaming.TelemetryEvent, 0, len(resp.Records))
 		
 		for _, record := range resp.Records {
+			// Determine format based on partition key prefix
+			partitionKey := ""
+			if record.PartitionKey != nil {
+				partitionKey = *record.PartitionKey
+			}
+			isProtobuf := record.PartitionKey != nil && strings.HasPrefix(*record.PartitionKey, "pb:")
+			
+			// Debug: Check if we have any protobuf records
+			if isProtobuf {
+				logger.Info("Found protobuf record!", 
+					zap.String("partition_key", partitionKey),
+					zap.String("stream", streamName))
+			}
+			
 			var event streaming.TelemetryEvent
-			if err := json.Unmarshal(record.Data, &event); err != nil {
-				logger.Error("Failed to unmarshal record", 
+			var err error
+			
+			if isProtobuf {
+				// Parse raw OTLP protobuf data (gRPC path)
+				event, err = kc.parseRawProtobuf(record.Data, *record.PartitionKey, streamType)
+			} else {
+				// Parse legacy JSON data (HTTP path)
+				event, err = kc.parseJSONRecord(record.Data)
+			}
+			
+			if err != nil {
+				logger.Error("Failed to parse Kinesis record", 
 					zap.String("stream", streamName),
 					zap.String("sequenceNumber", *record.SequenceNumber),
+					zap.String("format", map[bool]string{true: "protobuf", false: "json"}[isProtobuf]),
 					zap.Error(err))
 				continue
 			}
-			events = append(events, &event)
+			
+			events = append(events, event)
 		}
 
 		// Batch insert into ClickHouse
@@ -240,25 +271,52 @@ func (kc *KinesisConsumer) pollStream(ctx context.Context, streamType, streamNam
 	return nil
 }
 
-func (kc *KinesisConsumer) processBatch(ctx context.Context, streamType string, events []*streaming.TelemetryEvent) error {
+func (kc *KinesisConsumer) processBatch(ctx context.Context, streamType string, events []streaming.TelemetryEvent) error {
 	logger.Debug("Processing batch", 
 		zap.String("stream_type", streamType),
 		zap.Int("batch_size", len(events)))
 
-	// For now, process individually - in the future we could add batch ClickHouse operations
+	// Process events using appropriate methods based on type (protobuf vs JSON)
 	for _, event := range events {
 		switch streamType {
 		case "traces":
-			if err := kc.clickhouse.InsertTrace(ctx, event); err != nil {
-				return fmt.Errorf("failed to insert trace: %w", err)
+			// Check if it's a protobuf trace event
+			if traceEvent, ok := event.(*streaming.TraceTelemetryEvent); ok {
+				// Use native protobuf insertion
+				if err := kc.clickhouse.InsertTraceProtobuf(ctx, traceEvent); err != nil {
+					return fmt.Errorf("failed to insert protobuf trace: %w", err)
+				}
+			} else {
+				// Use legacy JSON insertion
+				if err := kc.clickhouse.InsertTrace(ctx, event); err != nil {
+					return fmt.Errorf("failed to insert JSON trace: %w", err)
+				}
 			}
 		case "metrics":
-			if err := kc.clickhouse.InsertMetric(ctx, event); err != nil {
-				return fmt.Errorf("failed to insert metric: %w", err)
+			// Check if it's a protobuf metric event
+			if metricEvent, ok := event.(*streaming.MetricsTelemetryEvent); ok {
+				// Use native protobuf insertion
+				if err := kc.clickhouse.InsertMetricProtobuf(ctx, metricEvent); err != nil {
+					return fmt.Errorf("failed to insert protobuf metric: %w", err)
+				}
+			} else {
+				// Use legacy JSON insertion
+				if err := kc.clickhouse.InsertMetric(ctx, event); err != nil {
+					return fmt.Errorf("failed to insert JSON metric: %w", err)
+				}
 			}
 		case "logs":
-			if err := kc.clickhouse.InsertLog(ctx, event); err != nil {
-				return fmt.Errorf("failed to insert log: %w", err)
+			// Check if it's a protobuf log event
+			if logEvent, ok := event.(*streaming.LogsTelemetryEvent); ok {
+				// Use native protobuf insertion
+				if err := kc.clickhouse.InsertLogProtobuf(ctx, logEvent); err != nil {
+					return fmt.Errorf("failed to insert protobuf log: %w", err)
+				}
+			} else {
+				// Use legacy JSON insertion
+				if err := kc.clickhouse.InsertLog(ctx, event); err != nil {
+					return fmt.Errorf("failed to insert JSON log: %w", err)
+				}
 			}
 		default:
 			return fmt.Errorf("unknown stream type: %s", streamType)
@@ -272,21 +330,13 @@ func (kc *KinesisConsumer) processBatch(ctx context.Context, streamType string, 
 	return nil
 }
 
-func (kc *KinesisConsumer) processRecord(ctx context.Context, streamType string, record types.Record) error {
-	// Parse the telemetry event (now contains raw JSON data)
-	var event streaming.TelemetryEvent
-	if err := json.Unmarshal(record.Data, &event); err != nil {
-		return fmt.Errorf("failed to unmarshal telemetry event: %w", err)
-	}
+// processRecord method removed - replaced by dual-path parsing in batch processing
 
-	return kc.processRecordDirect(ctx, streamType, &event)
-}
-
-func (kc *KinesisConsumer) processRecordDirect(ctx context.Context, streamType string, event *streaming.TelemetryEvent) error {
+func (kc *KinesisConsumer) processRecordDirect(ctx context.Context, streamType string, event streaming.TelemetryEvent) error {
 	logger.Debug("Processing Kinesis record", 
 		zap.String("stream_type", streamType),
-		zap.String("trace_id", event.TraceID),
-		zap.String("service_name", event.ServiceName))
+		zap.String("trace_id", event.GetTraceID()),
+		zap.String("service_name", event.GetServiceName()))
 
 	// Insert raw data into ClickHouse - materialized views will handle processing
 	switch streamType {
@@ -298,5 +348,134 @@ func (kc *KinesisConsumer) processRecordDirect(ctx context.Context, streamType s
 		return kc.clickhouse.InsertLog(ctx, event)
 	default:
 		return fmt.Errorf("unknown stream type: %s", streamType)
+	}
+}
+
+// parseRawProtobuf parses raw OTLP protobuf data sent directly from gRPC path
+func (kc *KinesisConsumer) parseRawProtobuf(data []byte, partitionKey, streamType string) (streaming.TelemetryEvent, error) {
+	// Extract metadata from partition key: "pb:<service>:<trace_id>:<timestamp>"
+	parts := strings.Split(partitionKey, ":")
+	if len(parts) < 3 {
+		return nil, fmt.Errorf("invalid protobuf partition key format")
+	}
+	
+	serviceName := parts[1]
+	traceID := parts[2]
+	// timestamp is parts[3] if present
+	
+	// Parse raw OTLP protobuf based on stream type
+	switch streamType {
+	case "traces":
+		var resourceSpans tracepb.ResourceSpans
+		if err := proto.Unmarshal(data, &resourceSpans); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal raw OTLP trace data: %w", err)
+		}
+		
+		return &streaming.TraceTelemetryEvent{
+			BaseTelemetryEvent: streaming.BaseTelemetryEvent{
+				Type:        streaming.TelemetryTypeTraces,
+				ServiceName: serviceName,
+				TraceID:     traceID,
+				Metadata:    streaming.TelemetryMetadata{
+					IngestedAt: time.Now(), // Consumer ingestion time
+				},
+			},
+			ResourceSpans: &resourceSpans, // Pure protobuf from gRPC!
+		}, nil
+		
+	case "metrics":
+		var resourceMetrics metricspb.ResourceMetrics
+		if err := proto.Unmarshal(data, &resourceMetrics); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal raw OTLP metrics data: %w", err)
+		}
+		
+		return &streaming.MetricsTelemetryEvent{
+			BaseTelemetryEvent: streaming.BaseTelemetryEvent{
+				Type:        streaming.TelemetryTypeMetrics,
+				ServiceName: serviceName,
+				Metadata:    streaming.TelemetryMetadata{
+					IngestedAt: time.Now(), // Consumer ingestion time
+				},
+			},
+			ResourceMetrics: &resourceMetrics, // Pure protobuf from gRPC!
+		}, nil
+		
+	case "logs":
+		var resourceLogs logspb.ResourceLogs
+		if err := proto.Unmarshal(data, &resourceLogs); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal raw OTLP logs data: %w", err)
+		}
+		
+		return &streaming.LogsTelemetryEvent{
+			BaseTelemetryEvent: streaming.BaseTelemetryEvent{
+				Type:        streaming.TelemetryTypeLogs,
+				ServiceName: serviceName,
+				TraceID:     traceID,
+				Metadata:    streaming.TelemetryMetadata{
+					IngestedAt: time.Now(), // Consumer ingestion time
+				},
+			},
+			ResourceLogs: &resourceLogs, // Pure protobuf from gRPC!
+		}, nil
+		
+	default:
+		return nil, fmt.Errorf("unknown stream type for protobuf: %s", streamType)
+	}
+}
+
+// parseJSONRecord parses legacy JSON data from HTTP API path
+func (kc *KinesisConsumer) parseJSONRecord(data []byte) (streaming.TelemetryEvent, error) {
+	// Unmarshal legacy JSON format
+	var legacyEvent streaming.LegacyTelemetryEvent
+	if err := json.Unmarshal(data, &legacyEvent); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal legacy JSON: %w", err)
+	}
+	
+	// Convert legacy JSON event to type-safe event (for backward compatibility)
+	switch legacyEvent.Type {
+	case "traces":
+		return &streaming.TraceTelemetryEvent{
+			BaseTelemetryEvent: streaming.BaseTelemetryEvent{
+				Type:        streaming.TelemetryTypeTraces,
+				ServiceName: legacyEvent.ServiceName,
+				TraceID:     legacyEvent.TraceID,
+				Metadata:    streaming.TelemetryMetadata{
+					IngestedAt: legacyEvent.Metadata.IngestedAt,
+					SourceIP:   legacyEvent.Metadata.SourceIP,
+				},
+			},
+			// ResourceSpans is nil - this indicates legacy JSON data
+			// The GetSerializedData method will need to handle this case
+		}, nil
+		
+	case "metrics":
+		return &streaming.MetricsTelemetryEvent{
+			BaseTelemetryEvent: streaming.BaseTelemetryEvent{
+				Type:        streaming.TelemetryTypeMetrics,
+				ServiceName: legacyEvent.ServiceName,
+				Metadata:    streaming.TelemetryMetadata{
+					IngestedAt: legacyEvent.Metadata.IngestedAt,
+					SourceIP:   legacyEvent.Metadata.SourceIP,
+				},
+			},
+			// ResourceMetrics is nil - indicates legacy JSON data
+		}, nil
+		
+	case "logs":
+		return &streaming.LogsTelemetryEvent{
+			BaseTelemetryEvent: streaming.BaseTelemetryEvent{
+				Type:        streaming.TelemetryTypeLogs,
+				ServiceName: legacyEvent.ServiceName,
+				TraceID:     legacyEvent.TraceID,
+				Metadata:    streaming.TelemetryMetadata{
+					IngestedAt: legacyEvent.Metadata.IngestedAt,
+					SourceIP:   legacyEvent.Metadata.SourceIP,
+				},
+			},
+			// ResourceLogs is nil - indicates legacy JSON data
+		}, nil
+		
+	default:
+		return nil, fmt.Errorf("unknown legacy event type: %s", legacyEvent.Type)
 	}
 }

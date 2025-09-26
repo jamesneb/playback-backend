@@ -10,9 +10,9 @@ import (
 )
 
 // @title Playback Backend API
-// @version 1.0
+// @version {{.Version}}
 // @description Distributed systems event replay backend
-// @host localhost:8080
+// @host {{.Host}}
 // @BasePath /api/v1
 func main() {
 	// Load configuration

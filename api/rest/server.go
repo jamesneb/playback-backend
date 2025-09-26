@@ -185,4 +185,3 @@ func setupTrustedProxies(r *gin.Engine, cfg *config.Config) error {
 	return nil
 }
 
-// Route setup and handler functions moved to routes.go

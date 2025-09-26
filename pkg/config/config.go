@@ -34,14 +34,21 @@ type AppConfig struct {
 }
 
 type ServerConfig struct {
-	Host           string `yaml:"host"`
-	Port           int    `yaml:"port"`
-	Mode           string `yaml:"mode"`
-	TrustedProxies []string `yaml:"trusted_proxies"`
-	ReadTimeout    string `yaml:"read_timeout"`
-	WriteTimeout   string `yaml:"write_timeout"`
-	IdleTimeout    string `yaml:"idle_timeout"`
-	MaxHeaderBytes int    `yaml:"max_header_bytes"`
+	Host            string        `yaml:"host"`
+	Port            int           `yaml:"port"`
+	GRPCPort        int           `yaml:"grpc_port"`
+	Mode            string        `yaml:"mode"`
+	TrustedProxies  []string      `yaml:"trusted_proxies"`
+	ReadTimeout     string        `yaml:"read_timeout"`
+	WriteTimeout    string        `yaml:"write_timeout"`
+	IdleTimeout     string        `yaml:"idle_timeout"`
+	ShutdownTimeout string        `yaml:"shutdown_timeout"`
+	MaxHeaderBytes  int           `yaml:"max_header_bytes"`
+	// Parsed durations for performance
+	ReadTimeoutDuration     time.Duration `yaml:"-"`
+	WriteTimeoutDuration    time.Duration `yaml:"-"`
+	IdleTimeoutDuration     time.Duration `yaml:"-"`
+	ShutdownTimeoutDuration time.Duration `yaml:"-"`
 }
 
 type LoggingConfig struct {
@@ -122,6 +129,7 @@ type KinesisConfig struct {
 	FlushInterval   string            `yaml:"flush_interval"`
 	MaxRetries      int               `yaml:"max_retries"`
 	RetryDelay      string            `yaml:"retry_delay"`
+	PollInterval		int								`yaml:"poll_interval"`
 }
 
 type S3Config struct {
@@ -287,6 +295,11 @@ func Load(configPath string) (*Config, error) {
 	// Override with environment variables
 	applyEnvOverrides(&config)
 
+	// Parse durations once for performance
+	if err := parseDurations(&config); err != nil {
+		return nil, fmt.Errorf("failed to parse durations: %w", err)
+	}
+
 	return &config, nil
 }
 
@@ -364,6 +377,48 @@ func applyEnvOverrides(config *Config) {
 	if secretKey := os.Getenv("AWS_SECRET_ACCESS_KEY"); secretKey != "" {
 		config.Streaming.Kinesis.SecretAccessKey = secretKey
 	}
+}
+
+// parseDurations parses string durations into time.Duration fields
+func parseDurations(config *Config) error {
+	var err error
+
+	// Parse server timeouts
+	config.Server.ReadTimeoutDuration, err = parseDurationWithFallback(config.Server.ReadTimeout, 30*time.Second)
+	if err != nil {
+		return fmt.Errorf("invalid read_timeout: %w", err)
+	}
+
+	config.Server.WriteTimeoutDuration, err = parseDurationWithFallback(config.Server.WriteTimeout, 30*time.Second)
+	if err != nil {
+		return fmt.Errorf("invalid write_timeout: %w", err)
+	}
+
+	config.Server.IdleTimeoutDuration, err = parseDurationWithFallback(config.Server.IdleTimeout, 60*time.Second)
+	if err != nil {
+		return fmt.Errorf("invalid idle_timeout: %w", err)
+	}
+
+	config.Server.ShutdownTimeoutDuration, err = parseDurationWithFallback(config.Server.ShutdownTimeout, 30*time.Second)
+	if err != nil {
+		return fmt.Errorf("invalid shutdown_timeout: %w", err)
+	}
+
+	return nil
+}
+
+// parseDurationWithFallback parses duration string with fallback
+func parseDurationWithFallback(durationStr string, fallback time.Duration) (time.Duration, error) {
+	if durationStr == "" {
+		return fallback, nil
+	}
+
+	duration, err := time.ParseDuration(durationStr)
+	if err != nil {
+		return fallback, err
+	}
+
+	return duration, nil
 }
 
 // GetConfigDir returns the absolute path to the config directory

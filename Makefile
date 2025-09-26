@@ -1,6 +1,6 @@
 # Playback Backend Development Makefile
 
-.PHONY: help setup-local start-local stop-local clean-local logs test build deploy-dev deploy-staging deploy-prod
+.PHONY: help setup-local start-local stop-local clean-local logs test build docs deploy-dev deploy-staging deploy-prod
 
 # Default environment
 ENV ?= local
@@ -75,6 +75,13 @@ health: ## Check health of all services
 	@curl -s "http://localhost:8123/ping" && echo "✅ ClickHouse ready" || echo "❌ ClickHouse not ready"
 	@redis-cli -h localhost -p 6379 -a redis123 ping && echo "✅ Redis ready" || echo "❌ Redis not ready"
 	@curl -s http://localhost:4566/_localstack/health | jq '.' || echo "❌ LocalStack not ready"
+
+docs: ## Generate Swagger documentation with environment-specific values
+	@echo "📚 Generating Swagger docs for $(ENV) environment..."
+	@VERSION=$$(yq '.app.version' config/environments/$(ENV).yaml) && \
+	 HOST=$$(yq '.server.host' config/environments/$(ENV).yaml):$$(yq '.server.port' config/environments/$(ENV).yaml) && \
+	 swag init -g cmd/server/main.go --parseDependency --parseInternal --templateVars "Version=$$VERSION,Host=$$HOST"
+	@echo "✅ Swagger docs generated with Version: $$(yq '.app.version' config/environments/$(ENV).yaml), Host: $$(yq '.server.host' config/environments/$(ENV).yaml):$$(yq '.server.port' config/environments/$(ENV).yaml)"
 
 test-load: ## Run load test against order service
 	@echo "🚀 Running load test..."

@@ -86,15 +86,18 @@ func (s *Server) startHTTPServer(wg *sync.WaitGroup) error {
 		ResilienceComponents: s.services.ResilienceComponents,
 	}
 
-	ginEngine := rest.NewServer(restDeps)
+	ginEngine, err := rest.NewServer(restDeps)
 
+	if err != nil {
+		return fmt.Errorf("Failed to create REST server: %w", err)
+	}
 	// Create HTTP server
 	s.httpSrv = &http.Server{
 		Addr:    s.httpAddress(),
 		Handler: ginEngine,
-		ReadTimeout:    parseDuration(s.cfg.Server.ReadTimeout, 30*time.Second),
-		WriteTimeout:   parseDuration(s.cfg.Server.WriteTimeout, 30*time.Second),
-		IdleTimeout:    parseDuration(s.cfg.Server.IdleTimeout, 60*time.Second),
+		ReadTimeout:    s.cfg.Server.ReadTimeoutDuration,
+		WriteTimeout:   s.cfg.Server.WriteTimeoutDuration,
+		IdleTimeout:    s.cfg.Server.IdleTimeoutDuration,
 		MaxHeaderBytes: s.cfg.Server.MaxHeaderBytes,
 	}
 
@@ -162,6 +165,7 @@ func (s *Server) startGRPCServer(wg *sync.WaitGroup) error {
 func (s *Server) waitForShutdown() {
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+	defer signal.Stop(sigCh)
 	<-sigCh
 }
 
@@ -170,7 +174,7 @@ func (s *Server) shutdown() {
 	s.cancel()
 	// Shutdown HTTP server with timeout
 	if s.httpSrv != nil {
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), s.cfg.Server.ShutdownTimeoutDuration)
 		defer cancel()
 
 		if err := s.httpSrv.Shutdown(ctx); err != nil {
@@ -191,22 +195,6 @@ func (s *Server) httpAddress() string {
 
 // grpcAddress returns the gRPC server address
 func (s *Server) grpcAddress() string {
-	return fmt.Sprintf("%s:%d", s.cfg.Server.Host, 4317) // Standard OTLP gRPC port
+	return fmt.Sprintf("%s:%d", s.cfg.Server.Host, s.cfg.Server.GRPCPort)
 }
 
-// parseDuration parses duration string with fallback
-func parseDuration(durationStr string, fallback time.Duration) time.Duration {
-	if durationStr == "" {
-		return fallback
-	}
-
-	duration, err := time.ParseDuration(durationStr)
-	if err != nil {
-		logger.Warn("Invalid duration, using fallback",
-			zap.String("duration", durationStr),
-			zap.Duration("fallback", fallback))
-		return fallback
-	}
-
-	return duration
-}

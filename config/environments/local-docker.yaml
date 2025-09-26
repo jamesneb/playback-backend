@@ -57,7 +57,7 @@ database:
     read_timeout: "30s"
     write_timeout: "30s"
     enable_compression: true
-    
+
   redis:
     host: "redis:6379"
     password: "redis123"
@@ -85,6 +85,7 @@ streaming:
     flush_interval: "5s"
     max_retries: 3
     retry_delay: "1s"
+    poll_interval: 1
 
 # Data processing
 processing:
@@ -124,11 +125,11 @@ monitoring:
   health_endpoint: "/health"
   ready_endpoint: "/ready"
   profiling_endpoint: "/debug/pprof"
-  
+
   jaeger:
     endpoint: ""
     service_name: "playback-backend"
-    
+
   prometheus:
     enabled: true
     port: 9090

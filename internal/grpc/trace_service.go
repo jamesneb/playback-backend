@@ -67,20 +67,6 @@ func (s *TraceService) Export(ctx context.Context, req *tracecollectorpb.ExportT
 	// Extract client IP from gRPC context
 	clientIP := ExtractClientIP(ctx)
 
-	// Extract tenant ID from service name (you might want to extract this differently)
-	tenantID := "default" // TODO: Extract from headers or service metadata
-	if len(req.ResourceSpans) > 0 {
-		serviceName := streaming.ExtractServiceNameFromTraces(req.ResourceSpans[0])
-		if serviceName != "" {
-			tenantID = serviceName // Use service name as tenant ID for now
-		}
-	}
-
-	// Apply global rate limiting first
-	if s.rateLimiter != nil && !s.rateLimiter.Allow(tenantID) {
-		return nil, status.Errorf(codes.ResourceExhausted, "tenant rate limit exceeded")
-	}
-
 	// Process with type-safe protobuf events - KINESIS-FIRST approach
 	for _, resourceSpan := range req.ResourceSpans {
 		// Create type-safe trace event with native protobuf data
@@ -96,8 +82,20 @@ func (s *TraceService) Export(ctx context.Context, req *tracecollectorpb.ExportT
 			},
 			ResourceSpans: resourceSpan, // Native protobuf - much more efficient!
 		}
-		
-		log.Printf("🔥 GRPC: Created TraceTelemetryEvent for service=%s, traceID=%s, type=%T", 
+
+		// Extract tenant ID per event from its service name
+		tenantID := event.ServiceName
+		if tenantID == "" {
+			tenantID = "default"
+		}
+
+		// Apply per-event rate limiting
+		if s.rateLimiter != nil && !s.rateLimiter.Allow(tenantID) {
+			logger.Warn("Tenant rate limit exceeded for individual span", zap.String("tenant", tenantID))
+			continue // Skip this span but process others
+		}
+
+		log.Printf("🔥 GRPC: Created TraceTelemetryEvent for service=%s, traceID=%s, type=%T",
 			event.ServiceName, event.TraceID, event)
 
 		// Validate the event

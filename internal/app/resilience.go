@@ -1,10 +1,12 @@
 package app
 
 import (
+	"context"
 	"fmt"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
+	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/jamesneb/playback-backend/internal/interfaces"
 	"github.com/jamesneb/playback-backend/internal/resilience"
 	"github.com/jamesneb/playback-backend/pkg/config"
@@ -40,10 +42,15 @@ func InitializeResilienceComponents(cfg *config.Config, services *Services) (*in
 		},
 	})
 
-	// Create AWS config from Kinesis config
-	awsConfig := aws.Config{
-		Region: cfg.Streaming.Kinesis.Region,
+	// Create AWS config with proper credential loading for DLQ
+	awsConfig, err := awsconfig.LoadDefaultConfig(context.Background(),
+		awsconfig.WithRegion(cfg.Streaming.Kinesis.Region),
+	)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to load AWS config for DLQ: %w", err)
 	}
+
+	// Apply custom endpoint if specified
 	if cfg.Streaming.Kinesis.EndpointURL != "" {
 		awsConfig.BaseEndpoint = aws.String(cfg.Streaming.Kinesis.EndpointURL)
 	}

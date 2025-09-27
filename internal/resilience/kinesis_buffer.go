@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/jamesneb/playback-backend/internal/streaming"
@@ -37,8 +38,9 @@ type KinesisBuffer struct {
 	bufferMutex      sync.RWMutex
 	
 	// Global state
-	closed           bool
+	closed           int32           // Use atomic operations (0=open, 1=closed)
 	closeChan        chan struct{}
+	closeOnce        sync.Once       // Ensure channel is closed only once
 	wg               sync.WaitGroup
 	
 	// Health monitoring
@@ -127,7 +129,7 @@ func NewKinesisBuffer(
 
 // BufferEvent adds an event to the buffer with resilience features
 func (kb *KinesisBuffer) BufferEvent(ctx context.Context, event streaming.TelemetryEvent, tenantID, sourceEndpoint string) error {
-	if kb.closed {
+	if atomic.LoadInt32(&kb.closed) != 0 {
 		return ErrBufferClosed
 	}
 
@@ -465,12 +467,15 @@ func (kb *KinesisBuffer) processBatch(ctx context.Context, events []streaming.Te
 
 // Close gracefully shuts down the buffer
 func (kb *KinesisBuffer) Close(ctx context.Context) error {
-	if kb.closed {
-		return nil
+	// Atomically check and set closed flag
+	if !atomic.CompareAndSwapInt32(&kb.closed, 0, 1) {
+		return nil // Already closed
 	}
 
-	kb.closed = true
-	close(kb.closeChan)
+	// Ensure channel is closed only once using sync.Once
+	kb.closeOnce.Do(func() {
+		close(kb.closeChan)
+	})
 
 	// Wait for flush goroutines to finish with timeout
 	done := make(chan struct{})

@@ -126,22 +126,26 @@ func createDependencyKeyWithTimeout(deps *Dependencies) (string, error) {
 func computeDependencyKey(deps *Dependencies) (string, error) {
 	hasher := sha256.New()
 
-	// Hash configuration that affects handler behavior
+	// Hash actual pointer values to ensure different instances get different keys
+	// This prevents reusing handlers when dependencies are swapped
 	if deps.KinesisClient != nil {
-		hasher.Write([]byte(HASH_COMPONENT_KINESIS))
+		hasher.Write([]byte(fmt.Sprintf("kinesis:%p", deps.KinesisClient)))
 	}
 	if deps.S3Client != nil {
-		hasher.Write([]byte(HASH_COMPONENT_S3))
+		hasher.Write([]byte(fmt.Sprintf("s3:%p", deps.S3Client)))
 	}
 	if deps.ResilienceComponents != nil {
-		hasher.Write([]byte(HASH_COMPONENT_RESILIENCE))
+		hasher.Write([]byte(fmt.Sprintf("resilience:%p", deps.ResilienceComponents)))
 	}
 	if deps.ClickHouseClient != nil {
-		hasher.Write([]byte(HASH_COMPONENT_CLICKHOUSE))
+		hasher.Write([]byte(fmt.Sprintf("clickhouse:%p", deps.ClickHouseClient)))
 	}
-
-	// Note: Removed timestamp component to prevent unbounded cache growth
-	// Dependencies are sufficient to determine handler uniqueness
+	if deps.Config != nil {
+		hasher.Write([]byte(fmt.Sprintf("config:%p", deps.Config)))
+	}
+	if deps.Endpoints != nil {
+		hasher.Write([]byte(fmt.Sprintf("endpoints:%p", deps.Endpoints)))
+	}
 
 	return fmt.Sprintf("%x", hasher.Sum(nil))[:DEPENDENCY_KEY_LENGTH], nil
 }

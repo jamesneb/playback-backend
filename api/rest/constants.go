@@ -24,6 +24,7 @@ const (
 	StatusOK                  HTTPStatusCode = 200
 	StatusNoContent          HTTPStatusCode = 204
 	StatusInternalServerError HTTPStatusCode = 500
+	StatusServiceUnavailable  HTTPStatusCode = 503
 )
 
 // HTTP Method constants
@@ -132,6 +133,16 @@ const (
 	CORS_NO_ORIGINS_WARNING         = "CORS enabled but no allowed origins configured"
 	NIL_PANIC_MESSAGE              = "nil panic"
 	UNKNOWN_VERSION                = "unknown"
+
+	// Health check constants
+	HEALTH_STATUS_HEALTHY      = "healthy"
+	HEALTH_STATUS_UNHEALTHY    = "unhealthy"
+	HEALTH_STATUS_NOT_CONFIGURED = "not_configured"
+	HEALTH_STATUS_OK           = "ok"
+	HEALTH_DEPENDENCY_DATABASE = "database"
+	HEALTH_DEPENDENCY_KINESIS  = "kinesis"
+	HEALTH_FIELD_STATUS        = "status"
+	HEALTH_FIELD_ERROR         = "error"
 )
 
 // Dependency Hash Component constants
@@ -159,6 +170,7 @@ const (
 	MAX_PANIC_MESSAGE_LENGTH   = 200
 	HOUR_PRECISION_DIVISOR     = 3600
 	CHANNEL_BUFFER_SIZE        = 1
+	BYTES_PER_MEGABYTE        = 1024 * 1024
 )
 
 // Application constants
@@ -173,6 +185,7 @@ const (
 	STANDARD_TIME_FORMAT         string        = "2006-01-02 15:04:05"
 	MAX_ROUTE_SEARCH_ITERATIONS  int           = 1000
 	HASH_COMPUTATION_TIMEOUT     time.Duration = 100 * time.Millisecond
+	HEALTH_CHECK_TIMEOUT         time.Duration = 5 * time.Second
 )
 
 var (

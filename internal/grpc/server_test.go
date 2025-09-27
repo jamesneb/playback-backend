@@ -4,74 +4,54 @@ import (
 	"context"
 	"net"
 	"testing"
-	"time"
 
+	"github.com/jamesneb/playback-backend/internal/interfaces"
 	"github.com/jamesneb/playback-backend/internal/streaming"
 	"github.com/stretchr/testify/assert"
+	tracecollectorpb "go.opentelemetry.io/proto/otlp/collector/trace/v1"
+	metricscollectorpb "go.opentelemetry.io/proto/otlp/collector/metrics/v1"
+	logscollectorpb "go.opentelemetry.io/proto/otlp/collector/logs/v1"
 	"google.golang.org/grpc/peer"
 )
 
-func TestNewServer(t *testing.T) {
-	server := NewServer("localhost:0", nil, nil)
+func TestServiceCreation(t *testing.T) {
+	// Test creating individual services
+	resilienceComponents := &interfaces.ResilienceComponents{}
+	traceService := NewTraceService(nil, nil, resilienceComponents)
+	metricsService := NewMetricsService(nil, nil)
+	logsService := NewLogsService(nil, nil)
 
-	assert.NotNil(t, server)
-	assert.NotNil(t, server.grpcServer)
-	assert.Equal(t, "localhost:0", server.addr)
+	assert.NotNil(t, traceService)
+	assert.NotNil(t, metricsService)
+	assert.NotNil(t, logsService)
 }
 
-func TestServer_StartStop(t *testing.T) {
-	// Use port 0 to get an available port
-	server := NewServer("localhost:0", nil, nil)
+func TestGRPCServiceIntegration(t *testing.T) {
+	// Test that services can be created and configured properly
+	resilienceComponents := &interfaces.ResilienceComponents{}
 
-	// Start server in goroutine
-	errCh := make(chan error, 1)
-	go func() {
-		err := server.Start()
-		errCh <- err
-	}()
+	// Create services
+	traceService := NewTraceService(nil, nil, resilienceComponents)
+	metricsService := NewMetricsService(nil, nil)
+	logsService := NewLogsService(nil, nil)
 
-	// Give server time to start
-	time.Sleep(100 * time.Millisecond)
-
-	// Stop server
-	server.Stop()
-
-	// Check if server stopped gracefully
-	select {
-	case err := <-errCh:
-		// Server should stop without error when gracefully stopped
-		assert.NoError(t, err)
-	case <-time.After(time.Second):
-		t.Fatal("Server did not stop within timeout")
-	}
+	// Test they implement the correct interfaces
+	assert.Implements(t, (*tracecollectorpb.TraceServiceServer)(nil), traceService)
+	assert.Implements(t, (*metricscollectorpb.MetricsServiceServer)(nil), metricsService)
+	assert.Implements(t, (*logscollectorpb.LogsServiceServer)(nil), logsService)
 }
 
-func TestServer_ServiceRegistration(t *testing.T) {
-	server := NewServer("localhost:0", nil, nil)
+func TestServiceConfiguration(t *testing.T) {
+	// Test service configuration with different handlers
+	kinesisHandler := &streaming.KinesisHandler{}
+	resilienceComponents := &interfaces.ResilienceComponents{}
 
-	// Test that the gRPC server has the expected services registered
-	serviceInfo := server.grpcServer.GetServiceInfo()
+	traceService := NewTraceService(kinesisHandler, nil, resilienceComponents)
+	assert.NotNil(t, traceService)
 
-	// Check that all OTLP services are registered
-	expectedServices := []string{
-		"opentelemetry.proto.collector.trace.v1.TraceService",
-		"opentelemetry.proto.collector.metrics.v1.MetricsService", 
-		"opentelemetry.proto.collector.logs.v1.LogsService",
-		"grpc.reflection.v1alpha.ServerReflection", // Reflection service
-	}
-
-	assert.GreaterOrEqual(t, len(serviceInfo), 3, "Should have at least 3 OTLP services registered")
-
-	for _, expectedService := range expectedServices[:3] { // Skip reflection service as it might have different name
-		found := false
-		for serviceName := range serviceInfo {
-			if serviceName == expectedService {
-				found = true
-				break
-			}
-		}
-		assert.True(t, found, "Service %s should be registered", expectedService)
-	}
+	// Test that services can handle nil handlers gracefully
+	traceServiceNil := NewTraceService(nil, nil, resilienceComponents)
+	assert.NotNil(t, traceServiceNil)
 }
 
 func TestExtractClientIP(t *testing.T) {
@@ -162,103 +142,68 @@ func (m *mockAddr) String() string {
 	return m.address
 }
 
-func TestServer_Integration(t *testing.T) {
-	// Create a server with nil handlers for testing
-	server := NewServer("localhost:0", nil, nil)
-	
-	// Test that server can be created and configured
-	assert.NotNil(t, server)
-	assert.NotNil(t, server.grpcServer)
-	
-	// Test graceful stop without start (should not panic)
+func TestResilienceComponents(t *testing.T) {
+	// Test resilience components structure
+	resilienceComponents := &interfaces.ResilienceComponents{}
+	assert.NotNil(t, resilienceComponents)
+
+	// Test that services can be created with resilience components
+	traceService := NewTraceService(nil, nil, resilienceComponents)
+	assert.NotNil(t, traceService)
+}
+
+func TestServiceExportMethods(t *testing.T) {
+	// Test that export methods exist and can be called
+	resilienceComponents := &interfaces.ResilienceComponents{}
+	traceService := NewTraceService(nil, nil, resilienceComponents)
+
+	// Test export method exists (will be tested in more detail in integration tests)
+	ctx := context.Background()
+	req := &tracecollectorpb.ExportTraceServiceRequest{}
+
+	// This should not panic
 	assert.NotPanics(t, func() {
-		server.Stop()
+		_, _ = traceService.Export(ctx, req)
 	})
 }
 
-func TestServer_ServiceMethods(t *testing.T) {
-	server := NewServer("localhost:0", nil, nil)
-
-	// Get service info to check that methods are properly registered
-	serviceInfo := server.grpcServer.GetServiceInfo()
-
-	// Check trace service methods
-	if traceServiceInfo, ok := serviceInfo["opentelemetry.proto.collector.trace.v1.TraceService"]; ok {
-		hasExport := false
-		for _, method := range traceServiceInfo.Methods {
-			if method.Name == "Export" {
-				hasExport = true
-				break
-			}
-		}
-		assert.True(t, hasExport, "TraceService should have Export method")
-	}
-
-	// Check metrics service methods
-	if metricsServiceInfo, ok := serviceInfo["opentelemetry.proto.collector.metrics.v1.MetricsService"]; ok {
-		hasExport := false
-		for _, method := range metricsServiceInfo.Methods {
-			if method.Name == "Export" {
-				hasExport = true
-				break
-			}
-		}
-		assert.True(t, hasExport, "MetricsService should have Export method")
-	}
-
-	// Check logs service methods  
-	if logsServiceInfo, ok := serviceInfo["opentelemetry.proto.collector.logs.v1.LogsService"]; ok {
-		hasExport := false
-		for _, method := range logsServiceInfo.Methods {
-			if method.Name == "Export" {
-				hasExport = true
-				break
-			}
-		}
-		assert.True(t, hasExport, "LogsService should have Export method")
-	}
-}
-
-func TestServer_Configuration(t *testing.T) {
+func TestServiceDependencies(t *testing.T) {
+	// Test different service dependency configurations
 	tests := []struct {
 		name string
-		addr string
+		kinesisHandler *streaming.KinesisHandler
+		clickhouseHandler streaming.Handler
 	}{
 		{
-			name: "localhost with port",
-			addr: "localhost:4317",
+			name: "nil handlers",
+			kinesisHandler: nil,
+			clickhouseHandler: nil,
 		},
 		{
-			name: "IP address with port",
-			addr: "127.0.0.1:4317",
-		},
-		{
-			name: "any interface",
-			addr: ":4317",
-		},
-		{
-			name: "dynamic port",
-			addr: "localhost:0",
+			name: "kinesis handler only",
+			kinesisHandler: &streaming.KinesisHandler{},
+			clickhouseHandler: nil,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			server := NewServer(tt.addr, nil, nil)
-			assert.NotNil(t, server)
-			assert.Equal(t, tt.addr, server.addr)
+			resilienceComponents := &interfaces.ResilienceComponents{}
+			traceService := NewTraceService(tt.kinesisHandler, tt.clickhouseHandler, resilienceComponents)
+			assert.NotNil(t, traceService)
 		})
 	}
 }
 
-// Benchmark test for server creation
-func BenchmarkNewServer(b *testing.B) {
+// Benchmark test for service creation
+func BenchmarkServiceCreation(b *testing.B) {
 	streamHandler := &streaming.KinesisHandler{}
-	
+	resilienceComponents := &interfaces.ResilienceComponents{}
+
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		server := NewServer("localhost:0", streamHandler, nil)
-		_ = server
+		service := NewTraceService(streamHandler, nil, resilienceComponents)
+		_ = service
 	}
 }
 

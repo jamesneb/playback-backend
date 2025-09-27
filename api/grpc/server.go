@@ -2,7 +2,6 @@ package grpcapi
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"net"
 	"time"
@@ -22,13 +21,13 @@ type Server struct {
 // NewServer creates a new gRPC server with all services configured
 func NewServer(config *ServerConfig, services *ServiceCollection) (*Server, error) {
 	if config == nil {
-		return nil, errors.New("gRPC server config cannot be nil")
+		return nil, fmt.Errorf("%s", ErrConfigNil)
 	}
 	if services == nil {
-		return nil, errors.New("gRPC service collection cannot be nil")
+		return nil, fmt.Errorf("%s", ErrServicesNil)
 	}
 	if config.Address == "" {
-		return nil, errors.New("gRPC server address cannot be empty")
+		return nil, fmt.Errorf("%s", ErrServerAddressEmpty)
 	}
 
 	// Create gRPC server with configured options
@@ -39,12 +38,12 @@ func NewServer(config *ServerConfig, services *ServiceCollection) (*Server, erro
 
 	// Register all services
 	if err := services.RegisterServices(grpcServer); err != nil {
-		return nil, fmt.Errorf("failed to register services: %w", err)
+		return nil, fmt.Errorf(ErrFailedRegisterServices, err)
 	}
 
 	// Start service lifecycle
 	if err := services.Start(context.Background()); err != nil {
-		return nil, fmt.Errorf("failed to start services: %w", err)
+		return nil, fmt.Errorf(ErrFailedStartServices, err)
 	}
 
 	return &Server{
@@ -57,16 +56,16 @@ func NewServer(config *ServerConfig, services *ServiceCollection) (*Server, erro
 // Start starts the gRPC server
 func (s *Server) Start(ctx context.Context) error {
 	if ctx == nil {
-		return errors.New("context cannot be nil")
+		return fmt.Errorf("%s", ErrContextNil)
 	}
 	lis, err := net.Listen("tcp", s.config.Address)
 	if err != nil {
 		return err
 	}
 
-	logger.Info("Starting gRPC server",
+	logger.Info(MsgStartingGRPCServer,
 		zap.String("address", s.config.Address),
-		zap.String("protocols", "OTLP/gRPC"))
+		zap.String("protocols", ProtocolOTLPgRPC))
 
 	// Start server in goroutine
 	errCh := make(chan error, 1)
@@ -86,10 +85,10 @@ func (s *Server) Start(ctx context.Context) error {
 
 // Stop gracefully stops the gRPC server with proper cleanup
 func (s *Server) Stop() error {
-	logger.Info("Stopping gRPC server")
+	logger.Info(MsgStoppingGRPCServer)
 
 	// Create timeout context for graceful shutdown
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(DefaultShutdownTimeout))
 	defer cancel()
 
 	var errs []error
@@ -97,8 +96,8 @@ func (s *Server) Stop() error {
 	// Stop services first
 	if s.services != nil {
 		if err := s.services.Stop(ctx); err != nil {
-			errs = append(errs, fmt.Errorf("service shutdown failed: %w", err))
-			logger.Error("Failed to stop services", zap.Error(err))
+			errs = append(errs, fmt.Errorf(ErrServiceShutdownFailed, err))
+			logger.Error(MsgFailedStopServices, zap.Error(err))
 		}
 	}
 
@@ -113,16 +112,16 @@ func (s *Server) Stop() error {
 
 		select {
 		case <-done:
-			logger.Info("gRPC server stopped gracefully")
+			logger.Info(MsgGRPCServerStoppedGraceful)
 		case <-ctx.Done():
-			logger.Warn("gRPC server shutdown timeout, forcing stop")
+			logger.Warn(MsgGRPCServerShutdownTimeout)
 			s.server.Stop() // Force stop
-			errs = append(errs, errors.New("gRPC server shutdown timeout"))
+			errs = append(errs, fmt.Errorf("%s", ErrShutdownTimeout))
 		}
 	}
 
 	if len(errs) > 0 {
-		return fmt.Errorf("shutdown errors: %v", errs)
+		return fmt.Errorf(ErrShutdownErrors, errs)
 	}
 	return nil
 }

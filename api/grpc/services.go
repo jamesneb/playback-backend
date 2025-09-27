@@ -1,38 +1,20 @@
 package grpcapi
 
 import (
-	tracecollectorpb "go.opentelemetry.io/proto/otlp/collector/trace/v1"
-	metricscollectorpb "go.opentelemetry.io/proto/otlp/collector/metrics/v1"
+	"context"
+	"fmt"
+
 	logscollectorpb "go.opentelemetry.io/proto/otlp/collector/logs/v1"
+	metricscollectorpb "go.opentelemetry.io/proto/otlp/collector/metrics/v1"
+	tracecollectorpb "go.opentelemetry.io/proto/otlp/collector/trace/v1"
 	grpcservices "github.com/jamesneb/playback-backend/internal/grpc"
 	"github.com/jamesneb/playback-backend/internal/handlers/realtime"
+	"github.com/jamesneb/playback-backend/internal/interfaces"
 	"github.com/jamesneb/playback-backend/internal/storage"
 	"github.com/jamesneb/playback-backend/internal/streaming"
 	"github.com/jamesneb/playback-backend/pkg/config"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/reflection"
-	"errors"
-	"fmt"
-	"context"
-)
-// Bytes represents a size in bytes
-type Bytes int
-
-func (b Bytes) String() string {
-	const unit = 1024
-	if b < unit {
-		return fmt.Sprintf("%d B", b)
-	}
-	div, exp := int64(unit), 0
-	for n := b / unit; n >= unit; n /= unit {
-		div *= unit
-		exp++
-	}
-	return fmt.Sprintf("%.1f %cB", float64(b)/float64(div), "KMGTPE"[exp])
-}
-
-const (
-	DEFAULT_MAX_MESSAGE_SIZE Bytes = 4 * 1024 * 1024
 )
 
 // ServiceDependencies holds all dependencies needed by gRPC services
@@ -40,7 +22,7 @@ type ServiceDependencies struct {
 	Config                *config.Config
 	KinesisClient         *streaming.KinesisClient
 	ClickHouseClient      *storage.ClickHouseClient
-	ResilienceComponents  *grpcservices.ResilienceComponents
+	ResilienceComponents  *interfaces.ResilienceComponents
 	StreamHandler					streaming.Handler // Interface
 	ClickhouseHandler			*realtime.ClickHouseHandler	// Interface
 }
@@ -55,13 +37,13 @@ type ServiceCollection struct {
 // Cleanup gracefully shuts down all services
 func (sc *ServiceCollection) Cleanup() error {
 	if sc == nil {
-		return errors.New("service collection is nil")
+		return fmt.Errorf("%s", ErrServiceCollectionNil)
 	}
 
 	var errs []error
 
 	if len(errs) > 0 {
-		return fmt.Errorf("cleanup errors: %v", errs)
+		return fmt.Errorf(ErrCleanupErrors, errs)
 	}
 	return nil
 }
@@ -75,7 +57,7 @@ type Lifecycle interface {
 // Start initializes all services
 func (sc *ServiceCollection) Start(ctx context.Context) error {
 	if sc == nil {
-		return errors.New("service collection is nil")
+		return fmt.Errorf("%s", ErrServiceCollectionNil)
 	}
 	return nil
 }
@@ -88,25 +70,25 @@ func (sc *ServiceCollection) Stop(ctx context.Context) error {
 // NewServiceCollection creates all gRPC services with proper dependencies
 func NewServiceCollection(deps *ServiceDependencies) (*ServiceCollection, error) {
 	if deps == nil {
-		return nil, errors.New("service dependencies cannot be nil")
+		return nil, fmt.Errorf("%s", ErrServiceDepsNil)
 	}
 	if deps.KinesisClient == nil {
-		return nil, errors.New("Kinesis client cannot be nil")
+		return nil, fmt.Errorf("%s", ErrKinesisClientNil)
 	}
 	if deps.ClickHouseClient == nil {
-		return nil, errors.New("Clickhouse client cannot be nil")
+		return nil, fmt.Errorf("%s", ErrClickHouseClientNil)
 	}
 	if deps.Config == nil {
-		return nil, errors.New("config cannot be nil")
+		return nil, fmt.Errorf("%s", ErrConfigFieldsNil)
 	}
 	if deps.ResilienceComponents == nil {
-		return nil, errors.New("resilience components cannot be nil")
+		return nil, fmt.Errorf("%s", ErrResilienceCompNil)
 	}
 	if deps.Config.Server.Host == "" {
-		return nil, errors.New("server host cannot be empty")
+		return nil, fmt.Errorf("%s", ErrServerHostEmpty)
 	}
 	if deps.Config.Server.Port <= 0 {
-		return nil, errors.New("server port must be positive")
+		return nil, fmt.Errorf("%s", ErrServerPortInvalid)
 	}
 
 	var streamHandler streaming.Handler
@@ -117,10 +99,6 @@ func NewServiceCollection(deps *ServiceDependencies) (*ServiceCollection, error)
 		streamHandler = deps.StreamHandler
 	} else {
 		streamHandler = streaming.NewKinesisHandler(deps.KinesisClient)
-		if streamHandler == nil {
-			return nil, fmt.Errorf("failed to create kinesis handler for client %v", deps.KinesisClient )
-		}
-
 	}
 	if deps.ClickhouseHandler != nil {
 		clickhouseHandler = *deps.ClickhouseHandler
@@ -138,10 +116,10 @@ func NewServiceCollection(deps *ServiceDependencies) (*ServiceCollection, error)
 // RegisterServices registers all OTLP services with the gRPC server
 func (sc *ServiceCollection) RegisterServices(grpcServer *grpc.Server) error {
 	if grpcServer == nil {
-		return errors.New("grpc server cannot be nil")
+		return fmt.Errorf("%s", ErrGRPCServerNil)
 	}
 	if sc == nil {
-		return errors.New("Service collection cannot be nil")
+		return fmt.Errorf("%s", ErrServiceCollectionNil)
 	}
 	tracecollectorpb.RegisterTraceServiceServer(grpcServer, sc.TraceService)
 	metricscollectorpb.RegisterMetricsServiceServer(grpcServer, sc.MetricsService)
@@ -155,29 +133,29 @@ func (sc *ServiceCollection) RegisterServices(grpcServer *grpc.Server) error {
 // ServerConfig holds gRPC server configuration
 type ServerConfig struct {
 	Address        string
-	MaxRecvMsgSize Bytes
-	MaxSendMsgSize Bytes
+	MaxRecvMsgSize MessageSize
+	MaxSendMsgSize MessageSize
 }
 
 // NewServerConfig creates default gRPC server configuration
-func NewServerConfig(address string) *ServerConfig {
+func NewServerConfig(address string) (*ServerConfig, error) {
 	if address == "" {
-		panic("gRPC server address cannot be empty")
+		return nil, fmt.Errorf("%s", ErrServerAddressEmpty)
 	}
 	return &ServerConfig{
 		Address:        address,
-		MaxRecvMsgSize: DEFAULT_MAX_MESSAGE_SIZE,
-		MaxSendMsgSize: DEFAULT_MAX_MESSAGE_SIZE,
-	}
+		MaxRecvMsgSize: DefaultMaxMessageSize,
+		MaxSendMsgSize: DefaultMaxMessageSize,
+	}, nil
 }
 
 // CreateGRPCServer creates a gRPC server with services registered
 func CreateGRPCServer(serverConfig *ServerConfig, services *ServiceCollection) (*grpc.Server, error) {
 	if serverConfig == nil {
-		return nil, errors.New("server config cannot be nil")
+		return nil, fmt.Errorf("%s", ErrServerConfigNil)
 	}
 	if services == nil {
-		return nil, errors.New("services cannot be nil")
+		return nil, fmt.Errorf("%s", ErrServicesRegistrationNil)
 	}
 	// Create gRPC server with options
 	grpcServer := grpc.NewServer(
@@ -187,7 +165,7 @@ func CreateGRPCServer(serverConfig *ServerConfig, services *ServiceCollection) (
 
 	// Register all services
 	if err := services.RegisterServices(grpcServer); err != nil {
-		return nil, fmt.Errorf("failed to register services: %w", err)
+		return nil, fmt.Errorf(ErrFailedRegisterServices, err)
 	}
 
 	return grpcServer, nil

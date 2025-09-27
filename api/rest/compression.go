@@ -135,7 +135,9 @@ func (w *gzipResponseWriter) initializeCompression() error {
 	// Write buffered data
 	if len(w.buffer) > 0 {
 		if _, err := w.gzipWriter.Write(w.buffer); err != nil {
-			w.gzipWriter.Close()
+			if closeErr := w.gzipWriter.Close(); closeErr != nil {
+				logger.Error("Failed to close gzip writer after write error", zap.Error(closeErr))
+			}
 			w.gzipWriter = nil
 			return fmt.Errorf("failed to write buffered data: %w", err)
 		}

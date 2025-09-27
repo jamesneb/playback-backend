@@ -27,9 +27,9 @@ func (m *MockClickHouseConn) QueryRow(ctx context.Context, query string, args ..
 	return mockArgs.Get(0)
 }
 
-func (m *MockClickHouseConn) PrepareBatch(ctx context.Context, query string) (MockBatch, error) {
+func (m *MockClickHouseConn) PrepareBatch(ctx context.Context, query string) (*MockBatch, error) {
 	args := m.Called(ctx, query)
-	return args.Get(0).(MockBatch), args.Error(1)
+	return args.Get(0).(*MockBatch), args.Error(1)
 }
 
 func (m *MockClickHouseConn) Close() error {
@@ -435,40 +435,33 @@ func TestParseMetricsData(t *testing.T) {
 func TestInsertLog(t *testing.T) {
 	tests := []struct {
 		name           string
-		event          *streaming.TelemetryEvent
+		event          streaming.TelemetryEvent
 		parseError     bool
 		batchError     bool
 		expectedError  bool
 	}{
 		{
 			name: "successful log insertion",
-			event: &streaming.TelemetryEvent{
-				Type:        "logs",
-				ServiceName: "test-service",
-				Data: json.RawMessage(`{
-					"resource": {"attributes": [{"key": "service.name", "value": {"stringValue": "test-service"}}]},
-					"scopeLogs": [{
-						"logRecords": [{
-							"timeUnixNano": "1640995200000000000",
-							"observedTimeUnixNano": "1640995200000000000",
-							"severityNumber": 9,
-							"severityText": "INFO",
-							"body": {"stringValue": "Test log"}
-						}]
-					}]
-				}`),
-				Metadata: streaming.TelemetryMetadata{
-					IngestedAt: time.Now(),
-					SourceIP:   "127.0.0.1",
+			event: &streaming.LogsTelemetryEvent{
+				BaseTelemetryEvent: streaming.BaseTelemetryEvent{
+					Type:        streaming.TelemetryTypeLogs,
+					ServiceName: "test-service",
+					Metadata: streaming.TelemetryMetadata{
+						IngestedAt: time.Now(),
+						SourceIP:   "127.0.0.1",
+					},
 				},
+				ResourceLogs: nil, // Will be tested via GetSerializedData method
 			},
 			expectedError: false,
 		},
 		{
 			name: "parsing error",
-			event: &streaming.TelemetryEvent{
-				Type: "logs",
-				Data: json.RawMessage(`{"invalid": json}`),
+			event: &streaming.LogsTelemetryEvent{
+				BaseTelemetryEvent: streaming.BaseTelemetryEvent{
+					Type: streaming.TelemetryTypeLogs,
+				},
+				ResourceLogs: nil, // This will cause a parsing error
 			},
 			parseError:    true,
 			expectedError: true,
@@ -510,30 +503,21 @@ func TestInsertLog(t *testing.T) {
 func TestInsertMetric(t *testing.T) {
 	tests := []struct {
 		name          string
-		event         *streaming.TelemetryEvent
+		event         streaming.TelemetryEvent
 		expectedError bool
 	}{
 		{
 			name: "successful metric insertion",
-			event: &streaming.TelemetryEvent{
-				Type:        "metrics",
-				ServiceName: "test-service",
-				Data: json.RawMessage(`{
-					"resource": {"attributes": [{"key": "service.name", "value": {"stringValue": "test-service"}}]},
-					"scopeMetrics": [{
-						"metrics": [{
-							"name": "test_counter",
-							"sum": {
-								"dataPoints": [{"timeUnixNano": "1640995200000000000", "asInt": "5"}],
-								"isMonotonic": true
-							}
-						}]
-					}]
-				}`),
-				Metadata: streaming.TelemetryMetadata{
-					IngestedAt: time.Now(),
-					SourceIP:   "127.0.0.1",
+			event: &streaming.MetricsTelemetryEvent{
+				BaseTelemetryEvent: streaming.BaseTelemetryEvent{
+					Type:        streaming.TelemetryTypeMetrics,
+					ServiceName: "test-service",
+					Metadata: streaming.TelemetryMetadata{
+						IngestedAt: time.Now(),
+						SourceIP:   "127.0.0.1",
+					},
 				},
+				ResourceMetrics: nil, // Will be tested via GetSerializedData method
 			},
 			expectedError: false,
 		},
@@ -550,20 +534,22 @@ func TestInsertMetric(t *testing.T) {
 func TestInsertTrace(t *testing.T) {
 	tests := []struct {
 		name          string
-		event         *streaming.TelemetryEvent
+		event         streaming.TelemetryEvent
 		expectedError bool
 	}{
 		{
 			name: "successful trace insertion",
-			event: &streaming.TelemetryEvent{
-				Type:        "traces",
-				ServiceName: "test-service",
-				TraceID:     "abc123",
-				Data:        json.RawMessage(`{"traceData": "test"}`),
-				Metadata: streaming.TelemetryMetadata{
-					IngestedAt: time.Now(),
-					SourceIP:   "127.0.0.1",
+			event: &streaming.TraceTelemetryEvent{
+				BaseTelemetryEvent: streaming.BaseTelemetryEvent{
+					Type:        streaming.TelemetryTypeTraces,
+					ServiceName: "test-service",
+					TraceID:     "abc123",
+					Metadata: streaming.TelemetryMetadata{
+						IngestedAt: time.Now(),
+						SourceIP:   "127.0.0.1",
+					},
 				},
+				ResourceSpans: nil, // Will be tested via GetSerializedData method
 			},
 			expectedError: false,
 		},

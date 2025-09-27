@@ -4,29 +4,39 @@ import (
 	"context"
 	"time"
 
+	"github.com/jamesneb/playback-backend/internal/streaming"
+	"github.com/jamesneb/playback-backend/internal/validation"
+	"github.com/jamesneb/playback-backend/pkg/logger"
 	logscollectorpb "go.opentelemetry.io/proto/otlp/collector/logs/v1"
 	logspb "go.opentelemetry.io/proto/otlp/logs/v1"
-	"github.com/jamesneb/playback-backend/internal/streaming"
-	"github.com/jamesneb/playback-backend/pkg/logger"
 	"go.uber.org/zap"
 )
 
 type LogsService struct {
 	logscollectorpb.UnimplementedLogsServiceServer
-	streamHandler *streaming.KinesisHandler
+	streamHandler     *streaming.KinesisHandler
 	clickhouseHandler streaming.Handler
+	validator         *validation.ProtobufValidator
 }
 
 func NewLogsService(streamHandler *streaming.KinesisHandler, clickhouseHandler streaming.Handler) *LogsService {
 	return &LogsService{
 		streamHandler:     streamHandler,
 		clickhouseHandler: clickhouseHandler,
+		validator:         validation.NewProtobufValidator(),
 	}
 }
 
 func (s *LogsService) Export(ctx context.Context, req *logscollectorpb.ExportLogsServiceRequest) (*logscollectorpb.ExportLogsServiceResponse, error) {
-	logger.Info("Received gRPC logs export request", 
+	logger.Info("Received gRPC logs export request",
 		zap.Int("resource_logs", len(req.ResourceLogs)))
+
+	// Validate protobuf request first
+	logsData := &logspb.LogsData{ResourceLogs: req.ResourceLogs}
+	if err := s.validator.ValidateLogsRequest(logsData); err != nil {
+		logger.Warn("Invalid logs request", zap.Error(err))
+		return nil, err
+	}
 
 	// Extract client IP from gRPC context
 	clientIP := ExtractClientIP(ctx)

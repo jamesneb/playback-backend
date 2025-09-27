@@ -8,16 +8,15 @@ import (
 	"os/signal"
 	"sync"
 	"syscall"
-	"time"
 
 	grpcapi "github.com/jamesneb/playback-backend/api/grpc"
 	"github.com/jamesneb/playback-backend/api/rest"
-	grpcservices "github.com/jamesneb/playback-backend/internal/grpc"
 	"github.com/jamesneb/playback-backend/pkg/api"
 	"github.com/jamesneb/playback-backend/pkg/config"
 	"github.com/jamesneb/playback-backend/pkg/logger"
 	"go.uber.org/zap"
 )
+
 
 // Server manages both HTTP and gRPC servers
 type Server struct {
@@ -46,16 +45,16 @@ func (s *Server) Start() error {
 
 	// Start HTTP server
 	if err := s.startHTTPServer(&wg); err != nil {
-		return fmt.Errorf("failed to start HTTP server: %w", err)
+		return fmt.Errorf(ErrHTTPServerStart, err)
 	}
 
 	// Start gRPC server
 	if err := s.startGRPCServer(&wg); err != nil {
-		return fmt.Errorf("failed to start gRPC server: %w", err)
+		return fmt.Errorf(ErrGRPCServerStart, err)
 	}
 
 	// Log successful startup
-	logger.Info("Playback backend started successfully",
+	logger.Info(MsgBackendStartedSuccess,
 		zap.String("http_address", s.httpAddress()),
 		zap.String("grpc_address", s.grpcAddress()),
 		zap.String("version", s.cfg.App.Version))
@@ -64,12 +63,12 @@ func (s *Server) Start() error {
 	s.waitForShutdown()
 
 	// Graceful shutdown
-	logger.Info("Shutdown signal received, stopping servers...")
+	logger.Info(fmt.Sprintf(MsgShutdownSignalReceived, "servers"))
 	s.shutdown()
 
 	// Wait for servers to stop
 	wg.Wait()
-	logger.Info("All servers stopped successfully")
+	logger.Info(MsgAllServersStoppedSuccess)
 
 	return nil
 }
@@ -89,7 +88,7 @@ func (s *Server) startHTTPServer(wg *sync.WaitGroup) error {
 	ginEngine, err := rest.NewServer(restDeps)
 
 	if err != nil {
-		return fmt.Errorf("Failed to create REST server: %w", err)
+		return fmt.Errorf(ErrRESTServerCreate, err)
 	}
 	// Create HTTP server
 	s.httpSrv = &http.Server{
@@ -104,12 +103,12 @@ func (s *Server) startHTTPServer(wg *sync.WaitGroup) error {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		logger.Info("Starting HTTP server",
+		logger.Info(MsgStartingHTTPServer,
 			zap.String("address", s.httpAddress()),
-			zap.String("protocols", "HTTP/JSON"))
+			zap.String("protocols", ProtocolHTTPJSON))
 
 		if err := s.httpSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			logger.Error("HTTP server failed", zap.Error(err))
+			logger.Error(MsgHTTPServerFailed, zap.Error(err))
 		}
 	}()
 
@@ -118,12 +117,10 @@ func (s *Server) startHTTPServer(wg *sync.WaitGroup) error {
 
 // startGRPCServer starts the gRPC server in a goroutine
 func (s *Server) startGRPCServer(wg *sync.WaitGroup) error {
-	// Convert handlers.ResilienceComponents to grpc.ResilienceComponents
-	grpcResilienceComponents := &grpcservices.ResilienceComponents{
-		KinesisBuffer:   s.services.ResilienceComponents.KinesisBuffer,
-		RateLimiter:     s.services.ResilienceComponents.RateLimiter,
-		CircuitBreaker:  s.services.CircuitBreaker,
-		DeadLetterQueue: s.services.ResilienceComponents.DeadLetterQueue,
+	// Use unified ResilienceComponents with circuit breaker
+	grpcResilienceComponents := s.services.ResilienceComponents
+	if grpcResilienceComponents.CircuitBreaker == nil {
+		grpcResilienceComponents.CircuitBreaker = s.services.CircuitBreaker
 	}
 
 	// Create gRPC service dependencies
@@ -137,16 +134,19 @@ func (s *Server) startGRPCServer(wg *sync.WaitGroup) error {
 	// Create gRPC services
 	grpcServices, err := grpcapi.NewServiceCollection(grpcDeps)
 	if err != nil {
-		return fmt.Errorf("failed to create gRPC service collection: %w", err)
+		return fmt.Errorf(ErrGRPCServiceCollection, err)
 	}
 
 	// Create gRPC server configuration
-	grpcConfig := grpcapi.NewServerConfig(s.grpcAddress())
+	grpcConfig, err := grpcapi.NewServerConfig(s.grpcAddress())
+	if err != nil {
+		return fmt.Errorf("failed to create gRPC server config: %w", err)
+	}
 
 	// Create gRPC server
 	grpcSrv, err := grpcapi.NewServer(grpcConfig, grpcServices)
 	if err != nil {
-		return fmt.Errorf("failed to create gRPC server: %w", err)
+		return fmt.Errorf(ErrGRPCServerCreate, err)
 	}
 	s.grpcSrv = grpcSrv
 
@@ -154,7 +154,7 @@ func (s *Server) startGRPCServer(wg *sync.WaitGroup) error {
 	go func() {
 		defer wg.Done()
 		if err := s.grpcSrv.Start(s.ctx); err != nil && err != context.Canceled {
-			logger.Error("gRPC server failed", zap.Error(err))
+			logger.Error(MsgGRPCServerFailed, zap.Error(err))
 		}
 	}()
 
@@ -178,13 +178,15 @@ func (s *Server) shutdown() {
 		defer cancel()
 
 		if err := s.httpSrv.Shutdown(ctx); err != nil {
-			logger.Error("HTTP server shutdown error", zap.Error(err))
+			logger.Error(MsgHTTPServerShutdownError, zap.Error(err))
 		}
 	}
 
 	// Shutdown gRPC server
 	if s.grpcSrv != nil {
-		s.grpcSrv.Stop()
+		if err := s.grpcSrv.Stop(); err != nil {
+			logger.Error("Failed to stop gRPC server", zap.Error(err))
+		}
 	}
 }
 

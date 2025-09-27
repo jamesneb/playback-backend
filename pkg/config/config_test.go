@@ -141,15 +141,21 @@ streaming:
 			originalEnv := make(map[string]string)
 			for key, value := range tt.envVars {
 				originalEnv[key] = os.Getenv(key)
-				os.Setenv(key, value)
+				if err := os.Setenv(key, value); err != nil {
+					t.Fatalf("Failed to set environment variable %s: %v", key, err)
+				}
 			}
 			defer func() {
 				// Restore original environment
 				for key, originalValue := range originalEnv {
 					if originalValue == "" {
-						os.Unsetenv(key)
+						if err := os.Unsetenv(key); err != nil {
+							t.Errorf("Failed to unset environment variable %s: %v", key, err)
+						}
 					} else {
-						os.Setenv(key, originalValue)
+						if err := os.Setenv(key, originalValue); err != nil {
+							t.Errorf("Failed to restore environment variable %s: %v", key, err)
+						}
 					}
 				}
 			}()
@@ -211,15 +217,23 @@ func TestGetDefaultConfigPath(t *testing.T) {
 			// Setup environment
 			originalEnv := os.Getenv("ENV")
 			if tt.envVar != "" {
-				os.Setenv("ENV", tt.envVar)
+				if err := os.Setenv("ENV", tt.envVar); err != nil {
+					t.Fatalf("Failed to set ENV variable: %v", err)
+				}
 			} else {
-				os.Unsetenv("ENV")
+				if err := os.Unsetenv("ENV"); err != nil {
+					t.Fatalf("Failed to unset ENV variable: %v", err)
+				}
 			}
 			defer func() {
 				if originalEnv == "" {
-					os.Unsetenv("ENV")
+					if err := os.Unsetenv("ENV"); err != nil {
+						t.Errorf("Failed to restore ENV variable (unset): %v", err)
+					}
 				} else {
-					os.Setenv("ENV", originalEnv)
+					if err := os.Setenv("ENV", originalEnv); err != nil {
+						t.Errorf("Failed to restore ENV variable: %v", err)
+					}
 				}
 			}()
 
@@ -338,15 +352,21 @@ func TestApplyEnvOverrides(t *testing.T) {
 			originalEnv := make(map[string]string)
 			for key, value := range tt.envVars {
 				originalEnv[key] = os.Getenv(key)
-				os.Setenv(key, value)
+				if err := os.Setenv(key, value); err != nil {
+					t.Fatalf("Failed to set environment variable %s: %v", key, err)
+				}
 			}
 			defer func() {
 				// Restore original environment
 				for key, originalValue := range originalEnv {
 					if originalValue == "" {
-						os.Unsetenv(key)
+						if err := os.Unsetenv(key); err != nil {
+							t.Errorf("Failed to unset environment variable %s: %v", key, err)
+						}
 					} else {
-						os.Setenv(key, originalValue)
+						if err := os.Setenv(key, originalValue); err != nil {
+							t.Errorf("Failed to restore environment variable %s: %v", key, err)
+						}
 					}
 				}
 			}()
@@ -411,11 +431,19 @@ logging:
 	require.NoError(t, err)
 
 	// Set environment overrides
-	os.Setenv("CLICKHOUSE_PASSWORD", "env_override_password")
-	os.Setenv("LOG_LEVEL", "debug")
+	if err := os.Setenv("CLICKHOUSE_PASSWORD", "env_override_password"); err != nil {
+		t.Fatalf("Failed to set CLICKHOUSE_PASSWORD: %v", err)
+	}
+	if err := os.Setenv("LOG_LEVEL", "debug"); err != nil {
+		t.Fatalf("Failed to set LOG_LEVEL: %v", err)
+	}
 	defer func() {
-		os.Unsetenv("CLICKHOUSE_PASSWORD")
-		os.Unsetenv("LOG_LEVEL")
+		if err := os.Unsetenv("CLICKHOUSE_PASSWORD"); err != nil {
+			t.Errorf("Failed to unset CLICKHOUSE_PASSWORD: %v", err)
+		}
+		if err := os.Unsetenv("LOG_LEVEL"); err != nil {
+			t.Errorf("Failed to unset LOG_LEVEL: %v", err)
+		}
 	}()
 
 	// Load configuration

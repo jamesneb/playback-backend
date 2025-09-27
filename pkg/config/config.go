@@ -4,8 +4,38 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
+	"time"
 
 	"gopkg.in/yaml.v2"
+)
+
+// Configuration security constants
+const (
+	// MaxConfigPathLength defines maximum allowed config path length
+	MaxConfigPathLength = 256
+
+	// AllowedConfigExtensions defines valid config file extensions
+	configExtensionYAML = ".yaml"
+	configExtensionYML  = ".yml"
+
+	// ConfigPathSeparator is the standard path separator
+	configPathSeparator = string(filepath.Separator)
+
+	// DangerousPathPatterns that indicate potential traversal attacks
+	parentDirPattern      = ".."
+	currentDirPattern     = "."
+	absolutePathIndicator = configPathSeparator
+)
+
+// Configuration path validation errors
+var (
+	ErrConfigPathEmpty         = fmt.Errorf("config path cannot be empty")
+	ErrConfigPathTooLong       = fmt.Errorf("config path exceeds maximum length (%d)", MaxConfigPathLength)
+	ErrConfigPathTraversal     = fmt.Errorf("config path contains directory traversal patterns")
+	ErrConfigPathInvalidExt    = fmt.Errorf("config file must have .yaml or .yml extension")
+	ErrConfigPathNotExists     = fmt.Errorf("config file does not exist")
+	ErrConfigPathNotRegular    = fmt.Errorf("config path does not point to a regular file")
 )
 
 type Config struct {
@@ -24,6 +54,7 @@ type Config struct {
 	Performance PerformanceConfig `yaml:"performance"`
 	Development DevelopmentConfig `yaml:"development"`
 	Swagger     SwaggerConfig     `yaml:"swagger"`
+	Resilience  ResilienceConfig  `yaml:"resilience"`
 }
 
 type AppConfig struct {
@@ -139,6 +170,42 @@ type S3Config struct {
 	SecretAccessKey string `yaml:"secret_access_key,omitempty"`
 	Bucket          string `yaml:"bucket"`
 	ForcePathStyle  bool   `yaml:"force_path_style,omitempty"`
+}
+
+type ResilienceConfig struct {
+	RateLimiter    RateLimiterConfig    `yaml:"rate_limiter"`
+	CircuitBreaker CircuitBreakerConfig `yaml:"circuit_breaker"`
+	DeadLetterQueue DLQConfig           `yaml:"dead_letter_queue"`
+	KinesisBuffer  BufferConfig        `yaml:"kinesis_buffer"`
+}
+
+type RateLimiterConfig struct {
+	RequestsPerSecond int `yaml:"requests_per_second"`
+	BurstCapacity     int `yaml:"burst_capacity"`
+}
+
+type CircuitBreakerConfig struct {
+	Name            string  `yaml:"name"`
+	MaxRequests     uint32  `yaml:"max_requests"`
+	IntervalSeconds int     `yaml:"interval_seconds"`
+	TimeoutSeconds  int     `yaml:"timeout_seconds"`
+	MinRequests     uint32  `yaml:"min_requests"`
+	FailureRate     float64 `yaml:"failure_rate"`
+}
+
+type DLQConfig struct {
+	AccountID        string `yaml:"account_id"`
+	QueueName        string `yaml:"queue_name"`
+	MaxRetries       int    `yaml:"max_retries"`
+	RetryBaseDelayMs int    `yaml:"retry_base_delay_ms"`
+	RetryMaxDelayMs  int    `yaml:"retry_max_delay_ms"`
+}
+
+type BufferConfig struct {
+	MaxBatchSize      int `yaml:"max_batch_size"`
+	MaxBatchWaitMs    int `yaml:"max_batch_wait_ms"`
+	FlushIntervalMs   int `yaml:"flush_interval_ms"`
+	MaxTenantBuffer   int `yaml:"max_tenant_buffer"`
 }
 
 type ProcessingConfig struct {
@@ -275,14 +342,21 @@ type SwaggerConfig struct {
 }
 
 // Load reads configuration from YAML file with environment variable overrides
+// and comprehensive path validation to prevent directory traversal attacks.
 func Load(configPath string) (*Config, error) {
 	// Set default config path if not provided
 	if configPath == "" {
 		configPath = getDefaultConfigPath()
 	}
 
-	// Read YAML file
-	data, err := os.ReadFile(configPath)
+	// Validate and sanitize the configuration file path
+	validatedPath, err := validateConfigPath(configPath)
+	if err != nil {
+		return nil, fmt.Errorf("invalid config path: %w", err)
+	}
+
+	// Read YAML file using validated path
+	data, err := os.ReadFile(validatedPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read config file %s: %w", configPath, err)
 	}
@@ -428,4 +502,146 @@ func GetConfigDir() (string, error) {
 		return "", err
 	}
 	return filepath.Join(wd, "config"), nil
+}
+
+// validateConfigPath performs comprehensive validation of configuration file paths
+// to prevent directory traversal attacks and ensure file system security.
+//
+// This function implements multiple layers of security validation:
+// 1. Basic path validation (length, emptiness)
+// 2. Directory traversal pattern detection
+// 3. File extension validation
+// 4. File system validation (existence, type)
+// 5. Path normalization and cleaning
+//
+// Parameters:
+//   - configPath: Raw configuration file path to validate
+//
+// Returns:
+//   - string: Validated and normalized absolute path
+//   - error: Detailed validation error if any security check fails
+func validateConfigPath(configPath string) (string, error) {
+	// Primary validation: check for empty path
+	if configPath == "" {
+		return "", ErrConfigPathEmpty
+	}
+
+	// Length validation to prevent buffer overflow-style attacks
+	if len(configPath) > MaxConfigPathLength {
+		return "", ErrConfigPathTooLong
+	}
+
+	// Directory traversal pattern detection
+	if err := validateNoTraversalPatterns(configPath); err != nil {
+		return "", err
+	}
+
+	// File extension validation to ensure we're reading config files
+	if err := validateConfigExtension(configPath); err != nil {
+		return "", err
+	}
+
+	// Normalize path to prevent bypasses through path manipulation
+	normalizedPath, err := normalizeConfigPath(configPath)
+	if err != nil {
+		return "", fmt.Errorf("failed to normalize config path: %w", err)
+	}
+
+	// File system validation to ensure the file exists and is accessible
+	if err := validateFileSystemSafety(normalizedPath); err != nil {
+		return "", err
+	}
+
+	return normalizedPath, nil
+}
+
+// validateNoTraversalPatterns checks for directory traversal attack patterns
+// in the configuration path to prevent unauthorized file system access.
+func validateNoTraversalPatterns(configPath string) error {
+	// Check for parent directory traversal
+	if strings.Contains(configPath, parentDirPattern) {
+		return ErrConfigPathTraversal
+	}
+
+	// Additional security: check for encoded traversal patterns
+	encodedTraversalPatterns := []string{
+		"%2e%2e",     // URL encoded ".."
+		"..%2f",      // Mixed encoding
+		"%2e%2e%2f",  // Full URL encoded "../"
+		"..\\",       // Windows-style traversal
+		"..\\/",      // Mixed separators
+	}
+
+	lowerPath := strings.ToLower(configPath)
+	for _, pattern := range encodedTraversalPatterns {
+		if strings.Contains(lowerPath, pattern) {
+			return ErrConfigPathTraversal
+		}
+	}
+
+	return nil
+}
+
+// validateConfigExtension ensures the file has a valid configuration file extension
+// to prevent reading arbitrary system files.
+func validateConfigExtension(configPath string) error {
+	ext := strings.ToLower(filepath.Ext(configPath))
+
+	validExtensions := []string{configExtensionYAML, configExtensionYML}
+	for _, validExt := range validExtensions {
+		if ext == validExt {
+			return nil
+		}
+	}
+
+	return ErrConfigPathInvalidExt
+}
+
+// normalizeConfigPath performs path normalization and cleaning to prevent
+// path manipulation attacks and ensure consistent path handling.
+func normalizeConfigPath(configPath string) (string, error) {
+	// Clean the path to remove redundant separators and resolve . and .. elements
+	cleanedPath := filepath.Clean(configPath)
+
+	// Convert to absolute path for consistent validation
+	// This also helps prevent relative path confusion
+	absolutePath, err := filepath.Abs(cleanedPath)
+	if err != nil {
+		return "", fmt.Errorf("failed to resolve absolute path: %w", err)
+	}
+
+	return absolutePath, nil
+}
+
+// validateFileSystemSafety performs file system validation to ensure the target
+// file exists, is a regular file, and is accessible for reading.
+func validateFileSystemSafety(configPath string) error {
+	// Check if file exists
+	fileInfo, err := os.Stat(configPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return ErrConfigPathNotExists
+		}
+		return fmt.Errorf("failed to stat config file: %w", err)
+	}
+
+	// Ensure it's a regular file (not a directory, symlink, device, etc.)
+	if !fileInfo.Mode().IsRegular() {
+		return ErrConfigPathNotRegular
+	}
+
+	// Additional security: check file permissions are readable
+	// This provides early feedback if the file can't be read
+	file, err := os.Open(configPath)
+	if err != nil {
+		return fmt.Errorf("config file exists but cannot be opened: %w", err)
+	}
+	defer func() {
+		if closeErr := file.Close(); closeErr != nil {
+			// Log error but don't fail validation since file was readable
+			fmt.Printf("Warning: failed to close config file during validation: %v\n", closeErr)
+		}
+	}()
+
+	return nil
 }

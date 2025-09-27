@@ -17,18 +17,15 @@ import (
 // ConsumerApp manages the Kinesis consumer application lifecycle
 type ConsumerApp struct {
 	cfg              *config.Config
-	services         *Services
+	services         *ConsumerServices
 	kinesisConsumer  *consumer.KinesisConsumer
 	ctx              context.Context
 	cancel           context.CancelFunc
 }
 
-const (
-	KINESIS_SHUTDOWN_TIMEOUT	time.Duration =	30*time.Second
-)
 
 // NewConsumerApp creates a new consumer application instance
-func NewConsumerApp(cfg *config.Config, services *Services) *ConsumerApp {
+func NewConsumerApp(cfg *config.Config, services *ConsumerServices) *ConsumerApp {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	return &ConsumerApp{
@@ -51,7 +48,7 @@ func (app *ConsumerApp) Initialize() error {
 	}, app.services.ClickHouseClient)
 
 	if err != nil {
-		return fmt.Errorf("failed to initialize Kinesis consumer: %w", err)
+		return fmt.Errorf(ErrKinesisConsumerInit, err)
 	}
 
 	app.kinesisConsumer = kinesisConsumer
@@ -62,24 +59,24 @@ func (app *ConsumerApp) Initialize() error {
 func (app *ConsumerApp) Start() error {
 	// Start the consumer
 	if app.kinesisConsumer == nil {
-		return fmt.Errorf("Consumer not initialized, call Initialize() first")
+		return fmt.Errorf("%s", ErrConsumerNotInitialized)
 	}
-	logger.Info("Starting Kinesis consumer service",
+	logger.Info(MsgStartingConsumerService,
 		zap.String("version", app.cfg.App.Version),
 		zap.Int("streams", len(app.cfg.Streaming.Kinesis.Streams)))
 
 	if err := app.kinesisConsumer.Start(app.ctx); err != nil {
-		return fmt.Errorf("failed to start Kinesis consumer: %w", err)
+		return fmt.Errorf(ErrKinesisConsumerStart, err)
 	}
 
 	// Wait for shutdown signal
 	app.waitForShutdown()
 
 	// Graceful shutdown
-	logger.Info("Shutdown signal received, stopping consumer...")
+	logger.Info(fmt.Sprintf(MsgShutdownSignalReceived, "consumer"))
 	app.shutdown()
 
-	logger.Info("Kinesis consumer stopped successfully")
+	logger.Info(MsgConsumerStoppedSuccess)
 	return nil
 }
 
@@ -89,7 +86,7 @@ func (app *ConsumerApp) waitForShutdown() {
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 	defer signal.Stop(sigChan)
 
-	logger.Info("Kinesis consumer is running. Press Ctrl+C to stop.")
+	logger.Info(MsgConsumerRunning)
 
 	// Block until we receive a signal
 	<-sigChan
@@ -100,7 +97,7 @@ func (app *ConsumerApp) shutdown() {
 
 	// Stop the consumer gracefully
 	if app.kinesisConsumer != nil {
-		ctx, cancel := context.WithTimeout(context.Background(), KINESIS_SHUTDOWN_TIMEOUT)
+		ctx, cancel := context.WithTimeout(context.Background(), KinesisShutdownTimeout)
 		defer cancel()
 		done := make(chan struct{})
 		go func() {
@@ -110,12 +107,14 @@ func (app *ConsumerApp) shutdown() {
 
 		select {
 			case <-done:
-				logger.Info("Consumer stopped gracefully")
+				logger.Info(MsgConsumerStoppedGraceful)
 			case <-ctx.Done():
-				logger.Warn("Consumer shutdown timed out")
+				logger.Warn(MsgConsumerShutdownTimeout)
 		}
 	}
-	app.Close()
+	if err := app.Close(); err != nil {
+		logger.Error("Failed to close consumer app", zap.Error(err))
+	}
 }
 
 // Close cleans up resources

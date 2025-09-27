@@ -4,29 +4,39 @@ import (
 	"context"
 	"time"
 
+	"github.com/jamesneb/playback-backend/internal/streaming"
+	"github.com/jamesneb/playback-backend/internal/validation"
+	"github.com/jamesneb/playback-backend/pkg/logger"
 	metricscollectorpb "go.opentelemetry.io/proto/otlp/collector/metrics/v1"
 	metricspb "go.opentelemetry.io/proto/otlp/metrics/v1"
-	"github.com/jamesneb/playback-backend/internal/streaming"
-	"github.com/jamesneb/playback-backend/pkg/logger"
 	"go.uber.org/zap"
 )
 
 type MetricsService struct {
 	metricscollectorpb.UnimplementedMetricsServiceServer
-	streamHandler *streaming.KinesisHandler
+	streamHandler     *streaming.KinesisHandler
 	clickhouseHandler streaming.Handler
+	validator         *validation.ProtobufValidator
 }
 
 func NewMetricsService(streamHandler *streaming.KinesisHandler, clickhouseHandler streaming.Handler) *MetricsService {
 	return &MetricsService{
 		streamHandler:     streamHandler,
 		clickhouseHandler: clickhouseHandler,
+		validator:         validation.NewProtobufValidator(),
 	}
 }
 
 func (s *MetricsService) Export(ctx context.Context, req *metricscollectorpb.ExportMetricsServiceRequest) (*metricscollectorpb.ExportMetricsServiceResponse, error) {
-	logger.Info("Received gRPC metrics export request", 
+	logger.Info("Received gRPC metrics export request",
 		zap.Int("resource_metrics", len(req.ResourceMetrics)))
+
+	// Validate protobuf request first
+	metricsData := &metricspb.MetricsData{ResourceMetrics: req.ResourceMetrics}
+	if err := s.validator.ValidateMetricsRequest(metricsData); err != nil {
+		logger.Warn("Invalid metrics request", zap.Error(err))
+		return nil, err
+	}
 
 	// Extract client IP from gRPC context
 	clientIP := ExtractClientIP(ctx)

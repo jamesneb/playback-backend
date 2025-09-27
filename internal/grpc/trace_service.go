@@ -5,8 +5,10 @@ import (
 	"log"
 	"time"
 
+	"github.com/jamesneb/playback-backend/internal/interfaces"
 	"github.com/jamesneb/playback-backend/internal/resilience"
 	"github.com/jamesneb/playback-backend/internal/streaming"
+	"github.com/jamesneb/playback-backend/internal/validation"
 	"github.com/jamesneb/playback-backend/pkg/logger"
 	tracecollectorpb "go.opentelemetry.io/proto/otlp/collector/trace/v1"
 	tracepb "go.opentelemetry.io/proto/otlp/trace/v1"
@@ -19,7 +21,8 @@ type TraceService struct {
 	tracecollectorpb.UnimplementedTraceServiceServer
 	streamHandler     *streaming.KinesisHandler
 	clickhouseHandler streaming.Handler // Direct ClickHouse for real-time path
-	
+	validator         *validation.ProtobufValidator // Add protobuf validator
+
 	// Resilience components
 	kinesisBuffer     *resilience.KinesisBuffer
 	rateLimiter      *resilience.TenantRateLimiter
@@ -27,12 +30,13 @@ type TraceService struct {
 	deadLetterQueue  *resilience.DeadLetterQueue
 }
 
-func NewTraceService(streamHandler *streaming.KinesisHandler, clickhouseHandler streaming.Handler, 
-	resilienceComponents *ResilienceComponents) *TraceService {
+func NewTraceService(streamHandler *streaming.KinesisHandler, clickhouseHandler streaming.Handler,
+	resilienceComponents *interfaces.ResilienceComponents) *TraceService {
 	log.Printf("🔥 TRACE SERVICE INIT: NewTraceService called - protobuf debugging enabled!")
 	return &TraceService{
 		streamHandler:     streamHandler,
 		clickhouseHandler: clickhouseHandler,
+		validator:         validation.NewProtobufValidator(),
 		kinesisBuffer:     resilienceComponents.KinesisBuffer,
 		rateLimiter:      resilienceComponents.RateLimiter,
 		circuitBreaker:   resilienceComponents.CircuitBreaker,
@@ -40,18 +44,18 @@ func NewTraceService(streamHandler *streaming.KinesisHandler, clickhouseHandler 
 	}
 }
 
-// ResilienceComponents groups all resilience-related dependencies
-type ResilienceComponents struct {
-	KinesisBuffer   *resilience.KinesisBuffer
-	RateLimiter     *resilience.TenantRateLimiter
-	CircuitBreaker  *resilience.CircuitBreaker
-	DeadLetterQueue *resilience.DeadLetterQueue
-}
 
 func (s *TraceService) Export(ctx context.Context, req *tracecollectorpb.ExportTraceServiceRequest) (*tracecollectorpb.ExportTraceServiceResponse, error) {
 	log.Printf("🔥 GRPC EXPORT START: TraceService.Export called with %d resource spans", len(req.ResourceSpans))
 	logger.Info("Received gRPC trace export request",
 		zap.Int("resource_spans", len(req.ResourceSpans)))
+
+	// Validate protobuf request first
+	tracesData := &tracepb.TracesData{ResourceSpans: req.ResourceSpans}
+	if err := s.validator.ValidateTraceRequest(tracesData); err != nil {
+		logger.Warn("Invalid trace request", zap.Error(err))
+		return nil, err
+	}
 
 	// Extract client IP from gRPC context
 	clientIP := ExtractClientIP(ctx)

@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
+	"github.com/jamesneb/playback-backend/internal/interfaces"
 	"github.com/jamesneb/playback-backend/internal/streaming"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -16,7 +17,7 @@ import (
 func TestNewTraceHandler(t *testing.T) {
 	// Create a mock Kinesis client with proper configuration
 	client := createMockKinesisClient()
-	handler := NewTraceHandler(client)
+	handler := NewTraceHandler(client, &interfaces.ResilienceComponents{})
 
 	assert.NotNil(t, handler)
 	assert.Equal(t, client, handler.kinesisClient)
@@ -105,7 +106,7 @@ func TestTraceHandler_CreateTrace(t *testing.T) {
 				"resourceSpans": []interface{}{},
 			},
 			contentType:    "", // No content type
-			expectedStatus: http.StatusInternalServerError, // Still fails due to Kinesis, but JSON parsing works
+			expectedStatus: http.StatusUnsupportedMediaType, // Proper validation now returns 415
 		},
 	}
 
@@ -113,7 +114,7 @@ func TestTraceHandler_CreateTrace(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			// Create mock Kinesis client that doesn't make real calls
 			mockClient := &streaming.KinesisClient{}
-			handler := NewTraceHandler(mockClient)
+			handler := NewTraceHandler(mockClient, &interfaces.ResilienceComponents{})
 
 			// Create request
 			var body []byte
@@ -154,7 +155,7 @@ func TestTraceHandler_GetTrace(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	mockClient := &streaming.KinesisClient{}
-	handler := NewTraceHandler(mockClient)
+	handler := NewTraceHandler(mockClient, &interfaces.ResilienceComponents{})
 
 	// Create request
 	req := httptest.NewRequest(http.MethodGet, "/traces/test-trace-id", nil)
@@ -251,9 +252,12 @@ func TestExtractServiceName(t *testing.T) {
 		},
 	}
 
+	// Create a handler instance for testing the method
+	handler := &TraceHandler{}
+
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := extractServiceName(tt.data)
+			result := handler.extractServiceName(tt.data)
 			assert.Equal(t, tt.expected, result)
 		})
 	}
@@ -328,9 +332,12 @@ func TestExtractTraceID(t *testing.T) {
 		},
 	}
 
+	// Create a handler instance for testing the method
+	handler := &TraceHandler{}
+
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := extractTraceID(tt.data)
+			result := handler.extractTraceID(tt.data)
 			assert.Equal(t, tt.expected, result)
 		})
 	}
@@ -402,7 +409,7 @@ func TestTraceHandler_Integration(t *testing.T) {
 
 	// Create handler
 	mockClient := &streaming.KinesisClient{}
-	handler := NewTraceHandler(mockClient)
+	handler := NewTraceHandler(mockClient, &interfaces.ResilienceComponents{})
 	router := gin.New()
 	router.POST("/traces", handler.CreateTrace)
 

@@ -3,7 +3,6 @@ package main
 import (
 	"database/sql"
 	"fmt"
-	"io/ioutil"
 	"log"
 	"os"
 	"path/filepath"
@@ -54,7 +53,7 @@ func (mr *MigrationRunner) Close() error {
 
 // Load migrations from directory, sorted by version number
 func (mr *MigrationRunner) LoadMigrations() ([]Migration, error) {
-	files, err := ioutil.ReadDir(mr.migrationsPath)
+	files, err := os.ReadDir(mr.migrationsPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read migrations directory: %w", err)
 	}
@@ -80,7 +79,7 @@ func (mr *MigrationRunner) LoadMigrations() ([]Migration, error) {
 		}
 
 		filePath := filepath.Join(mr.migrationsPath, file.Name())
-		content, err := ioutil.ReadFile(filePath)
+		content, err := os.ReadFile(filePath)
 		if err != nil {
 			return nil, fmt.Errorf("failed to read migration file %s: %w", file.Name(), err)
 		}
@@ -126,7 +125,11 @@ func (mr *MigrationRunner) GetAppliedMigrations() (map[int]bool, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to query applied migrations: %w", err)
 	}
-	defer rows.Close()
+	defer func() {
+		if err := rows.Close(); err != nil {
+			log.Printf("Failed to close rows: %v", err)
+		}
+	}()
 
 	applied := make(map[int]bool)
 	for rows.Next() {
@@ -147,7 +150,7 @@ func (mr *MigrationRunner) ApplyEnvironmentConfig() error {
 		return nil
 	}
 
-	content, err := ioutil.ReadFile(mr.envPath)
+	content, err := os.ReadFile(mr.envPath)
 	if err != nil {
 		return fmt.Errorf("failed to read environment file %s: %w", mr.envPath, err)
 	}
@@ -270,8 +273,6 @@ func (mr *MigrationRunner) Migrate() error {
 
 func main() {
 	// Load configuration using the same config system as the main app
-	env := getEnv("ENV", "local")
-	
 	cfg, err := config.Load("")
 	if err != nil {
 		log.Fatalf("Failed to load configuration: %v", err)
@@ -291,7 +292,11 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to connect to default database: %v", err)
 	}
-	defer defaultDB.Close()
+	defer func() {
+		if err := defaultDB.Close(); err != nil {
+			log.Printf("Failed to close default database connection: %v", err)
+		}
+	}()
 
 	// Create target database if it doesn't exist
 	createDBQuery := fmt.Sprintf("CREATE DATABASE IF NOT EXISTS %s", database)
@@ -305,17 +310,19 @@ func main() {
 
 	// Paths
 	migrationsPath := getEnv("MIGRATIONS_PATH", "./db/migrations")
-	envPath := fmt.Sprintf("./environments/%s/db.env.sql", env)
-	
 	// Skip environment file - migration system handles database creation and variable substitution
-	envPath = ""
+	envPath := ""
 
 	// Create migration runner
 	runner, err := NewMigrationRunner(dsn, database, migrationsPath, envPath)
 	if err != nil {
 		log.Fatalf("Failed to create migration runner: %v", err)
 	}
-	defer runner.Close()
+	defer func() {
+		if err := runner.Close(); err != nil {
+			log.Printf("Failed to close migration runner: %v", err)
+		}
+	}()
 
 	// Run migrations
 	if err := runner.Migrate(); err != nil {
@@ -332,9 +339,3 @@ func getEnv(key, defaultValue string) string {
 	return defaultValue
 }
 
-func min(a, b int) int {
-	if a < b { 
-		return a 
-	}
-	return b
-}

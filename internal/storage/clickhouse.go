@@ -9,6 +9,7 @@ import (
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
+	"github.com/jamesneb/playback-backend/internal/logging"
 	"github.com/jamesneb/playback-backend/internal/streaming"
 	"github.com/jamesneb/playback-backend/pkg/logger"
 	"go.uber.org/zap"
@@ -40,12 +41,15 @@ func NewClickHouseClient(cfg *ClickHouseConfig) (*ClickHouseClient, error) {
 		},
 		Settings: clickhouse.Settings{
 			"max_execution_time": 60,
+			"max_memory_usage":   "10000000000", // 10GB limit
 		},
 		DialTimeout:      10 * time.Second,
 		MaxOpenConns:     cfg.MaxConnections,
 		MaxIdleConns:     cfg.MaxIdleConnections,
 		ConnMaxLifetime:  30 * time.Minute,
 		ConnOpenStrategy: clickhouse.ConnOpenInOrder,
+		// Additional connection safety settings
+		ReadTimeout:      30 * time.Second,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to open ClickHouse connection: %w", err)
@@ -53,7 +57,9 @@ func NewClickHouseClient(cfg *ClickHouseConfig) (*ClickHouseClient, error) {
 
 	// Test connection
 	if err := conn.Ping(context.Background()); err != nil {
-		conn.Close()
+		if closeErr := conn.Close(); closeErr != nil {
+			logger.Error("Failed to close connection after ping failure", zap.Error(closeErr))
+		}
 		return nil, fmt.Errorf("failed to ping ClickHouse: %w", err)
 	}
 
@@ -61,7 +67,9 @@ func NewClickHouseClient(cfg *ClickHouseConfig) (*ClickHouseClient, error) {
 	var currentDB string
 	err = conn.QueryRow(context.Background(), "SELECT currentDatabase()").Scan(&currentDB)
 	if err != nil {
-		conn.Close()
+		if closeErr := conn.Close(); closeErr != nil {
+			logger.Error("Failed to close connection after database query failure", zap.Error(closeErr))
+		}
 		return nil, fmt.Errorf("failed to query current database: %w", err)
 	}
 
@@ -69,20 +77,24 @@ func NewClickHouseClient(cfg *ClickHouseConfig) (*ClickHouseClient, error) {
 	var rawTableCount, finalTableCount uint64
 	err = conn.QueryRow(context.Background(), "SELECT count() FROM system.tables WHERE database = ? AND name = 'spans_raw'", cfg.Database).Scan(&rawTableCount)
 	if err != nil {
-		conn.Close()
+		if closeErr := conn.Close(); closeErr != nil {
+			logger.Error("Failed to close connection after table check failure", zap.Error(closeErr))
+		}
 		return nil, fmt.Errorf("failed to check spans_raw table: %w", err)
 	}
 	
 	err = conn.QueryRow(context.Background(), "SELECT count() FROM system.tables WHERE database = ? AND name = 'spans_final'", cfg.Database).Scan(&finalTableCount)
 	if err != nil {
-		conn.Close()
+		if closeErr := conn.Close(); closeErr != nil {
+			logger.Error("Failed to close connection after spans_final check failure", zap.Error(closeErr))
+		}
 		return nil, fmt.Errorf("failed to check spans_final table: %w", err)
 	}
 
-	logger.Info("Connected to ClickHouse", 
+	logger.Info("Connected to ClickHouse",
 		zap.String("host", cfg.Host),
-		zap.String("database", cfg.Database),
-		zap.String("current_database", currentDB),
+		zap.String("database", logging.SanitizeServiceName(cfg.Database)),
+		zap.String("current_database", logging.SanitizeServiceName(currentDB)),
 		zap.Uint64("spans_raw_table_exists", rawTableCount),
 		zap.Uint64("spans_final_table_exists", finalTableCount))
 
@@ -191,8 +203,8 @@ func (ch *ClickHouseClient) InsertTraceProtobuf(ctx context.Context, event *stre
 	}
 
 	logger.Info("Successfully inserted protobuf spans as structured data",
-		zap.String("trace_id", event.GetTraceID()),
-		zap.String("service_name", serviceName),
+		zap.String("trace_id", logging.SanitizeTraceID(event.GetTraceID())),
+		zap.String("service_name", logging.SanitizeServiceName(serviceName)),
 		zap.Int("spans_count", len(spans)))
 
 	return nil
@@ -201,9 +213,9 @@ func (ch *ClickHouseClient) InsertTraceProtobuf(ctx context.Context, event *stre
 // InsertTrace handles legacy JSON format for backward compatibility
 func (ch *ClickHouseClient) InsertTrace(ctx context.Context, event streaming.TelemetryEvent) error {
 	// Simplified insertion - just insert raw data, let ClickHouse materialized view handle processing
-	logger.Debug("Inserting raw trace data", 
-		zap.String("trace_id", event.GetTraceID()),
-		zap.String("service_name", event.GetServiceName()))
+	logger.Debug("Inserting raw trace data",
+		zap.String("trace_id", logging.SanitizeTraceID(event.GetTraceID())),
+		zap.String("service_name", logging.SanitizeServiceName(event.GetServiceName())))
 	
 	// Get serialized data from event (JSON)
 	serializedData, err := event.GetSerializedData()
@@ -234,10 +246,10 @@ func (ch *ClickHouseClient) InsertTrace(ctx context.Context, event streaming.Tel
 		return fmt.Errorf("failed to send raw trace batch: %w", err)
 	}
 
-	logger.Info("Inserted raw trace data into ClickHouse", 
-		zap.String("trace_id", event.GetTraceID()),
-		zap.String("service_name", event.GetServiceName()),
-		zap.Int("serialized_data_length", len(serializedData)))
+	logger.Info("Inserted raw trace data into ClickHouse",
+		zap.String("trace_id", logging.SanitizeTraceID(event.GetTraceID())),
+		zap.String("service_name", logging.SanitizeServiceName(event.GetServiceName())),
+		zap.String("data_size", logging.SanitizeDataSize(len(serializedData))))
 
 	return nil
 }
@@ -300,8 +312,8 @@ func (ch *ClickHouseClient) InsertMetric(ctx context.Context, event streaming.Te
 
 // InsertLogProtobuf inserts log data using native protobuf format
 func (ch *ClickHouseClient) InsertLogProtobuf(ctx context.Context, event *streaming.LogsTelemetryEvent) error {
-	logger.Debug("Inserting log data using native protobuf", 
-		zap.String("service_name", event.GetServiceName()))
+	logger.Debug("Inserting log data using native protobuf",
+		zap.String("service_name", logging.SanitizeServiceName(event.GetServiceName())))
 
 	// Serialize the native protobuf data
 	protobufData, err := proto.Marshal(event.ResourceLogs)
@@ -722,9 +734,9 @@ func (ch *ClickHouseClient) parseMetricsData(data interface{}) ([]MetricData, er
 		}
 	}
 
-	logger.Info("Parsed metrics from OTLP data", 
+	logger.Info("Parsed metrics from OTLP data",
 		zap.Int("metrics_count", len(metrics)),
-		zap.String("service_name", serviceName))
+		zap.String("service_name", logging.SanitizeServiceName(serviceName)))
 
 	return metrics, nil
 }
@@ -780,9 +792,10 @@ func (ch *ClickHouseClient) parseLogsData(data interface{}) ([]LogData, error) {
 	resourceAttrs := make(map[string]string)
 	
 	for _, attr := range resourceLog.Resource.Attributes {
-		if attr.Key == "service.name" {
+		switch attr.Key {
+		case "service.name":
 			serviceName = attr.Value.StringValue
-		} else if attr.Key == "service.version" {
+		case "service.version":
 			serviceVersion = attr.Value.StringValue
 		}
 		resourceAttrs[attr.Key] = attr.Value.StringValue

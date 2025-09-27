@@ -88,6 +88,13 @@ streaming:
     max_retries: 3
     retry_delay: "1s"
     poll_interval: 1
+  s3:
+    region: "us-east-1"
+    endpoint_url: "http://localhost:4566"
+    access_key_id: "test"
+    secret_access_key: "test"
+    bucket: "replays"
+    force_path_style: true
 
 # Data processing
 processing:
@@ -195,4 +202,28 @@ development:
 swagger:
   enabled: true
   path: "/swagger"
+
+# Resilience configuration
+resilience:
+  rate_limiter:
+    requests_per_second: 100
+    burst_capacity: 200
+  circuit_breaker:
+    name: "clickhouse-realtime"
+    max_requests: 10
+    interval_seconds: 30
+    timeout_seconds: 10
+    min_requests: 5
+    failure_rate: 0.6
+  dead_letter_queue:
+    account_id: "000000000000"
+    queue_name: "telemetry-dlq"
+    max_retries: 3
+    retry_base_delay_ms: 5000
+    retry_max_delay_ms: 300000
+  kinesis_buffer:
+    max_batch_size: 500
+    max_batch_wait_ms: 1000
+    flush_interval_ms: 5000
+    max_tenant_buffer: 1000
 

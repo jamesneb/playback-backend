@@ -200,9 +200,7 @@ type TenantStats struct {
 // GlobalRateLimiter provides system-wide rate limiting
 type GlobalRateLimiter struct {
 	limiter     *rate.Limiter
-	maxRequests int64
-	window      time.Duration
-	
+
 	// Circuit breaker integration
 	circuitBreaker *CircuitBreaker
 }

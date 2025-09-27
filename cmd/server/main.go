@@ -22,11 +22,15 @@ func main() {
 	}
 
 	// Initialize all services (ClickHouse, Kinesis, S3)
-	services, err := app.InitializeServices(cfg)
+	services, err := app.InitializeAPIServices(cfg)
 	if err != nil {
 		log.Fatalf("Failed to initialize services: %v", err)
 	}
-	defer services.Close()
+	defer func() {
+		if err := services.Close(); err != nil {
+			log.Printf("Failed to close services: %v", err)
+		}
+	}()
 
 	// Create and start server (HTTP + gRPC)
 	server := app.NewServer(cfg, services)

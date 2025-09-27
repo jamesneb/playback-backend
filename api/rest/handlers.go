@@ -10,6 +10,7 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/jamesneb/playback-backend/internal/handlers"
+	"github.com/jamesneb/playback-backend/internal/interfaces"
 	"github.com/jamesneb/playback-backend/internal/storage"
 	"github.com/jamesneb/playback-backend/internal/streaming"
 	"github.com/jamesneb/playback-backend/pkg/api"
@@ -25,7 +26,7 @@ type Dependencies struct {
 	ClickHouseClient     *storage.ClickHouseClient
 	S3Client             *s3.Client
 	Endpoints            *api.EndpointCollection
-	ResilienceComponents *handlers.ResilienceComponents
+	ResilienceComponents *interfaces.ResilienceComponents
 }
 
 // APIHandlers holds all HTTP handlers for the REST API
@@ -141,7 +142,9 @@ func computeDependencyKey(deps *Dependencies) (string, error) {
 	}
 
 	// Add timestamp-based component to prevent stale handlers
-	hasher.Write([]byte(fmt.Sprintf(TIMESTAMP_HASH_FORMAT, time.Now().Unix()/SECONDS_PER_HOUR))) // Hour precision
+	if _, err := fmt.Fprintf(hasher, TIMESTAMP_HASH_FORMAT, time.Now().Unix()/SECONDS_PER_HOUR); err != nil {
+		return "", fmt.Errorf("failed to write timestamp to hasher: %w", err)
+	} // Hour precision
 
 	return fmt.Sprintf("%x", hasher.Sum(nil))[:DEPENDENCY_KEY_LENGTH], nil
 }

@@ -150,7 +150,11 @@ func (h *ReplayHandler) DownloadReplay(c *gin.Context) {
 		})
 		return
 	}
-	defer getOutput.Body.Close()
+	defer func() {
+		if err := getOutput.Body.Close(); err != nil {
+			logger.Error("Failed to close S3 response body", zap.Error(err))
+		}
+	}()
 	
 	// Read the file content
 	var buf bytes.Buffer

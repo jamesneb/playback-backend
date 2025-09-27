@@ -1,5 +1,9 @@
 package api
 
+import (
+	"fmt"
+)
+
 // APIEndpoints contains all API endpoint definitions
 // This prevents hardcoding URLs throughout the codebase
 type APIEndpoints struct {
@@ -17,16 +21,16 @@ func NewAPIEndpoints(baseURL, version string) *APIEndpoints {
 
 // Base paths
 func (e *APIEndpoints) BasePath() string {
-	return "/api/" + e.APIVersion
+	return fmt.Sprintf("/api/%s", e.APIVersion)
 }
 
 // Health and system endpoints
 func (e *APIEndpoints) Health() string {
-	return e.BasePath() + "/health"
+	return fmt.Sprintf("%s/health", e.BasePath())
 }
 
 func (e *APIEndpoints) Ready() string {
-	return e.BasePath() + "/ready"
+	return fmt.Sprintf("%s/ready", e.BasePath())
 }
 
 func (e *APIEndpoints) Metrics() string {
@@ -35,7 +39,7 @@ func (e *APIEndpoints) Metrics() string {
 
 // OpenTelemetry HTTP endpoints (legacy)
 func (e *APIEndpoints) Traces() string {
-	return e.BasePath() + "/traces"
+	return fmt.Sprintf("%s/traces", e.BasePath())
 }
 
 func (e *APIEndpoints) TracesRelative() string {
@@ -44,9 +48,9 @@ func (e *APIEndpoints) TracesRelative() string {
 
 func (e *APIEndpoints) TraceByID(id string) string {
 	if id == "" {
-		return e.BasePath() + "/traces/:id"
+		return fmt.Sprintf("%s/traces/:id", e.BasePath())
 	}
-	return e.BasePath() + "/traces/" + id
+	return fmt.Sprintf("%s/traces/%s", e.BasePath(), id)
 }
 
 func (e *APIEndpoints) TraceByIDRelative() string {
@@ -54,12 +58,12 @@ func (e *APIEndpoints) TraceByIDRelative() string {
 }
 
 func (e *APIEndpoints) TracesCreate() string {
-	return e.BasePath() + "/traces"
+	return fmt.Sprintf("%s/traces", e.BasePath())
 }
 
 // Metrics endpoints
 func (e *APIEndpoints) MetricsEndpoint() string {
-	return e.BasePath() + "/metrics"
+	return fmt.Sprintf("%s/metrics", e.BasePath())
 }
 
 func (e *APIEndpoints) MetricsRelative() string {
@@ -67,12 +71,12 @@ func (e *APIEndpoints) MetricsRelative() string {
 }
 
 func (e *APIEndpoints) MetricsCreate() string {
-	return e.BasePath() + "/metrics"
+	return fmt.Sprintf("%s/metrics", e.BasePath())
 }
 
-// Logs endpoints  
+// Logs endpoints
 func (e *APIEndpoints) Logs() string {
-	return e.BasePath() + "/logs"
+	return fmt.Sprintf("%s/logs", e.BasePath())
 }
 
 func (e *APIEndpoints) LogsRelative() string {
@@ -80,12 +84,12 @@ func (e *APIEndpoints) LogsRelative() string {
 }
 
 func (e *APIEndpoints) LogsCreate() string {
-	return e.BasePath() + "/logs"
+	return fmt.Sprintf("%s/logs", e.BasePath())
 }
 
 // Replay endpoints
 func (e *APIEndpoints) ReplaysList() string {
-	return e.BasePath() + "/replays/list"
+	return fmt.Sprintf("%s/replays/list", e.BasePath())
 }
 
 func (e *APIEndpoints) ReplaysListRelative() string {
@@ -93,7 +97,7 @@ func (e *APIEndpoints) ReplaysListRelative() string {
 }
 
 func (e *APIEndpoints) ReplaysDownload() string {
-	return e.BasePath() + "/replays/download"
+	return fmt.Sprintf("%s/replays/download", e.BasePath())
 }
 
 func (e *APIEndpoints) ReplaysDownloadRelative() string {
@@ -102,9 +106,9 @@ func (e *APIEndpoints) ReplaysDownloadRelative() string {
 
 func (e *APIEndpoints) ReplayByID(id string) string {
 	if id == "" {
-		return e.BasePath() + "/replays/:id"
+		return fmt.Sprintf("%s/replays/:id", e.BasePath())
 	}
-	return e.BasePath() + "/replays/" + id
+	return fmt.Sprintf("%s/replays/%s", e.BasePath(), id)
 }
 
 // Swagger documentation
@@ -130,7 +134,7 @@ func (e *APIEndpoints) FullURL(endpoint string) string {
 	if e.BaseURL == "" {
 		return endpoint
 	}
-	return e.BaseURL + endpoint
+	return fmt.Sprintf("%s%s", e.BaseURL, endpoint)
 }
 
 // Common endpoint collections for different use cases

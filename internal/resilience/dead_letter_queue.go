@@ -224,8 +224,13 @@ func (dlq *DeadLetterQueue) processSQSMessages(ctx context.Context, processor fu
 			result, err := dlq.sqsClient.ReceiveMessage(ctx, input)
 			if err != nil {
 				logger.Error("Failed to receive messages from DLQ", zap.Error(err))
-				time.Sleep(5 * time.Second)
-				continue
+				// Use context-aware sleep instead of blocking time.Sleep
+				select {
+				case <-time.After(5 * time.Second):
+					continue
+				case <-ctx.Done():
+					return ctx.Err()
+				}
 			}
 
 			if len(result.Messages) == 0 {
@@ -350,11 +355,17 @@ func (dlq *DeadLetterQueue) GetStats(ctx context.Context) (*DLQStats, error) {
 	}
 
 	if approxMsgs, ok := attrs.Attributes[string(types.QueueAttributeNameApproximateNumberOfMessages)]; ok {
-		fmt.Sscanf(approxMsgs, "%d", &stats.SQSVisibleMessages)
+		if _, err := fmt.Sscanf(approxMsgs, "%d", &stats.SQSVisibleMessages); err != nil {
+			// Log the error but don't fail since this is just for stats
+			logger.Warn("Failed to parse SQS visible messages count", zap.Error(err), zap.String("value", approxMsgs))
+		}
 	}
 	
 	if approxNotVisible, ok := attrs.Attributes[string(types.QueueAttributeNameApproximateNumberOfMessagesNotVisible)]; ok {
-		fmt.Sscanf(approxNotVisible, "%d", &stats.SQSInFlightMessages)
+		if _, err := fmt.Sscanf(approxNotVisible, "%d", &stats.SQSInFlightMessages); err != nil {
+			// Log the error but don't fail since this is just for stats
+			logger.Warn("Failed to parse SQS in-flight messages count", zap.Error(err), zap.String("value", approxNotVisible))
+		}
 	}
 
 	return stats, nil

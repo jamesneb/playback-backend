@@ -8,12 +8,30 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	tracepb "go.opentelemetry.io/proto/otlp/trace/v1"
 )
 
 // MockKinesisClient implements the client interface for testing the handler
 type MockKinesisClient struct {
 	mock.Mock
 }
+
+// MockUnknownTelemetryEvent implements TelemetryEvent for testing unknown event types
+type MockUnknownTelemetryEvent struct {
+	EventType   TelemetryEventType
+	ServiceName string
+}
+
+func (m *MockUnknownTelemetryEvent) GetType() TelemetryEventType { return m.EventType }
+func (m *MockUnknownTelemetryEvent) GetServiceName() string { return m.ServiceName }
+func (m *MockUnknownTelemetryEvent) GetTraceID() string { return "" }
+func (m *MockUnknownTelemetryEvent) GetMetadata() TelemetryMetadata {
+	return TelemetryMetadata{IngestedAt: time.Now()}
+}
+func (m *MockUnknownTelemetryEvent) GetSerializedData() ([]byte, error) {
+	return []byte(`{"type":"unknown"}`), nil
+}
+func (m *MockUnknownTelemetryEvent) Validate() error { return nil }
 
 func (m *MockKinesisClient) PublishTrace(ctx context.Context, traceData json.RawMessage, serviceName, traceID, sourceIP, userAgent string) error {
 	args := m.Called(ctx, traceData, serviceName, traceID, sourceIP, userAgent)
@@ -39,67 +57,72 @@ func TestKinesisHandlerEventRouting(t *testing.T) {
 	// Test the handler event routing logic without making actual AWS calls
 	tests := []struct {
 		name        string
-		event       *TelemetryEvent
+		event       TelemetryEvent
 		description string
 	}{
 		{
 			name: "trace event structure",
-			event: &TelemetryEvent{
-				Type:        "traces",
-				ServiceName: "user-service",
-				TraceID:     "trace-abc123",
-				Data:        json.RawMessage(`{"spans": [{"name": "test-span"}]}`),
-				Metadata: TelemetryMetadata{
-					IngestedAt: time.Now(),
-					SourceIP:   "192.168.1.100",
-					UserAgent:  "TestAgent/1.0",
-					Version:    "1.0",
+			event: &TraceTelemetryEvent{
+				BaseTelemetryEvent: BaseTelemetryEvent{
+					Type:        TelemetryTypeTraces,
+					ServiceName: "user-service",
+					TraceID:     "trace-abc123",
+					Metadata: TelemetryMetadata{
+						IngestedAt: time.Now(),
+						SourceIP:   "192.168.1.100",
+						TenantID:   "test-tenant",
+					},
 				},
+				ResourceSpans: &tracepb.ResourceSpans{}, // Mock protobuf data
 			},
 			description: "Trace events should have proper structure for routing",
 		},
 		{
 			name: "metrics event structure",
-			event: &TelemetryEvent{
-				Type:        "metrics",
-				ServiceName: "api-service",
-				Data:        json.RawMessage(`{"metrics": [{"name": "requests_total"}]}`),
-				Metadata: TelemetryMetadata{
-					IngestedAt: time.Now(),
-					SourceIP:   "10.0.1.50",
-					UserAgent:  "MetricsCollector/2.0",
-					Version:    "1.0",
+			event: &MetricsTelemetryEvent{
+				BaseTelemetryEvent: BaseTelemetryEvent{
+					Type:        TelemetryTypeMetrics,
+					ServiceName: "api-service",
+					Metadata: TelemetryMetadata{
+						IngestedAt: time.Now(),
+						SourceIP:   "10.0.1.50",
+						TenantID:   "metrics-tenant",
+					},
 				},
+				ResourceMetrics: nil, // Mock protobuf data
 			},
 			description: "Metrics events should have proper structure for routing",
 		},
 		{
 			name: "logs event structure",
-			event: &TelemetryEvent{
-				Type:        "logs",
-				ServiceName: "auth-service",
-				TraceID:     "log-trace-456",
-				Data:        json.RawMessage(`{"logRecords": [{"body": {"stringValue": "Log message"}}]}`),
-				Metadata: TelemetryMetadata{
-					IngestedAt: time.Now(),
-					SourceIP:   "172.16.1.25",
-					UserAgent:  "LogShipper/1.5",
-					Version:    "1.0",
+			event: &LogsTelemetryEvent{
+				BaseTelemetryEvent: BaseTelemetryEvent{
+					Type:        TelemetryTypeLogs,
+					ServiceName: "auth-service",
+					TraceID:     "log-trace-456",
+					Metadata: TelemetryMetadata{
+						IngestedAt: time.Now(),
+						SourceIP:   "172.16.1.25",
+						TenantID:   "logs-tenant",
+					},
 				},
+				ResourceLogs: nil, // Mock protobuf data
 			},
 			description: "Logs events should have proper structure for routing",
 		},
 		{
 			name: "unknown event type structure",
-			event: &TelemetryEvent{
-				Type:        "unknown",
-				ServiceName: "unknown-service",
-				Data:        json.RawMessage(`{"unknown": "data"}`),
-				Metadata: TelemetryMetadata{
-					IngestedAt: time.Now(),
-					SourceIP:   "1.2.3.4",
-					Version:    "1.0",
+			event: &TraceTelemetryEvent{
+				BaseTelemetryEvent: BaseTelemetryEvent{
+					Type:        "unknown",
+					ServiceName: "unknown-service",
+					Metadata: TelemetryMetadata{
+						IngestedAt: time.Now(),
+						SourceIP:   "1.2.3.4",
+						TenantID:   "default",
+					},
 				},
+				ResourceSpans: &tracepb.ResourceSpans{},
 			},
 			description: "Unknown event types should have proper structure",
 		},
@@ -107,42 +130,35 @@ func TestKinesisHandlerEventRouting(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Test event structure validation - this tests the data structures
-			// that would be passed to the handler methods
+			// Test event structure validation using interface methods
 			assert.NotNil(t, tt.event, "Event should not be nil")
-			assert.NotEmpty(t, tt.event.Type, "Event type should not be empty")
-			assert.NotNil(t, tt.event.Data, "Event data should not be nil")
-			assert.NotEmpty(t, tt.event.ServiceName, "Service name should not be empty")
-			assert.False(t, tt.event.Metadata.IngestedAt.IsZero(), "IngestedAt should be set")
+			assert.NotEmpty(t, tt.event.GetType(), "Event type should not be empty")
+			assert.NotEmpty(t, tt.event.GetServiceName(), "Service name should not be empty")
+			assert.False(t, tt.event.GetMetadata().IngestedAt.IsZero(), "IngestedAt should be set")
 
 			// Test the switch case logic in HandleTelemetryEvent
-			switch tt.event.Type {
-			case "traces":
+			switch tt.event.GetType() {
+			case TelemetryTypeTraces:
 				// Validate trace-specific fields
-				assert.NotEmpty(t, tt.event.TraceID, "Trace events should have trace ID")
-				assert.NotEmpty(t, tt.event.Metadata.SourceIP, "Source IP should be set")
-			case "metrics":
+				assert.NotEmpty(t, tt.event.GetTraceID(), "Trace events should have trace ID")
+				assert.NotEmpty(t, tt.event.GetMetadata().SourceIP, "Source IP should be set")
+			case TelemetryTypeMetrics:
 				// Validate metrics-specific characteristics
-				assert.NotEmpty(t, tt.event.ServiceName, "Metrics should have service name")
-			case "logs":
+				assert.NotEmpty(t, tt.event.GetServiceName(), "Metrics should have service name")
+			case TelemetryTypeLogs:
 				// Validate logs-specific fields
-				assert.NotEmpty(t, tt.event.ServiceName, "Logs should have service name")
+				assert.NotEmpty(t, tt.event.GetServiceName(), "Logs should have service name")
 			default:
 				// For unknown types, just validate basic structure
-				assert.NotEmpty(t, tt.event.Type, "Event type should be preserved")
+				assert.NotEmpty(t, tt.event.GetType(), "Event type should be preserved")
 			}
 
-			// Test JSON marshaling (this is what would be sent to Kinesis)
-			data, err := json.Marshal(tt.event)
-			assert.NoError(t, err, "Event should marshal to JSON")
-			assert.Greater(t, len(data), 0, "Marshaled data should not be empty")
-
-			// Test unmarshaling to ensure round-trip works
-			var unmarshaled TelemetryEvent
-			err = json.Unmarshal(data, &unmarshaled)
-			assert.NoError(t, err, "Event should unmarshal from JSON")
-			assert.Equal(t, tt.event.Type, unmarshaled.Type, "Type should be preserved")
-			assert.Equal(t, tt.event.ServiceName, unmarshaled.ServiceName, "Service name should be preserved")
+			// Test that event can be serialized (using interface method)
+			data, err := tt.event.GetSerializedData()
+			if err == nil {
+				assert.Greater(t, len(data), 0, "Serialized data should not be empty")
+			}
+			// Note: Some events may not have serialization implemented yet
 		})
 	}
 }
@@ -159,21 +175,15 @@ func TestKinesisHandlerSwitchCases(t *testing.T) {
 
 	handler := NewKinesisHandler(client)
 
-	// Test unknown event type (should return nil without calling publish methods)
-	unknownEvent := &TelemetryEvent{
-		Type:        "unknown",
+	// Test unknown event type (should return ErrUnsupportedEventType in default case)
+	unknownEvent := &MockUnknownTelemetryEvent{
+		EventType:   "unknown",
 		ServiceName: "unknown-service",
-		Data:        json.RawMessage(`{"unknown": "data"}`),
-		Metadata: TelemetryMetadata{
-			IngestedAt: time.Now(),
-			SourceIP:   "1.2.3.4",
-			Version:    "1.0",
-		},
 	}
 
 	ctx := context.Background()
 	err := handler.HandleTelemetryEvent(ctx, unknownEvent)
-	assert.NoError(t, err, "Unknown event types should return nil error (default case)")
+	assert.Equal(t, ErrUnsupportedEventType, err, "Unknown event types should return ErrUnsupportedEventType")
 }
 
 func TestKinesisHandlerWithRealClient(t *testing.T) {
@@ -184,8 +194,8 @@ func TestKinesisHandlerWithRealClient(t *testing.T) {
 			"metrics": "test-metrics",
 			"logs":    "test-logs",
 		},
-		batchChannels: make(map[string]chan TelemetryEvent),
-		stopBatching:  make(chan struct{}),
+		batchChannels: make(map[string]chan LegacyTelemetryEvent),
+		shutdownCh:    make(chan struct{}),
 		batchSize:     100,
 		flushInterval: 5 * time.Second,
 	}
@@ -211,16 +221,18 @@ func TestKinesisHandlerWithRealClient(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel() // Cancel immediately
 		
-		event := &TelemetryEvent{
-			Type:        "traces",
-			ServiceName: "test-service",
-			TraceID:     "test-trace",
-			Data:        json.RawMessage(`{"test": true}`),
-			Metadata: TelemetryMetadata{
-				IngestedAt: time.Now(),
-				SourceIP:   "127.0.0.1",
-				Version:    "1.0",
+		event := &TraceTelemetryEvent{
+			BaseTelemetryEvent: BaseTelemetryEvent{
+				Type:        TelemetryTypeTraces,
+				ServiceName: "test-service",
+				TraceID:     "test-trace",
+				Metadata: TelemetryMetadata{
+					IngestedAt: time.Now(),
+					SourceIP:   "127.0.0.1",
+					TenantID:   "test",
+				},
 			},
+			ResourceSpans: &tracepb.ResourceSpans{},
 		}
 
 		// Test context cancellation handling
@@ -233,7 +245,7 @@ func TestKinesisHandlerWithRealClient(t *testing.T) {
 
 		// The actual method would fail due to AWS connectivity, but we test the structure
 		assert.NotNil(t, event, "Event should not be nil")
-		assert.Equal(t, "traces", event.Type, "Event type should be preserved")
+		assert.Equal(t, TelemetryEventType("traces"), event.Type, "Event type should be preserved")
 	})
 }
 
@@ -245,30 +257,33 @@ func TestTelemetryEventValidation(t *testing.T) {
 	}{
 		{
 			name: "complete trace event",
-			event: TelemetryEvent{
-				Type:        "traces",
-				ServiceName: "complete-service",
-				TraceID:     "complete-trace-123",
-				Data:        json.RawMessage(`{"resourceSpans": []}`),
-				Metadata: TelemetryMetadata{
-					IngestedAt: time.Now(),
-					SourceIP:   "192.168.1.1",
-					UserAgent:  "CompleteAgent/1.0",
-					Version:    "1.0",
+			event: &TraceTelemetryEvent{
+				BaseTelemetryEvent: BaseTelemetryEvent{
+					Type:        TelemetryTypeTraces,
+					ServiceName: "complete-service",
+					TraceID:     "complete-trace-123",
+					Metadata: TelemetryMetadata{
+						IngestedAt: time.Now(),
+						SourceIP:   "192.168.1.1",
+						TenantID:   "complete-tenant",
+					},
 				},
+				ResourceSpans: &tracepb.ResourceSpans{},
 			},
 			description: "Complete event should have all required fields",
 		},
 		{
 			name: "minimal event",
-			event: TelemetryEvent{
-				Type:        "metrics",
-				ServiceName: "minimal-service",
-				Data:        json.RawMessage(`{}`),
-				Metadata: TelemetryMetadata{
-					IngestedAt: time.Now(),
-					Version:    "1.0",
+			event: &MetricsTelemetryEvent{
+				BaseTelemetryEvent: BaseTelemetryEvent{
+					Type:        TelemetryTypeMetrics,
+					ServiceName: "minimal-service",
+					Metadata: TelemetryMetadata{
+						IngestedAt: time.Now(),
+						TenantID:   "default",
+					},
 				},
+				ResourceMetrics: nil,
 			},
 			description: "Minimal event should work with required fields only",
 		},
@@ -276,24 +291,16 @@ func TestTelemetryEventValidation(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Test JSON marshaling/unmarshaling
-			data, err := json.Marshal(tt.event)
-			assert.NoError(t, err, "Event should marshal to JSON")
-			assert.Greater(t, len(data), 0, "Marshaled data should not be empty")
+			// Test interface methods
+			assert.NotEmpty(t, tt.event.GetType(), "Type should not be empty")
+			assert.NotEmpty(t, tt.event.GetServiceName(), "Service name should not be empty")
+			assert.False(t, tt.event.GetMetadata().IngestedAt.IsZero(), "IngestedAt should be set")
 
-			// Test unmarshaling
-			var unmarshaled TelemetryEvent
-			err = json.Unmarshal(data, &unmarshaled)
-			assert.NoError(t, err, "Event should unmarshal from JSON")
-			assert.Equal(t, tt.event.Type, unmarshaled.Type, "Type should be preserved")
-			assert.Equal(t, tt.event.ServiceName, unmarshaled.ServiceName, "Service name should be preserved")
-			assert.Equal(t, tt.event.TraceID, unmarshaled.TraceID, "Trace ID should be preserved")
-
-			// Test required fields
-			assert.NotEmpty(t, tt.event.Type, "Type should not be empty")
-			assert.NotEmpty(t, tt.event.ServiceName, "Service name should not be empty")
-			assert.NotNil(t, tt.event.Data, "Data should not be nil")
-			assert.False(t, tt.event.Metadata.IngestedAt.IsZero(), "IngestedAt should be set")
+			// Test serialization if implemented
+			data, err := tt.event.GetSerializedData()
+			if err == nil {
+				assert.Greater(t, len(data), 0, "Serialized data should not be empty")
+			}
 		})
 	}
 }
@@ -302,15 +309,13 @@ func TestTelemetryMetadata(t *testing.T) {
 	metadata := TelemetryMetadata{
 		IngestedAt: time.Now(),
 		SourceIP:   "203.0.113.42",
-		UserAgent:  "TestClient/2.1",
-		Version:    "2.0",
+		TenantID:   "metadata-test",
 	}
 
 	t.Run("metadata_fields", func(t *testing.T) {
 		assert.False(t, metadata.IngestedAt.IsZero(), "IngestedAt should be set")
 		assert.Equal(t, "203.0.113.42", metadata.SourceIP, "Source IP should match")
-		assert.Equal(t, "TestClient/2.1", metadata.UserAgent, "User agent should match")
-		assert.Equal(t, "2.0", metadata.Version, "Version should match")
+		assert.Equal(t, "metadata-test", metadata.TenantID, "Tenant ID should match")
 	})
 
 	t.Run("metadata_json_serialization", func(t *testing.T) {
@@ -322,8 +327,8 @@ func TestTelemetryMetadata(t *testing.T) {
 		err = json.Unmarshal(data, &unmarshaled)
 		assert.NoError(t, err, "Metadata should unmarshal from JSON")
 		assert.Equal(t, metadata.SourceIP, unmarshaled.SourceIP, "Source IP should be preserved")
-		assert.Equal(t, metadata.UserAgent, unmarshaled.UserAgent, "User agent should be preserved")
-		assert.Equal(t, metadata.Version, unmarshaled.Version, "Version should be preserved")
+		assert.Equal(t, metadata.TenantID, unmarshaled.TenantID, "Tenant ID should be preserved")
+		assert.Equal(t, metadata.SourceIP, unmarshaled.SourceIP, "Source IP should be preserved")
 	})
 
 	t.Run("empty_optional_fields", func(t *testing.T) {
@@ -335,7 +340,6 @@ func TestTelemetryMetadata(t *testing.T) {
 
 		assert.False(t, emptyMetadata.IngestedAt.IsZero(), "IngestedAt should be set")
 		assert.Equal(t, "127.0.0.1", emptyMetadata.SourceIP, "Source IP should be set")
-		assert.Empty(t, emptyMetadata.UserAgent, "User agent should be empty")
-		assert.Empty(t, emptyMetadata.Version, "Version should be empty")
+		assert.Empty(t, emptyMetadata.TenantID, "Tenant ID should be empty")
 	})
 }

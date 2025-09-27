@@ -190,7 +190,7 @@ func ExtractTraceIDFromTraces(resourceSpans *tracepb.ResourceSpans) string {
 	if len(resourceSpans.ScopeSpans) > 0 && len(resourceSpans.ScopeSpans[0].Spans) > 0 {
 		return string(resourceSpans.ScopeSpans[0].Spans[0].TraceId)
 	}
-	return ""
+	return "unknown"
 }
 
 func ExtractServiceNameFromMetrics(resourceMetrics *metricspb.ResourceMetrics) string {

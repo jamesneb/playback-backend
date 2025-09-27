@@ -15,19 +15,27 @@ func main() {
 		log.Fatalf("Failed to load config: %v", err)
 	}
 
-	// Initialize all services (ClickHouse, Kinesis, S3)
-	services, err := app.InitializeServices(cfg)
+	// Initialize consumer services (just Kinesis)
+	services, err := app.InitializeConsumerServices(cfg)
 	if err != nil {
 		log.Fatalf("Failed to initialize services: %v", err)
 	}
-	defer services.Close()
+	defer func() {
+		if err := services.Close(); err != nil {
+			log.Printf("Failed to close services: %v", err)
+		}
+	}()
 
 	// Create and initialize consumer application
 	consumerApp := app.NewConsumerApp(cfg, services)
 	if err := consumerApp.Initialize(); err != nil {
 		log.Fatalf("Failed to initialize consumer: %v", err)
 	}
-	defer consumerApp.Close()
+	defer func() {
+		if err := consumerApp.Close(); err != nil {
+			log.Printf("Failed to close consumer app: %v", err)
+		}
+	}()
 
 	// Start consumer application
 	if err := consumerApp.Start(); err != nil {

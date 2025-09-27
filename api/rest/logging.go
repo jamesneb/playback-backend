@@ -5,6 +5,7 @@ import (
 	"html"
 
 	"github.com/gin-gonic/gin"
+	"github.com/jamesneb/playback-backend/internal/logging"
 	"github.com/jamesneb/playback-backend/pkg/logger"
 	"go.uber.org/zap"
 )
@@ -32,7 +33,7 @@ func customRecoveryHandler(c *gin.Context, recovered interface{}) {
 		zap.String("panic_summary", sanitizedPanic),
 		zap.String("method", c.Request.Method),
 		zap.String("path", sanitizePath(c.Request.URL.Path)),
-		zap.String("client_ip", c.ClientIP()))
+		zap.String("client_ip", logging.SanitizeClientIP(c.ClientIP())))
 
 	c.AbortWithStatusJSON(int(StatusInternalServerError), gin.H{
 		"error":   "Internal server error",

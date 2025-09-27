@@ -4,7 +4,9 @@ import (
 	"context"
 	"testing"
 
+	"github.com/jamesneb/playback-backend/internal/streaming"
 	"github.com/stretchr/testify/assert"
+	"github.com/jamesneb/playback-backend/internal/interfaces"
 	tracecollectorpb "go.opentelemetry.io/proto/otlp/collector/trace/v1"
 	commonpb "go.opentelemetry.io/proto/otlp/common/v1"
 	resourcepb "go.opentelemetry.io/proto/otlp/resource/v1"
@@ -12,7 +14,8 @@ import (
 )
 
 func TestNewTraceService(t *testing.T) {
-	service := NewTraceService(nil, nil)
+	resilienceComponents := &interfaces.ResilienceComponents{}
+	service := NewTraceService(nil, nil, resilienceComponents)
 
 	assert.NotNil(t, service)
 }
@@ -115,7 +118,7 @@ func TestTraceService_Export_Basic(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			service := NewTraceService(nil, nil)
+			service := NewTraceService(nil, nil, &interfaces.ResilienceComponents{})
 
 			response, err := service.Export(context.Background(), tt.request)
 
@@ -180,7 +183,7 @@ func TestExtractTraceID(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := extractTraceID(tt.resource)
+			result := streaming.ExtractTraceIDFromTraces(tt.resource)
 			assert.Equal(t, tt.expected, result)
 		})
 	}
@@ -249,7 +252,7 @@ func TestExtractServiceName(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := extractServiceName(tt.resource)
+			result := streaming.ExtractServiceNameFromTraces(tt.resource)
 			assert.Equal(t, tt.expected, result)
 		})
 	}
@@ -333,7 +336,7 @@ func TestCountSpans(t *testing.T) {
 
 // Integration test that validates the overall trace service structure
 func TestTraceService_Integration(t *testing.T) {
-	service := NewTraceService(nil, nil)
+	service := NewTraceService(nil, nil, &interfaces.ResilienceComponents{})
 
 	// Create a realistic trace request with detailed span information
 	request := &tracecollectorpb.ExportTraceServiceRequest{
@@ -395,7 +398,7 @@ func TestTraceService_Integration(t *testing.T) {
 }
 
 func TestTraceService_SpanKinds(t *testing.T) {
-	service := NewTraceService(nil, nil)
+	service := NewTraceService(nil, nil, &interfaces.ResilienceComponents{})
 
 	// Test different span kinds
 	spanKinds := []struct {
@@ -449,7 +452,7 @@ func TestTraceService_SpanKinds(t *testing.T) {
 }
 
 func TestTraceService_SpanStatuses(t *testing.T) {
-	service := NewTraceService(nil, nil)
+	service := NewTraceService(nil, nil, &interfaces.ResilienceComponents{})
 
 	// Test different span status codes
 	statusCodes := []struct {
@@ -504,7 +507,7 @@ func TestTraceService_SpanStatuses(t *testing.T) {
 
 // Benchmark test for trace service performance
 func BenchmarkTraceService_Export(b *testing.B) {
-	service := NewTraceService(nil, nil)
+	service := NewTraceService(nil, nil, &interfaces.ResilienceComponents{})
 	
 	request := &tracecollectorpb.ExportTraceServiceRequest{
 		ResourceSpans: []*tracepb.ResourceSpans{

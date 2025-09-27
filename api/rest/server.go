@@ -20,7 +20,7 @@ import (
 // NewServer creates a new Gin HTTP server with all routes configured
 func NewServer(deps *Dependencies) (*gin.Engine, error) {
 	if err := validateDependencies(deps); err != nil {
-		return nil, fmt.Errorf("Invalid dependencies: %w", err)
+		return nil, fmt.Errorf("invalid dependencies: %w", err)
 	}
 
 	if err := applyConfig(deps.Config); err != nil {
@@ -45,7 +45,7 @@ func NewServer(deps *Dependencies) (*gin.Engine, error) {
 
 	// Setup Swagger if enabled
 	if err := setupSwagger(r, deps.Config, deps.Endpoints); err != nil {
-		return nil, fmt.Errorf("Swagger setup failed: %w", err)
+		return nil, fmt.Errorf("swagger setup failed: %w", err)
 	}
 
 	// Setup API routes
@@ -74,7 +74,7 @@ func validateDependencies(deps *Dependencies) error {
 	// validate gin server mode
 	mode := deps.Config.Server.Mode
 	if mode != gin.ReleaseMode && mode != gin.DebugMode && mode != gin.TestMode {
-		return fmt.Errorf("Invalid server mode: '%s', must be one of %s %s %s", mode, gin.ReleaseMode, gin.DebugMode, gin.TestMode)
+		return fmt.Errorf("invalid server mode: '%s', must be one of %s %s %s", mode, gin.ReleaseMode, gin.DebugMode, gin.TestMode)
 	}
 	return nil
 }

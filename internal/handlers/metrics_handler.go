@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/jamesneb/playback-backend/internal/logging"
 	"github.com/jamesneb/playback-backend/internal/streaming"
 	"github.com/jamesneb/playback-backend/pkg/logger"
 	"go.uber.org/zap"
@@ -38,8 +39,8 @@ func (h *MetricsHandler) CreateMetrics(c *gin.Context) {
 	if err := c.ShouldBindJSON(&otlpData); err != nil {
 		logger.Error("Failed to parse OTLP metrics data",
 			zap.Error(err),
-			zap.String("client_ip", c.ClientIP()),
-			zap.String("user_agent", c.GetHeader("User-Agent")),
+			zap.String("client_ip", logging.SanitizeClientIP(c.ClientIP())),
+			zap.String("user_agent", logging.SanitizeUserAgent(c.GetHeader("User-Agent"))),
 		)
 		c.JSON(http.StatusBadRequest, ErrorResponse{
 			Error:   "Invalid OTLP metrics data",
@@ -54,11 +55,11 @@ func (h *MetricsHandler) CreateMetrics(c *gin.Context) {
 
 	// Log the ingestion event
 	logger.Info("Received OTLP metrics data",
-		zap.String("service_name", serviceName),
+		zap.String("service_name", logging.SanitizeServiceName(serviceName)),
 		zap.Int("metrics_count", metricsCount),
-		zap.String("client_ip", c.ClientIP()),
-		zap.String("user_agent", c.GetHeader("User-Agent")),
-		zap.Int("data_size_bytes", len(otlpData)),
+		zap.String("client_ip", logging.SanitizeClientIP(c.ClientIP())),
+		zap.String("user_agent", logging.SanitizeUserAgent(c.GetHeader("User-Agent"))),
+		zap.String("data_size", logging.SanitizeDataSize(len(otlpData))),
 	)
 
 	// Publish to Kinesis

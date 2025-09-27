@@ -23,7 +23,9 @@ func TestMain(m *testing.M) {
 func setupTestConfig() {
 	// Create a test config file
 	testConfigDir := "/tmp/playback-test"
-	os.MkdirAll(testConfigDir, 0755)
+	if err := os.MkdirAll(testConfigDir, 0755); err != nil {
+		panic(fmt.Sprintf("Failed to create test config directory: %v", err))
+	}
 	
 	configContent := `
 app:
@@ -57,13 +59,21 @@ swagger:
 `
 	
 	configPath := filepath.Join(testConfigDir, "config.yaml")
-	os.WriteFile(configPath, []byte(configContent), 0644)
-	os.Setenv("PLAYBACK_CONFIG", configPath)
+	if err := os.WriteFile(configPath, []byte(configContent), 0644); err != nil {
+		panic(fmt.Sprintf("Failed to write test config file: %v", err))
+	}
+	if err := os.Setenv("PLAYBACK_CONFIG", configPath); err != nil {
+		panic(fmt.Sprintf("Failed to set PLAYBACK_CONFIG: %v", err))
+	}
 }
 
 func cleanupTestConfig() {
-	os.RemoveAll("/tmp/playback-test")
-	os.Unsetenv("PLAYBACK_CONFIG")
+	if err := os.RemoveAll("/tmp/playback-test"); err != nil {
+		fmt.Printf("Warning: Failed to clean up test directory: %v\n", err)
+	}
+	if err := os.Unsetenv("PLAYBACK_CONFIG"); err != nil {
+		fmt.Printf("Warning: Failed to unset PLAYBACK_CONFIG: %v\n", err)
+	}
 }
 
 func TestMainPackage(t *testing.T) {
@@ -111,6 +121,8 @@ func TestServerConfiguration(t *testing.T) {
 	if configPath == "" {
 		configPath = os.Getenv("PLAYBACK_CONFIG")
 	}
+	// Use configPath to verify configuration loading is possible
+	_ = configPath
 	
 	t.Run("config_path_available", func(t *testing.T) {
 		// Either default config or test config should be available

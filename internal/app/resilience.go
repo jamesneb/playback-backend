@@ -13,6 +13,21 @@ import (
 	"golang.org/x/time/rate"
 )
 
+// isDLQConfigured checks if DLQ configuration is complete and valid
+func isDLQConfigured(cfg *config.Config) bool {
+	dlqCfg := cfg.Resilience.DeadLetterQueue
+
+	// Check if we have a complete URL
+	if dlqCfg.QueueURL != "" {
+		return true
+	}
+
+	// Check if we have all components to build a URL
+	return cfg.Streaming.Kinesis.Region != "" &&
+		   dlqCfg.AccountID != "" &&
+		   dlqCfg.QueueName != ""
+}
+
 // InitializeResilienceComponents creates and configures all resilience components
 func InitializeResilienceComponents(cfg *config.Config, services *Services) (*interfaces.ResilienceComponents, *resilience.CircuitBreaker, error) {
 	// Initialize tenant rate limiter from config
@@ -42,35 +57,39 @@ func InitializeResilienceComponents(cfg *config.Config, services *Services) (*in
 		},
 	})
 
-	// Create AWS config with proper credential loading for DLQ
-	awsConfig, err := awsconfig.LoadDefaultConfig(context.Background(),
-		awsconfig.WithRegion(cfg.Streaming.Kinesis.Region),
-	)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to load AWS config for DLQ: %w", err)
-	}
+	// Initialize dead letter queue only if SQS is properly configured
+	var dlq *resilience.DeadLetterQueue
+	if isDLQConfigured(cfg) {
+		// Create AWS config with proper credential loading for DLQ
+		awsConfig, err := awsconfig.LoadDefaultConfig(context.Background(),
+			awsconfig.WithRegion(cfg.Streaming.Kinesis.Region),
+		)
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to load AWS config for DLQ: %w", err)
+		}
 
-	// Apply custom endpoint if specified
-	if cfg.Streaming.Kinesis.EndpointURL != "" {
-		awsConfig.BaseEndpoint = aws.String(cfg.Streaming.Kinesis.EndpointURL)
-	}
+		// Apply custom endpoint if specified
+		if cfg.Streaming.Kinesis.EndpointURL != "" {
+			awsConfig.BaseEndpoint = aws.String(cfg.Streaming.Kinesis.EndpointURL)
+		}
 
-	// Initialize dead letter queue using same AWS config as other services
-	dlqURL := cfg.Resilience.DeadLetterQueue.QueueURL
-	if dlqURL == "" {
-		// If no URL provided, construct from components (for backward compatibility)
-		dlqURL = fmt.Sprintf("https://sqs.%s.amazonaws.com/%s/%s",
-			cfg.Streaming.Kinesis.Region,
-			cfg.Resilience.DeadLetterQueue.AccountID,
-			cfg.Resilience.DeadLetterQueue.QueueName)
-	}
+		// Initialize dead letter queue using same AWS config as other services
+		dlqURL := cfg.Resilience.DeadLetterQueue.QueueURL
+		if dlqURL == "" {
+			// If no URL provided, construct from components (for backward compatibility)
+			dlqURL = fmt.Sprintf("https://sqs.%s.amazonaws.com/%s/%s",
+				cfg.Streaming.Kinesis.Region,
+				cfg.Resilience.DeadLetterQueue.AccountID,
+				cfg.Resilience.DeadLetterQueue.QueueName)
+		}
 
-	dlq := resilience.NewDeadLetterQueue(awsConfig, resilience.DLQConfig{
-		QueueURL:       dlqURL,
-		MaxRetries:     cfg.Resilience.DeadLetterQueue.MaxRetries,
-		RetryBaseDelay: time.Duration(cfg.Resilience.DeadLetterQueue.RetryBaseDelayMs) * time.Millisecond,
-		RetryMaxDelay:  time.Duration(cfg.Resilience.DeadLetterQueue.RetryMaxDelayMs) * time.Millisecond,
-	})
+		dlq = resilience.NewDeadLetterQueue(awsConfig, resilience.DLQConfig{
+			QueueURL:       dlqURL,
+			MaxRetries:     cfg.Resilience.DeadLetterQueue.MaxRetries,
+			RetryBaseDelay: time.Duration(cfg.Resilience.DeadLetterQueue.RetryBaseDelayMs) * time.Millisecond,
+			RetryMaxDelay:  time.Duration(cfg.Resilience.DeadLetterQueue.RetryMaxDelayMs) * time.Millisecond,
+		})
+	}
 
 	// Initialize Kinesis buffer from config
 	kinesisBuffer := resilience.NewKinesisBuffer(

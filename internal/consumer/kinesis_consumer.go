@@ -288,56 +288,81 @@ func (kc *KinesisConsumer) processBatch(ctx context.Context, streamType string, 
 		zap.String("stream_type", streamType),
 		zap.Int("batch_size", len(events)))
 
-	// Process events using appropriate methods based on type (protobuf vs JSON)
+	// Separate events by type (protobuf vs JSON) for optimal batch processing
+	var protoTraces []*streaming.TraceTelemetryEvent
+	var protoMetrics []*streaming.MetricsTelemetryEvent
+	var protoLogs []*streaming.LogsTelemetryEvent
+	var legacyEvents []streaming.TelemetryEvent
+
+	// Classify events
 	for _, event := range events {
 		switch streamType {
 		case "traces":
-			// Check if it's a protobuf trace event
 			if traceEvent, ok := event.(*streaming.TraceTelemetryEvent); ok {
-				// Use native protobuf insertion
-				if err := kc.clickhouse.InsertTraceProtobuf(ctx, traceEvent); err != nil {
-					return fmt.Errorf("failed to insert protobuf trace: %w", err)
-				}
+				protoTraces = append(protoTraces, traceEvent)
 			} else {
-				// Use legacy JSON insertion
-				if err := kc.clickhouse.InsertTrace(ctx, event); err != nil {
-					return fmt.Errorf("failed to insert JSON trace: %w", err)
-				}
+				legacyEvents = append(legacyEvents, event)
 			}
 		case "metrics":
-			// Check if it's a protobuf metric event
 			if metricEvent, ok := event.(*streaming.MetricsTelemetryEvent); ok {
-				// Use native protobuf insertion
-				if err := kc.clickhouse.InsertMetricProtobuf(ctx, metricEvent); err != nil {
-					return fmt.Errorf("failed to insert protobuf metric: %w", err)
-				}
+				protoMetrics = append(protoMetrics, metricEvent)
 			} else {
-				// Use legacy JSON insertion
-				if err := kc.clickhouse.InsertMetric(ctx, event); err != nil {
-					return fmt.Errorf("failed to insert JSON metric: %w", err)
-				}
+				legacyEvents = append(legacyEvents, event)
 			}
 		case "logs":
-			// Check if it's a protobuf log event
 			if logEvent, ok := event.(*streaming.LogsTelemetryEvent); ok {
-				// Use native protobuf insertion
-				if err := kc.clickhouse.InsertLogProtobuf(ctx, logEvent); err != nil {
-					return fmt.Errorf("failed to insert protobuf log: %w", err)
-				}
+				protoLogs = append(protoLogs, logEvent)
 			} else {
-				// Use legacy JSON insertion
-				if err := kc.clickhouse.InsertLog(ctx, event); err != nil {
-					return fmt.Errorf("failed to insert JSON log: %w", err)
-				}
+				legacyEvents = append(legacyEvents, event)
 			}
-		default:
-			return fmt.Errorf("unknown stream type: %s", streamType)
 		}
 	}
 
-	logger.Info("Successfully processed batch",
+	// Process protobuf events in true batches
+	switch streamType {
+	case "traces":
+		if len(protoTraces) > 0 {
+			if err := kc.clickhouse.InsertTraceProtobufBatch(ctx, protoTraces); err != nil {
+				return fmt.Errorf("failed to batch insert protobuf traces: %w", err)
+			}
+		}
+	case "metrics":
+		if len(protoMetrics) > 0 {
+			if err := kc.clickhouse.InsertMetricProtobufBatch(ctx, protoMetrics); err != nil {
+				return fmt.Errorf("failed to batch insert protobuf metrics: %w", err)
+			}
+		}
+	case "logs":
+		if len(protoLogs) > 0 {
+			if err := kc.clickhouse.InsertLogProtobufBatch(ctx, protoLogs); err != nil {
+				return fmt.Errorf("failed to batch insert protobuf logs: %w", err)
+			}
+		}
+	}
+
+	// Process legacy JSON events individually (fallback for backward compatibility)
+	for _, event := range legacyEvents {
+		switch streamType {
+		case "traces":
+			if err := kc.clickhouse.InsertTrace(ctx, event); err != nil {
+				return fmt.Errorf("failed to insert JSON trace: %w", err)
+			}
+		case "metrics":
+			if err := kc.clickhouse.InsertMetric(ctx, event); err != nil {
+				return fmt.Errorf("failed to insert JSON metric: %w", err)
+			}
+		case "logs":
+			if err := kc.clickhouse.InsertLog(ctx, event); err != nil {
+				return fmt.Errorf("failed to insert JSON log: %w", err)
+			}
+		}
+	}
+
+	logger.Debug("Successfully processed batch",
 		zap.String("stream_type", streamType),
-		zap.Int("events_processed", len(events)))
+		zap.Int("events_processed", len(events)),
+		zap.Int("protobuf_events", len(protoTraces)+len(protoMetrics)+len(protoLogs)),
+		zap.Int("legacy_events", len(legacyEvents)))
 
 	return nil
 }

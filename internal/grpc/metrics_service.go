@@ -28,7 +28,7 @@ func NewMetricsService(streamHandler streaming.Handler, clickhouseHandler stream
 }
 
 func (s *MetricsService) Export(ctx context.Context, req *metricscollectorpb.ExportMetricsServiceRequest) (*metricscollectorpb.ExportMetricsServiceResponse, error) {
-	logger.Info("Received gRPC metrics export request",
+	logger.Debug("Received gRPC metrics export request",
 		zap.Int("resource_metrics", len(req.ResourceMetrics)))
 
 	// Validate protobuf request first
@@ -65,7 +65,7 @@ func (s *MetricsService) Export(ctx context.Context, req *metricscollectorpb.Exp
 		}
 	}
 
-	logger.Info("Successfully processed gRPC metrics export",
+	logger.Debug("Successfully processed gRPC metrics export",
 		zap.Int("metrics_processed", countMetrics(req.ResourceMetrics)))
 
 	return &metricscollectorpb.ExportMetricsServiceResponse{

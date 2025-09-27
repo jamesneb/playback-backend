@@ -28,7 +28,7 @@ func NewLogsService(streamHandler streaming.Handler, clickhouseHandler streaming
 }
 
 func (s *LogsService) Export(ctx context.Context, req *logscollectorpb.ExportLogsServiceRequest) (*logscollectorpb.ExportLogsServiceResponse, error) {
-	logger.Info("Received gRPC logs export request",
+	logger.Debug("Received gRPC logs export request",
 		zap.Int("resource_logs", len(req.ResourceLogs)))
 
 	// Validate protobuf request first
@@ -65,7 +65,7 @@ func (s *LogsService) Export(ctx context.Context, req *logscollectorpb.ExportLog
 		}
 	}
 
-	logger.Info("Successfully processed gRPC logs export",
+	logger.Debug("Successfully processed gRPC logs export",
 		zap.Int("log_records_processed", countLogRecords(req.ResourceLogs)))
 
 	return &logscollectorpb.ExportLogsServiceResponse{

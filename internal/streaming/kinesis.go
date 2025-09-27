@@ -565,9 +565,9 @@ func (kc *KinesisClient) publishRawProtobuf(ctx context.Context, streamType stri
 		return fmt.Errorf("stream not configured for type: %s", streamType)
 	}
 
-	// Use the caller-provided partition key but prefix it to indicate protobuf data
-	// This preserves ordering guarantees while allowing consumer to detect protobuf vs JSON
-	protobufPartitionKey := fmt.Sprintf("pb:%s", partitionKey)
+	// Create structured partition key that consumer expects: "pb:<service>:<trace_id>:<timestamp>"
+	timestamp := time.Now().UnixNano()
+	protobufPartitionKey := fmt.Sprintf("pb:%s:%s:%d", serviceName, traceID, timestamp)
 
 	// Send raw OTLP protobuf bytes directly to Kinesis - no wrapper!
 	record := &kinesis.PutRecordInput{

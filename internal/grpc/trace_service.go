@@ -52,9 +52,12 @@ func NewTraceService(streamHandler streaming.Handler, clickhouseHandler streamin
 }
 
 func (s *TraceService) Export(ctx context.Context, req *tracecollectorpb.ExportTraceServiceRequest) (*tracecollectorpb.ExportTraceServiceResponse, error) {
-	logger.Info("gRPC trace export started", zap.Int("resource_spans_count", len(req.ResourceSpans)))
-	logger.Info("Received gRPC trace export request",
+	logger.Debug("gRPC trace export started", zap.Int("resource_spans_count", len(req.ResourceSpans)))
+	logger.Debug("Received gRPC trace export request",
 		zap.Int("resource_spans", len(req.ResourceSpans)))
+
+	// Track rejected spans for accurate reporting
+	var rejectedSpans int64
 
 	// Validate protobuf request first
 	tracesData := &tracepb.TracesData{ResourceSpans: req.ResourceSpans}
@@ -91,6 +94,7 @@ func (s *TraceService) Export(ctx context.Context, req *tracecollectorpb.ExportT
 		// Apply per-event rate limiting
 		if s.rateLimiter != nil && !s.rateLimiter.Allow(tenantID) {
 			logger.Warn("Tenant rate limit exceeded for individual span", zap.String("tenant", tenantID))
+			rejectedSpans++ // Count rejected span
 			continue // Skip this span but process others
 		}
 
@@ -99,6 +103,7 @@ func (s *TraceService) Export(ctx context.Context, req *tracecollectorpb.ExportT
 		// Validate the event
 		if err := event.Validate(); err != nil {
 			logger.Error("Invalid trace event", zap.Error(err))
+			rejectedSpans++ // Count rejected span
 			continue
 		}
 
@@ -133,12 +138,13 @@ func (s *TraceService) Export(ctx context.Context, req *tracecollectorpb.ExportT
 		// This ensures proper data pipeline: gRPC -> Kinesis -> Consumer -> ClickHouse
 	}
 
-	logger.Info("Successfully processed gRPC trace export",
-		zap.Int("spans_processed", countSpans(req.ResourceSpans)))
+	logger.Debug("Successfully processed gRPC trace export",
+		zap.Int("spans_processed", countSpans(req.ResourceSpans)),
+		zap.Int64("rejected_spans", rejectedSpans))
 
 	return &tracecollectorpb.ExportTraceServiceResponse{
 		PartialSuccess: &tracecollectorpb.ExportTracePartialSuccess{
-			RejectedSpans: 0,
+			RejectedSpans: rejectedSpans,
 		},
 	}, nil
 }

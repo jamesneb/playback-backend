@@ -29,6 +29,7 @@ type KinesisBuffer struct {
 	maxBatchSize     int
 	maxBatchWait     time.Duration
 	maxBufferSize    int
+	maxTenantBuffer  int
 	flushInterval    time.Duration
 	
 	// Per-tenant buffers
@@ -110,6 +111,7 @@ func NewKinesisBuffer(
 		maxBatchSize:    config.MaxBatchSize,
 		maxBatchWait:    config.MaxBatchWait,
 		maxBufferSize:   config.MaxBufferSize,
+		maxTenantBuffer: config.MaxTenantBuffer,
 		flushInterval:   config.FlushInterval,
 		tenantBuffers:   make(map[string]*TenantBuffer),
 		closeChan:       make(chan struct{}),
@@ -201,7 +203,7 @@ func (kb *KinesisBuffer) getTenantBuffer(tenantID string) *TenantBuffer {
 		tenantID:    tenantID,
 		events:      make([]streaming.TelemetryEvent, 0, kb.maxBatchSize),
 		lastFlush:   time.Now(),
-		maxSize:     1000, // Per-tenant limit
+		maxSize:     kb.maxTenantBuffer, // Use configured per-tenant limit
 	}
 
 	kb.tenantBuffers[tenantID] = buffer
@@ -345,6 +347,7 @@ func (kb *KinesisBuffer) processBatch(ctx context.Context, events []streaming.Te
 		traceEvents := make([]*streaming.TraceTelemetryEvent, 0)
 		metricEvents := make([]*streaming.MetricsTelemetryEvent, 0)
 		logEvents := make([]*streaming.LogsTelemetryEvent, 0)
+		legacyEvents := make([]*streaming.LegacyTelemetryEvent, 0)
 
 		for _, event := range events {
 			switch e := event.(type) {
@@ -354,6 +357,8 @@ func (kb *KinesisBuffer) processBatch(ctx context.Context, events []streaming.Te
 				metricEvents = append(metricEvents, e)
 			case *streaming.LogsTelemetryEvent:
 				logEvents = append(logEvents, e)
+			case *streaming.LegacyTelemetryEvent:
+				legacyEvents = append(legacyEvents, e)
 			}
 		}
 
@@ -405,6 +410,39 @@ func (kb *KinesisBuffer) processBatch(ctx context.Context, events []streaming.Te
 						errorsMutex.Lock()
 						errors = append(errors, fmt.Errorf("failed to publish logs: %w", err))
 						errorsMutex.Unlock()
+					}
+				}
+			}()
+		}
+
+		// Process legacy events (HTTP JSON)
+		if len(legacyEvents) > 0 {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				for _, event := range legacyEvents {
+					switch event.Type {
+					case "traces":
+						if err := kb.kinesisClient.PublishTrace(ctx, event.Data, event.ServiceName,
+							event.TraceID, event.Metadata.SourceIP, event.Metadata.UserAgent); err != nil {
+							errorsMutex.Lock()
+							errors = append(errors, fmt.Errorf("failed to publish legacy trace: %w", err))
+							errorsMutex.Unlock()
+						}
+					case "metrics":
+						if err := kb.kinesisClient.PublishMetrics(ctx, event.Data, event.ServiceName,
+							event.Metadata.SourceIP, event.Metadata.UserAgent); err != nil {
+							errorsMutex.Lock()
+							errors = append(errors, fmt.Errorf("failed to publish legacy metrics: %w", err))
+							errorsMutex.Unlock()
+						}
+					case "logs":
+						if err := kb.kinesisClient.PublishLogs(ctx, event.Data, event.ServiceName,
+							event.TraceID, event.Metadata.SourceIP, event.Metadata.UserAgent); err != nil {
+							errorsMutex.Lock()
+							errors = append(errors, fmt.Errorf("failed to publish legacy logs: %w", err))
+							errorsMutex.Unlock()
+						}
 					}
 				}
 			}()

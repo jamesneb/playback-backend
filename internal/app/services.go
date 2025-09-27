@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/aws/aws-sdk-go-v2/service/s3"
@@ -86,12 +87,14 @@ func InitializeAPIServices(cfg *config.Config) (*Services, error) {
 	}
 	services.KinesisClient = kinesisClient
 
-	// Initialize S3 client
-	s3Client, err := InitializeS3Client(cfg)
-	if err != nil {
-		return nil, err
+	// Initialize S3 client (optional - only if region is configured)
+	if cfg.Streaming.S3.Region != "" {
+		s3Client, err := InitializeS3Client(cfg)
+		if err != nil {
+			return nil, err
+		}
+		services.S3Client = s3Client
 	}
-	services.S3Client = s3Client
 
 	// Initialize resilience components
 	resilienceComponents, circuitBreaker, err := InitializeResilienceComponents(cfg, services)
@@ -107,6 +110,20 @@ func InitializeAPIServices(cfg *config.Config) (*Services, error) {
 // Close closes all service connections gracefully
 func (s *Services) Close() error {
 	var errors []error
+
+	// Close resilience components first to stop background goroutines
+	if s.ResilienceComponents != nil {
+		if s.ResilienceComponents.KinesisBuffer != nil {
+			if err := s.ResilienceComponents.KinesisBuffer.Close(context.Background()); err != nil {
+				errors = append(errors, fmt.Errorf("failed to close KinesisBuffer: %w", err))
+			}
+		}
+		if s.ResilienceComponents.RateLimiter != nil {
+			if err := s.ResilienceComponents.RateLimiter.Close(); err != nil {
+				errors = append(errors, fmt.Errorf("failed to close RateLimiter: %w", err))
+			}
+		}
+	}
 
 	if s.ClickHouseClient != nil {
 		if err := s.ClickHouseClient.Close(); err != nil {

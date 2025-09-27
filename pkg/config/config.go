@@ -194,8 +194,9 @@ type CircuitBreakerConfig struct {
 }
 
 type DLQConfig struct {
-	AccountID        string `yaml:"account_id"`
-	QueueName        string `yaml:"queue_name"`
+	QueueURL         string `yaml:"queue_url"`         // Full SQS URL (takes precedence if provided)
+	AccountID        string `yaml:"account_id"`        // AWS Account ID (for backward compatibility)
+	QueueName        string `yaml:"queue_name"`        // Queue name (for backward compatibility)
 	MaxRetries       int    `yaml:"max_retries"`
 	RetryBaseDelayMs int    `yaml:"retry_base_delay_ms"`
 	RetryMaxDelayMs  int    `yaml:"retry_max_delay_ms"`

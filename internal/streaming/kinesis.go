@@ -63,12 +63,33 @@ type KinesisClient struct {
 // Note: TelemetryEvent and TelemetryMetadata are now defined in handler.go
 
 func NewKinesisClient(cfg *config.KinesisConfig) (*KinesisClient, error) {
-	// Load AWS config
-	awsCfg, err := awsconfig.LoadDefaultConfig(context.TODO(),
-		awsconfig.WithRegion(cfg.Region),
-	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to load AWS config: %w", err)
+	// Load AWS configuration with proper credential handling
+	var awsCfg aws.Config
+	var err error
+
+	// Honor configured credentials if provided (for LocalStack or dedicated IAM users)
+	if cfg.AccessKeyID != "" && cfg.SecretAccessKey != "" {
+		// Use explicit credentials
+		awsCfg, err = awsconfig.LoadDefaultConfig(context.TODO(),
+			awsconfig.WithRegion(cfg.Region),
+			awsconfig.WithCredentialsProvider(aws.CredentialsProviderFunc(func(ctx context.Context) (aws.Credentials, error) {
+				return aws.Credentials{
+					AccessKeyID:     cfg.AccessKeyID,
+					SecretAccessKey: cfg.SecretAccessKey,
+				}, nil
+			})),
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to load AWS config with credentials: %w", err)
+		}
+	} else {
+		// Fall back to default credential chain (environment, instance role, etc.)
+		awsCfg, err = awsconfig.LoadDefaultConfig(context.TODO(),
+			awsconfig.WithRegion(cfg.Region),
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to load AWS config: %w", err)
+		}
 	}
 
 	// Override endpoint if specified (for LocalStack)

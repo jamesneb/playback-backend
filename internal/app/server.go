@@ -75,13 +75,23 @@ func (s *Server) Start() error {
 
 // startHTTPServer starts the HTTP server in a goroutine
 func (s *Server) startHTTPServer(wg *sync.WaitGroup) error {
-	// Create REST API server
+	// Create REST API server with configurable API version and prefix
+	apiVersion := s.cfg.API.Version
+	if apiVersion == "" {
+		apiVersion = "v1" // Default fallback
+	}
+
+	apiPrefix := s.cfg.API.Prefix
+	if apiPrefix == "" {
+		apiPrefix = "api" // Default fallback
+	}
+
 	restDeps := &rest.Dependencies{
 		Config:               s.cfg,
 		KinesisClient:        s.services.KinesisClient,
 		ClickHouseClient:     s.services.ClickHouseClient,
 		S3Client:             s.services.S3Client,
-		Endpoints:            api.NewEndpointCollection(""), // Base URL will be set by server
+		Endpoints:            api.NewEndpointCollectionWithConfig("", apiVersion, apiPrefix), // Use configured API version and prefix
 		ResilienceComponents: s.services.ResilienceComponents,
 	}
 

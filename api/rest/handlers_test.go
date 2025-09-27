@@ -101,37 +101,6 @@ func TestAPIHandlers_FieldTypes(t *testing.T) {
 	assert.True(t, true, "All field types are compatible")
 }
 
-func TestHandlersSingleton_Structure(t *testing.T) {
-	// Test that handlersSingleton type exists and can be used
-	// (Note: we can't directly test the private singleton, but we can test its type)
-	singleton := &handlersSingleton{
-		handlers: make(map[string]*APIHandlers),
-	}
-
-	assert.NotNil(t, singleton)
-	assert.NotNil(t, singleton.handlers)
-	assert.Equal(t, 0, len(singleton.handlers))
-}
-
-func TestHandlersSingleton_MapOperations(t *testing.T) {
-	// Test basic map operations on the handlers map
-	singleton := &handlersSingleton{
-		handlers: make(map[string]*APIHandlers),
-	}
-
-	// Test adding handlers
-	key := "test-key"
-	handlers := &APIHandlers{}
-	singleton.handlers[key] = handlers
-
-	// Test retrieval
-	retrieved, exists := singleton.handlers[key]
-	assert.True(t, exists)
-	assert.Equal(t, handlers, retrieved)
-
-	// Test map length
-	assert.Equal(t, 1, len(singleton.handlers))
-}
 
 func TestDependenciesWithFullConfiguration(t *testing.T) {
 	// Test Dependencies with more complete configuration

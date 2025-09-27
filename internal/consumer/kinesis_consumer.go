@@ -25,6 +25,7 @@ import (
 type KinesisConsumer struct {
 	client      *kinesis.Client
 	clickhouse  *storage.ClickHouseClient
+	cfg         *ConsumerConfig  // Add config field
 	streams     map[string]string
 	shardStates map[string]string // streamName -> shardIterator
 	stopChan    chan struct{}
@@ -79,6 +80,7 @@ func NewKinesisConsumer(cfg *ConsumerConfig, clickhouse *storage.ClickHouseClien
 	return &KinesisConsumer{
 		client:      client,
 		clickhouse:  clickhouse,
+		cfg:         cfg,  // Store config
 		streams:     cfg.Streams,
 		shardStates: make(map[string]string),
 		stopChan:    make(chan struct{}),
@@ -156,11 +158,21 @@ func (kc *KinesisConsumer) initializeShardIterator(ctx context.Context, streamTy
 func (kc *KinesisConsumer) consumeStream(ctx context.Context, streamType, streamName string) {
 	defer kc.wg.Done()
 
-	logger.Info("Starting consumer for stream", 
-		zap.String("type", streamType), 
+	logger.Info("Starting consumer for stream",
+		zap.String("type", streamType),
 		zap.String("stream", streamName))
 
-	ticker := time.NewTicker(1 * time.Second) // Poll every second
+	// Use configured poll interval instead of hardcoded 1 second
+	pollInterval := kc.cfg.PollInterval
+	if pollInterval <= 0 {
+		pollInterval = 1 * time.Second // Fallback to 1 second if not configured
+	}
+
+	logger.Debug("Consumer poll interval configured",
+		zap.String("stream", streamName),
+		zap.Duration("interval", pollInterval))
+
+	ticker := time.NewTicker(pollInterval)
 	defer ticker.Stop()
 
 	for {

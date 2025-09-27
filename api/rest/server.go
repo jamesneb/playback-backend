@@ -110,6 +110,9 @@ func setupMiddleware(r *gin.Engine, cfg *config.Config) error {
 	// Security headers middleware
 	r.Use(securityHeadersMiddleware(cfg))
 
+	// Rate limiting middleware (before other middleware to fail fast)
+	r.Use(RateLimitingMiddleware(cfg))
+
 	// Compression middleware
 	r.Use(compressionMiddleware())
 

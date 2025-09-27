@@ -11,6 +11,18 @@ import (
 	"google.golang.org/grpc"
 )
 
+// rateLimitConfig implements RateLimitConfig interface
+type rateLimitConfig struct {
+	requestsPerSecond int
+	burstCapacity     int
+}
+
+// GetRequestsPerSecond returns the requests per second limit
+func (r *rateLimitConfig) GetRequestsPerSecond() int { return r.requestsPerSecond }
+
+// GetBurstCapacity returns the burst capacity limit
+func (r *rateLimitConfig) GetBurstCapacity() int { return r.burstCapacity }
+
 // Server manages the gRPC server with clean separation of concerns
 type Server struct {
 	config   *ServerConfig
@@ -18,7 +30,7 @@ type Server struct {
 	server   *grpc.Server
 }
 
-// NewServer creates a new gRPC server with all services configured
+// NewServer creates a new gRPC server with rate limiting and all services configured
 func NewServer(config *ServerConfig, services *ServiceCollection) (*Server, error) {
 	if config == nil {
 		return nil, fmt.Errorf("%s", ErrConfigNil)
@@ -30,10 +42,24 @@ func NewServer(config *ServerConfig, services *ServiceCollection) (*Server, erro
 		return nil, fmt.Errorf("%s", ErrServerAddressEmpty)
 	}
 
-	// Create gRPC server with configured options
+	// Create default rate limiting configuration
+	defaultConfig := &rateLimitConfig{
+		requestsPerSecond: 100,
+		burstCapacity:     200,
+	}
+
+	// Chain multiple rate limiting interceptors
+	rateLimitingInterceptor := ChainGRPCInterceptors(
+		GRPCRateLimitingInterceptor(defaultConfig),   // Global rate limiting
+		MethodSpecificRateLimitingInterceptor(),      // Method-specific limits
+		SizeBasedGRPCRateLimitingInterceptor(),       // Size-based limits
+	)
+
+	// Create gRPC server with configured options including rate limiting
 	grpcServer := grpc.NewServer(
 		grpc.MaxRecvMsgSize(int(config.MaxRecvMsgSize)),
 		grpc.MaxSendMsgSize(int(config.MaxSendMsgSize)),
+		grpc.UnaryInterceptor(rateLimitingInterceptor),
 	)
 
 	// Register all services

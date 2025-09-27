@@ -55,11 +55,15 @@ func InitializeResilienceComponents(cfg *config.Config, services *Services) (*in
 		awsConfig.BaseEndpoint = aws.String(cfg.Streaming.Kinesis.EndpointURL)
 	}
 
-	// Initialize dead letter queue from config
-	dlqURL := fmt.Sprintf("https://sqs.%s.amazonaws.com/%s/%s",
-		cfg.Streaming.Kinesis.Region,
-		cfg.Resilience.DeadLetterQueue.AccountID,
-		cfg.Resilience.DeadLetterQueue.QueueName)
+	// Initialize dead letter queue using same AWS config as other services
+	dlqURL := cfg.Resilience.DeadLetterQueue.QueueURL
+	if dlqURL == "" {
+		// If no URL provided, construct from components (for backward compatibility)
+		dlqURL = fmt.Sprintf("https://sqs.%s.amazonaws.com/%s/%s",
+			cfg.Streaming.Kinesis.Region,
+			cfg.Resilience.DeadLetterQueue.AccountID,
+			cfg.Resilience.DeadLetterQueue.QueueName)
+	}
 
 	dlq := resilience.NewDeadLetterQueue(awsConfig, resilience.DLQConfig{
 		QueueURL:       dlqURL,

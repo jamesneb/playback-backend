@@ -1,6 +1,9 @@
 package validation
 
 import (
+	"runtime"
+	"sync/atomic"
+
 	logspb "go.opentelemetry.io/proto/otlp/logs/v1"
 	metricspb "go.opentelemetry.io/proto/otlp/metrics/v1"
 	tracepb "go.opentelemetry.io/proto/otlp/trace/v1"
@@ -16,11 +19,15 @@ type (
 
 // Size constants
 const (
-	MaxProtobufTraceSize   MessageSize = 8 * 1024 * 1024  // 8MB max for trace data
-	MaxProtobufMetricsSize MessageSize = 4 * 1024 * 1024  // 4MB max for metrics data
-	MaxProtobufLogsSize    MessageSize = 2 * 1024 * 1024  // 2MB max for logs data
-	MaxProtobufSpansCount  int         = 10000            // Max spans per request
-	MaxProtobufScopeCount  int         = 100              // Max scopes per resource
+	MaxProtobufTraceSize   MessageSize = 4 * 1024 * 1024  // 4MB max for trace data (reduced from 8MB)
+	MaxProtobufMetricsSize MessageSize = 2 * 1024 * 1024  // 2MB max for metrics data (reduced from 4MB)
+	MaxProtobufLogsSize    MessageSize = 1 * 1024 * 1024  // 1MB max for logs data (reduced from 2MB)
+	MaxProtobufSpansCount  int         = 5000             // Max spans per request (reduced from 10000)
+	MaxProtobufScopeCount  int         = 50               // Max scopes per resource (reduced from 100)
+
+	// Memory pressure thresholds
+	MemoryPressureThresholdBytes = 512 * 1024 * 1024 // 512MB heap threshold
+	MaxConcurrentRequests        = 100                // Max concurrent protobuf validations
 )
 
 // Error constants
@@ -30,18 +37,51 @@ const (
 	ErrProtobufSpanCount      = "too many spans in trace request"
 	ErrProtobufScopeCount     = "too many scopes in resource"
 	ErrProtobufMarshalFailed  = "failed to marshal protobuf data"
+	ErrMemoryPressure         = "system under memory pressure, rejecting request"
+	ErrTooManyRequests        = "too many concurrent requests"
 )
 
-// ProtobufValidator provides validation for OTLP protobuf messages
-type ProtobufValidator struct{}
+// ProtobufValidator provides validation for OTLP protobuf messages with memory monitoring
+type ProtobufValidator struct{
+	concurrentRequests int64 // Atomic counter for concurrent requests
+}
 
 // NewProtobufValidator creates a new protobuf validator
 func NewProtobufValidator() *ProtobufValidator {
 	return &ProtobufValidator{}
 }
 
-// ValidateTraceRequest validates an OTLP trace export request
+// checkMemoryPressure validates system memory state before processing
+func (v *ProtobufValidator) checkMemoryPressure() error {
+	// Check concurrent request limit
+	current := atomic.LoadInt64(&v.concurrentRequests)
+	if current >= MaxConcurrentRequests {
+		return status.Errorf(codes.ResourceExhausted, ErrTooManyRequests+": %d concurrent requests", current)
+	}
+
+	// Check memory pressure
+	var memStats runtime.MemStats
+	runtime.ReadMemStats(&memStats)
+	if memStats.HeapInuse > MemoryPressureThresholdBytes {
+		return status.Errorf(codes.ResourceExhausted,
+			ErrMemoryPressure+": heap usage %dMB exceeds threshold %dMB",
+			memStats.HeapInuse/(1024*1024), MemoryPressureThresholdBytes/(1024*1024))
+	}
+
+	return nil
+}
+
+// ValidateTraceRequest validates an OTLP trace export request with memory monitoring
 func (v *ProtobufValidator) ValidateTraceRequest(req *tracepb.TracesData) error {
+	// Check memory pressure first
+	if err := v.checkMemoryPressure(); err != nil {
+		return err
+	}
+
+	// Increment concurrent request counter
+	atomic.AddInt64(&v.concurrentRequests, 1)
+	defer atomic.AddInt64(&v.concurrentRequests, -1)
+
 	if req == nil {
 		return status.Errorf(codes.InvalidArgument, ErrProtobufInvalidData+": request is nil")
 	}
@@ -110,8 +150,17 @@ func (v *ProtobufValidator) ValidateTraceRequest(req *tracepb.TracesData) error 
 	return nil
 }
 
-// ValidateMetricsRequest validates an OTLP metrics export request
+// ValidateMetricsRequest validates an OTLP metrics export request with memory monitoring
 func (v *ProtobufValidator) ValidateMetricsRequest(req *metricspb.MetricsData) error {
+	// Check memory pressure first
+	if err := v.checkMemoryPressure(); err != nil {
+		return err
+	}
+
+	// Increment concurrent request counter
+	atomic.AddInt64(&v.concurrentRequests, 1)
+	defer atomic.AddInt64(&v.concurrentRequests, -1)
+
 	if req == nil {
 		return status.Errorf(codes.InvalidArgument, ErrProtobufInvalidData+": request is nil")
 	}
@@ -163,8 +212,17 @@ func (v *ProtobufValidator) ValidateMetricsRequest(req *metricspb.MetricsData) e
 	return nil
 }
 
-// ValidateLogsRequest validates an OTLP logs export request
+// ValidateLogsRequest validates an OTLP logs export request with memory monitoring
 func (v *ProtobufValidator) ValidateLogsRequest(req *logspb.LogsData) error {
+	// Check memory pressure first
+	if err := v.checkMemoryPressure(); err != nil {
+		return err
+	}
+
+	// Increment concurrent request counter
+	atomic.AddInt64(&v.concurrentRequests, 1)
+	defer atomic.AddInt64(&v.concurrentRequests, -1)
+
 	if req == nil {
 		return status.Errorf(codes.InvalidArgument, ErrProtobufInvalidData+": request is nil")
 	}

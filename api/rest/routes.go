@@ -47,11 +47,10 @@ func setupAPIRoutes(r *gin.Engine, deps *Dependencies) error {
 		return errors.New("kinesis client is required for API routes")
 	}
 
-	// Get singleton handlers
-	singleton := getHandlersSingleton()
-	apiHandlers, err := singleton.getOrCreateHandlers(deps)
+	// Create API handlers directly (no caching complexity)
+	apiHandlers, err := NewAPIHandlers(deps)
 	if err != nil {
-		return fmt.Errorf("failed to get API handlers: %w", err)
+		return fmt.Errorf("failed to create API handlers: %w", err)
 	}
 
 	// API routes using centralized endpoints
@@ -380,22 +379,44 @@ func getRuntimeVersion() string {
 	return sanitized
 }
 
-// setupTraceRoutes configures trace-related routes
+// setupTraceRoutes configures trace-related routes with rate limiting
 func setupTraceRoutes(api *gin.RouterGroup, handler *handlers.TraceHandler, endpoints *api.EndpointCollection) {
-	api.POST(endpoints.TracesRelative(), handler.CreateTrace)
-	api.GET(endpoints.TraceByIDRelative(), handler.GetTrace)
+	// Add path-specific rate limiting for trace ingestion (high volume)
+	api.POST(endpoints.TracesRelative(),
+		PathSpecificRateLimitMiddleware(50, 100), // 50 RPS, 100 burst
+		SizeBasedRateLimitMiddleware(),           // Different limits for large payloads
+		handler.CreateTrace)
+
+	// Lower rate limit for trace queries
+	api.GET(endpoints.TraceByIDRelative(),
+		PathSpecificRateLimitMiddleware(20, 40), // 20 RPS, 40 burst
+		handler.GetTrace)
 }
 
-// setupMetricsRoutes configures metrics-related routes
+// setupMetricsRoutes configures metrics-related routes with rate limiting
 func setupMetricsRoutes(api *gin.RouterGroup, handler *handlers.MetricsHandler, endpoints *api.EndpointCollection) {
-	api.POST(endpoints.MetricsRelative(), handler.CreateMetrics)
-	api.GET(endpoints.MetricsRelative(), handler.GetMetrics)
+	// Metrics have moderate volume, stricter limits than traces
+	api.POST(endpoints.MetricsRelative(),
+		PathSpecificRateLimitMiddleware(30, 60), // 30 RPS, 60 burst
+		SizeBasedRateLimitMiddleware(),          // Size-based limits
+		handler.CreateMetrics)
+
+	api.GET(endpoints.MetricsRelative(),
+		PathSpecificRateLimitMiddleware(15, 30), // 15 RPS, 30 burst
+		handler.GetMetrics)
 }
 
-// setupLogsRoutes configures logs-related routes
+// setupLogsRoutes configures logs-related routes with rate limiting
 func setupLogsRoutes(api *gin.RouterGroup, handler *handlers.LogsHandler, endpoints *api.EndpointCollection) {
-	api.POST(endpoints.LogsRelative(), handler.CreateLogs)
-	api.GET(endpoints.LogsRelative(), handler.GetLogs)
+	// Logs can be high volume, similar to traces but slightly more restrictive
+	api.POST(endpoints.LogsRelative(),
+		PathSpecificRateLimitMiddleware(40, 80), // 40 RPS, 80 burst
+		SizeBasedRateLimitMiddleware(),          // Size-based limits
+		handler.CreateLogs)
+
+	api.GET(endpoints.LogsRelative(),
+		PathSpecificRateLimitMiddleware(15, 30), // 15 RPS, 30 burst
+		handler.GetLogs)
 }
 
 // setupReplayRoutes configures replay-related routes

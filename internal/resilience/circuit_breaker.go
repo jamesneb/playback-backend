@@ -3,6 +3,7 @@ package resilience
 import (
 	"errors"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/jamesneb/playback-backend/pkg/logger"
@@ -23,7 +24,7 @@ var (
 	ErrTooManyRequests    = errors.New("too many requests")
 )
 
-// CircuitBreaker implements a circuit breaker pattern
+// CircuitBreaker implements a circuit breaker pattern with metrics
 type CircuitBreaker struct {
 	name                string
 	maxRequests         uint32
@@ -31,12 +32,22 @@ type CircuitBreaker struct {
 	timeout             time.Duration
 	readyToTrip         func(counts Counts) bool
 	onStateChange       func(name string, from, to CircuitBreakerState)
-	
+
 	mutex      sync.Mutex
 	state      CircuitBreakerState
 	generation uint64
 	counts     Counts
 	expiry     time.Time
+
+	// Metrics (atomic counters for thread-safe metrics collection)
+	totalRequestsCount    int64 // Total requests processed
+	totalSuccessCount     int64 // Total successful requests
+	totalFailureCount     int64 // Total failed requests
+	totalRejectedCount    int64 // Total requests rejected due to open circuit
+	lastStateChangeTime   int64 // Unix timestamp of last state change
+	timeSpentClosed       int64 // Total time spent in closed state (nanoseconds)
+	timeSpentOpen         int64 // Total time spent in open state (nanoseconds)
+	timeSpentHalfOpen     int64 // Total time spent in half-open state (nanoseconds)
 }
 
 // Counts holds the numbers of requests and their successes/failures
@@ -98,6 +109,9 @@ func NewCircuitBreaker(st Settings) *CircuitBreaker {
 
 	cb.toNewGeneration(time.Now())
 
+	// Initialize metrics
+	atomic.StoreInt64(&cb.lastStateChangeTime, time.Now().UnixNano())
+
 	return cb
 }
 
@@ -136,9 +150,14 @@ func (cb *CircuitBreaker) beforeRequest() (uint64, error) {
 	now := time.Now()
 	state, generation := cb.currentState(now)
 
+	// Update metrics
+	atomic.AddInt64(&cb.totalRequestsCount, 1)
+
 	if state == StateOpen {
+		atomic.AddInt64(&cb.totalRejectedCount, 1)
 		return generation, ErrCircuitBreakerOpen
 	} else if state == StateHalfOpen && cb.counts.Requests >= cb.maxRequests {
+		atomic.AddInt64(&cb.totalRejectedCount, 1)
 		return generation, ErrTooManyRequests
 	}
 
@@ -168,6 +187,9 @@ func (cb *CircuitBreaker) onSuccess(state CircuitBreakerState, now time.Time) {
 	cb.counts.ConsecutiveSuccesses++
 	cb.counts.ConsecutiveFailures = 0
 
+	// Update success metrics
+	atomic.AddInt64(&cb.totalSuccessCount, 1)
+
 	if state == StateHalfOpen {
 		cb.setState(StateClosed, now)
 	}
@@ -177,6 +199,9 @@ func (cb *CircuitBreaker) onFailure(state CircuitBreakerState, now time.Time) {
 	cb.counts.TotalFailures++
 	cb.counts.ConsecutiveFailures++
 	cb.counts.ConsecutiveSuccesses = 0
+
+	// Update failure metrics
+	atomic.AddInt64(&cb.totalFailureCount, 1)
 
 	if cb.readyToTrip(cb.counts) {
 		cb.setState(StateOpen, now)
@@ -202,9 +227,26 @@ func (cb *CircuitBreaker) setState(state CircuitBreakerState, now time.Time) {
 		return
 	}
 
+	// Track time spent in previous state
+	lastStateChangeTime := atomic.LoadInt64(&cb.lastStateChangeTime)
+	if lastStateChangeTime > 0 {
+		timeDiff := now.UnixNano() - lastStateChangeTime
+		switch cb.state {
+		case StateClosed:
+			atomic.AddInt64(&cb.timeSpentClosed, timeDiff)
+		case StateOpen:
+			atomic.AddInt64(&cb.timeSpentOpen, timeDiff)
+		case StateHalfOpen:
+			atomic.AddInt64(&cb.timeSpentHalfOpen, timeDiff)
+		}
+	}
+
 	prev := cb.state
 	cb.state = state
 	cb.toNewGeneration(now)
+
+	// Update state change timestamp
+	atomic.StoreInt64(&cb.lastStateChangeTime, now.UnixNano())
 
 	if cb.onStateChange != nil {
 		cb.onStateChange(cb.name, prev, state)
@@ -259,4 +301,79 @@ func (cb *CircuitBreaker) Counts() Counts {
 	defer cb.mutex.Unlock()
 
 	return cb.counts
+}
+
+// CircuitBreakerMetrics holds comprehensive metrics for the circuit breaker
+type CircuitBreakerMetrics struct {
+	Name                 string                `json:"name"`
+	State                CircuitBreakerState   `json:"state"`
+	StateString          string                `json:"state_string"`
+	TotalRequests        int64                 `json:"total_requests"`
+	TotalSuccesses       int64                 `json:"total_successes"`
+	TotalFailures        int64                 `json:"total_failures"`
+	TotalRejected        int64                 `json:"total_rejected"`
+	SuccessRate          float64               `json:"success_rate"`
+	FailureRate          float64               `json:"failure_rate"`
+	RejectionRate        float64               `json:"rejection_rate"`
+	TimeSpentClosed      time.Duration         `json:"time_spent_closed_ns"`
+	TimeSpentOpen        time.Duration         `json:"time_spent_open_ns"`
+	TimeSpentHalfOpen    time.Duration         `json:"time_spent_half_open_ns"`
+	LastStateChange      time.Time             `json:"last_state_change"`
+	CurrentCounts        Counts                `json:"current_counts"`
+}
+
+// Metrics returns comprehensive metrics for the circuit breaker
+func (cb *CircuitBreaker) Metrics() CircuitBreakerMetrics {
+	cb.mutex.Lock()
+	currentState := cb.state
+	currentCounts := cb.counts
+	cb.mutex.Unlock()
+
+	// Load atomic metrics
+	totalRequests := atomic.LoadInt64(&cb.totalRequestsCount)
+	totalSuccesses := atomic.LoadInt64(&cb.totalSuccessCount)
+	totalFailures := atomic.LoadInt64(&cb.totalFailureCount)
+	totalRejected := atomic.LoadInt64(&cb.totalRejectedCount)
+	timeSpentClosed := atomic.LoadInt64(&cb.timeSpentClosed)
+	timeSpentOpen := atomic.LoadInt64(&cb.timeSpentOpen)
+	timeSpentHalfOpen := atomic.LoadInt64(&cb.timeSpentHalfOpen)
+	lastStateChangeTime := atomic.LoadInt64(&cb.lastStateChangeTime)
+
+	// Calculate rates
+	var successRate, failureRate, rejectionRate float64
+	if totalRequests > 0 {
+		successRate = float64(totalSuccesses) / float64(totalRequests)
+		failureRate = float64(totalFailures) / float64(totalRequests)
+		rejectionRate = float64(totalRejected) / float64(totalRequests)
+	}
+
+	return CircuitBreakerMetrics{
+		Name:                 cb.name,
+		State:                currentState,
+		StateString:          cb.stateString(currentState),
+		TotalRequests:        totalRequests,
+		TotalSuccesses:       totalSuccesses,
+		TotalFailures:        totalFailures,
+		TotalRejected:        totalRejected,
+		SuccessRate:          successRate,
+		FailureRate:          failureRate,
+		RejectionRate:        rejectionRate,
+		TimeSpentClosed:      time.Duration(timeSpentClosed),
+		TimeSpentOpen:        time.Duration(timeSpentOpen),
+		TimeSpentHalfOpen:    time.Duration(timeSpentHalfOpen),
+		LastStateChange:      time.Unix(0, lastStateChangeTime),
+		CurrentCounts:        currentCounts,
+	}
+}
+
+// ResetMetrics resets all metrics counters (useful for testing or periodic resets)
+func (cb *CircuitBreaker) ResetMetrics() {
+	atomic.StoreInt64(&cb.totalRequestsCount, 0)
+	atomic.StoreInt64(&cb.totalSuccessCount, 0)
+	atomic.StoreInt64(&cb.totalFailureCount, 0)
+	atomic.StoreInt64(&cb.totalRejectedCount, 0)
+	atomic.StoreInt64(&cb.timeSpentClosed, 0)
+	atomic.StoreInt64(&cb.timeSpentOpen, 0)
+	atomic.StoreInt64(&cb.timeSpentHalfOpen, 0)
+	atomic.StoreInt64(&cb.lastStateChangeTime, time.Now().UnixNano())
 }

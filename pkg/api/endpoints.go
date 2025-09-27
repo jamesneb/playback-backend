@@ -9,19 +9,33 @@ import (
 type APIEndpoints struct {
 	BaseURL    string
 	APIVersion string
+	APIPrefix  string
 }
 
-// NewAPIEndpoints creates a new endpoint collection
+// NewAPIEndpoints creates a new endpoint collection with default prefix
 func NewAPIEndpoints(baseURL, version string) *APIEndpoints {
 	return &APIEndpoints{
 		BaseURL:    baseURL,
 		APIVersion: version,
+		APIPrefix:  "api", // Default prefix
+	}
+}
+
+// NewAPIEndpointsWithPrefix creates a new endpoint collection with configurable prefix
+func NewAPIEndpointsWithPrefix(baseURL, version, prefix string) *APIEndpoints {
+	if prefix == "" {
+		prefix = "api" // Default fallback
+	}
+	return &APIEndpoints{
+		BaseURL:    baseURL,
+		APIVersion: version,
+		APIPrefix:  prefix,
 	}
 }
 
 // Base paths
 func (e *APIEndpoints) BasePath() string {
-	return fmt.Sprintf("/api/%s", e.APIVersion)
+	return fmt.Sprintf("/%s/%s", e.APIPrefix, e.APIVersion)
 }
 
 // Health and system endpoints
@@ -142,10 +156,30 @@ type EndpointCollection struct {
 	*APIEndpoints
 }
 
-// NewEndpointCollection creates a new collection with default settings
+// NewEndpointCollection creates a new collection with default settings (v1)
 func NewEndpointCollection(baseURL string) *EndpointCollection {
 	return &EndpointCollection{
 		APIEndpoints: NewAPIEndpoints(baseURL, "v1"),
+	}
+}
+
+// NewEndpointCollectionWithVersion creates a new collection with configurable version
+func NewEndpointCollectionWithVersion(baseURL string, version string) *EndpointCollection {
+	if version == "" {
+		version = "v1" // Default fallback
+	}
+	return &EndpointCollection{
+		APIEndpoints: NewAPIEndpoints(baseURL, version),
+	}
+}
+
+// NewEndpointCollectionWithConfig creates a new collection with configurable version and prefix
+func NewEndpointCollectionWithConfig(baseURL string, version string, prefix string) *EndpointCollection {
+	if version == "" {
+		version = "v1" // Default fallback
+	}
+	return &EndpointCollection{
+		APIEndpoints: NewAPIEndpointsWithPrefix(baseURL, version, prefix),
 	}
 }
 

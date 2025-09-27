@@ -1,11 +1,7 @@
 package rest
 
 import (
-	"context"
-	"crypto/sha256"
 	"errors"
-	"fmt"
-	"sync"
 
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/jamesneb/playback-backend/internal/handlers"
@@ -14,8 +10,6 @@ import (
 	"github.com/jamesneb/playback-backend/internal/streaming"
 	"github.com/jamesneb/playback-backend/pkg/api"
 	"github.com/jamesneb/playback-backend/pkg/config"
-	"github.com/jamesneb/playback-backend/pkg/logger"
-	"go.uber.org/zap"
 )
 
 // Dependencies holds all the dependencies needed by the REST API
@@ -36,119 +30,15 @@ type APIHandlers struct {
 	Replay  *handlers.ReplayHandler
 }
 
-// handlersSingleton manages singleton handler instances
-type handlersSingleton struct {
-	mu       sync.RWMutex
-	handlers map[string]*APIHandlers
+// NewAPIHandlers creates API handlers directly without caching complexity
+func NewAPIHandlers(deps *Dependencies) (*APIHandlers, error) {
+	if deps == nil {
+		return nil, errors.New(ERROR_DEPENDENCIES_NIL)
+	}
+
+	return createHandlers(deps)
 }
 
-var (
-	handlersInstance *handlersSingleton
-	handlersOnce     sync.Once
-)
-
-// getHandlersSingleton returns the singleton instance
-func getHandlersSingleton() *handlersSingleton {
-	handlersOnce.Do(func() {
-		handlersInstance = &handlersSingleton{
-			handlers: make(map[string]*APIHandlers),
-		}
-	})
-	return handlersInstance
-}
-
-// getOrCreateHandlers returns cached handlers or creates new ones (thread-safe)
-func (hs *handlersSingleton) getOrCreateHandlers(deps *Dependencies) (*APIHandlers, error) {
-	// Create a unique key based on dependency configuration
-	key, err := createDependencyKeyWithTimeout(deps)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create dependency key: %w", err)
-	}
-
-	// Try to get existing handlers with read lock
-	hs.mu.RLock()
-	if handlers, exists := hs.handlers[key]; exists {
-		hs.mu.RUnlock()
-		return handlers, nil
-	}
-	hs.mu.RUnlock()
-
-	// Handlers don't exist, create them with write lock
-	hs.mu.Lock()
-	defer hs.mu.Unlock()
-
-	// Double-check after acquiring write lock (still protected by write lock)
-	if handlers, exists := hs.handlers[key]; exists {
-		return handlers, nil
-	}
-
-	// Create new handlers
-	newHandlers, err := createHandlers(deps)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create handlers: %w", err)
-	}
-
-	hs.handlers[key] = newHandlers
-	logger.Debug("Created new handler set",
-		zap.String("key", key),
-		zap.Int("total_handler_sets", len(hs.handlers)))
-	return newHandlers, nil
-}
-
-// createDependencyKeyWithTimeout creates a unique key with timeout protection
-func createDependencyKeyWithTimeout(deps *Dependencies) (string, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), HASH_COMPUTATION_TIMEOUT)
-	defer cancel()
-
-	done := make(chan string, CHANNEL_BUFFER_SIZE)
-	errCh := make(chan error, CHANNEL_BUFFER_SIZE)
-
-	go func() {
-		key, err := computeDependencyKey(deps)
-		if err != nil {
-			errCh <- err
-			return
-		}
-		done <- key
-	}()
-
-	select {
-	case key := <-done:
-		return key, nil
-	case err := <-errCh:
-		return "", err
-	case <-ctx.Done():
-		return "", errors.New(ERROR_DEPENDENCY_KEY_TIMEOUT)
-	}
-}
-
-// computeDependencyKey performs the actual key computation
-func computeDependencyKey(deps *Dependencies) (string, error) {
-	hasher := sha256.New()
-
-	// Hash actual pointer values to ensure different instances get different keys
-	// This prevents reusing handlers when dependencies are swapped
-	if deps.KinesisClient != nil {
-		hasher.Write([]byte(fmt.Sprintf("kinesis:%p", deps.KinesisClient)))
-	}
-	if deps.S3Client != nil {
-		hasher.Write([]byte(fmt.Sprintf("s3:%p", deps.S3Client)))
-	}
-	if deps.ResilienceComponents != nil {
-		hasher.Write([]byte(fmt.Sprintf("resilience:%p", deps.ResilienceComponents)))
-	}
-	if deps.ClickHouseClient != nil {
-		hasher.Write([]byte(fmt.Sprintf("clickhouse:%p", deps.ClickHouseClient)))
-	}
-	if deps.Config != nil {
-		hasher.Write([]byte(fmt.Sprintf("config:%p", deps.Config)))
-	}
-	if deps.Endpoints != nil {
-		hasher.Write([]byte(fmt.Sprintf("endpoints:%p", deps.Endpoints)))
-	}
-
-	return fmt.Sprintf("%x", hasher.Sum(nil))[:DEPENDENCY_KEY_LENGTH], nil
-}
 
 // createHandlers creates a new set of API handlers
 func createHandlers(deps *Dependencies) (*APIHandlers, error) {

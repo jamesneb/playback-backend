@@ -10,6 +10,7 @@ import (
 	"github.com/jamesneb/playback-backend/internal/storage"
 	"github.com/jamesneb/playback-backend/internal/streaming"
 	"github.com/jamesneb/playback-backend/pkg/config"
+	"github.com/jamesneb/playback-backend/pkg/telemetry"
 )
 
 // Services holds all initialized services/clients
@@ -144,4 +145,14 @@ func (s *Services) Close() error {
 	}
 
 	return nil
+}
+
+// CreateEventPublisher creates a telemetry.EventPublisher from KinesisClient
+func CreateEventPublisher(kinesisClient *streaming.KinesisClient) telemetry.EventPublisher {
+	return streaming.NewEventPublisherAdapter(kinesisClient)
+}
+
+// CreateTelemetryStore creates a telemetry.TelemetryStore from ClickHouseClient
+func CreateTelemetryStore(clickhouseClient *storage.ClickHouseClient) telemetry.TelemetryStore {
+	return storage.NewTelemetryStoreAdapter(clickhouseClient)
 }

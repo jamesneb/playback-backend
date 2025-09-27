@@ -95,7 +95,7 @@ func (s *TraceService) Export(ctx context.Context, req *tracecollectorpb.ExportT
 		if s.rateLimiter != nil && !s.rateLimiter.Allow(tenantID) {
 			logger.Warn("Tenant rate limit exceeded for individual span", zap.String("tenant", tenantID))
 			rejectedSpans++ // Count rejected span
-			continue // Skip this span but process others
+			continue        // Skip this span but process others
 		}
 
 		logger.Debug("Created trace telemetry event", zap.String("service", event.ServiceName), zap.String("trace_id", event.TraceID), zap.String("event_type", fmt.Sprintf("%T", event)))

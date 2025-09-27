@@ -10,6 +10,8 @@ go.work
 
 # Binaries for programs and plugins
 main
+server
+consumer
 *.exe
 *.exe~
 *.dll

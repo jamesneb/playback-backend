@@ -1,6 +1,6 @@
 # Playback Backend Development Makefile
 
-.PHONY: help setup-local start-local stop-local clean-local logs test build docs deploy-dev deploy-staging deploy-prod
+.PHONY: help setup-local start-local stop-local clean-local logs test build docs docs-swagger deploy build-env release migrate
 
 # Default environment
 ENV ?= local
@@ -76,12 +76,16 @@ health: ## Check health of all services
 	@redis-cli -h localhost -p 6379 -a redis123 ping && echo "✅ Redis ready" || echo "❌ Redis not ready"
 	@curl -s http://localhost:4566/_localstack/health | jq '.' || echo "❌ LocalStack not ready"
 
-docs: ## Generate Swagger documentation with environment-specific values
+docs-swagger: ## Generate Swagger documentation with environment-specific values
 	@echo "📚 Generating Swagger docs for $(ENV) environment..."
-	@VERSION=$$(yq '.app.version' config/environments/$(ENV).yaml) && \
-	 HOST=$$(yq '.server.host' config/environments/$(ENV).yaml):$$(yq '.server.port' config/environments/$(ENV).yaml) && \
-	 swag init -g cmd/server/main.go --parseDependency --parseInternal --templateVars "Version=$$VERSION,Host=$$HOST"
-	@echo "✅ Swagger docs generated with Version: $$(yq '.app.version' config/environments/$(ENV).yaml), Host: $$(yq '.server.host' config/environments/$(ENV).yaml):$$(yq '.server.port' config/environments/$(ENV).yaml)"
+	@if [ -f "config/environments/$(ENV).yaml" ]; then \
+		VERSION=$$(yq '.app.version' config/environments/$(ENV).yaml) && \
+		HOST=$$(yq '.server.host' config/environments/$(ENV).yaml):$$(yq '.server.port' config/environments/$(ENV).yaml) && \
+		swag init -g cmd/server/main.go --parseDependency --parseInternal --templateVars "Version=$$VERSION,Host=$$HOST"; \
+	else \
+		swag init -g cmd/server/main.go --parseDependency --parseInternal; \
+	fi
+	@echo "✅ Swagger docs generated"
 
 test-load: ## Run load test against order service
 	@echo "🚀 Running load test..."
@@ -123,12 +127,12 @@ docker-build-env: ## Build Docker image for specific environment (ENV=dev|stagin
 	@docker build -t playback-backend:$(ENV) -f deployments/Dockerfile --build-arg ENV=$(ENV) .
 	@echo "✅ Docker image built for $(ENV)"
 
-docs: ## Generate documentation
-	@echo "Generating documentation..."
+docs: ## Generate all documentation (API docs and Swagger)
+	@echo "Generating all documentation..."
 	@mkdir -p docs/generated
 	@go doc -all ./... > docs/generated/api-docs.txt 2>/dev/null || echo "No docs generated"
-	@which swag > /dev/null && swag init -g cmd/server/main.go -o docs/swagger || echo "⚠️  Swagger not installed, skipping API docs"
-	@echo "✅ Documentation generated"
+	@$(MAKE) docs-swagger
+	@echo "✅ All documentation generated"
 
 test: ## Run all unit tests with coverage
 	@echo "Running comprehensive test suite..."
@@ -167,15 +171,10 @@ mod-tidy: ## Tidy go modules
 	@go mod tidy
 	@echo "✅ Modules tidied"
 
-# AWS deployment shortcuts
-deploy-dev: ## Deploy to development environment
-	@$(MAKE) apply-terraform ENV=dev
-
-deploy-staging: ## Deploy to staging environment
-	@$(MAKE) apply-terraform ENV=staging
-
-deploy-prod: ## Deploy to production environment
-	@$(MAKE) apply-terraform ENV=prod
+# Deployment shortcut (use ENV=dev|staging|prod)
+deploy: ## Deploy to specified environment (ENV=dev|staging|prod)
+	@if [ -z "$(ENV)" ] || [ "$(ENV)" = "local" ]; then echo "Error: ENV must be dev, staging, or prod"; exit 1; fi
+	@$(MAKE) apply-terraform ENV=$(ENV)
 
 # Utility commands
 create-env: ## Create new environment files (ENV=name required)
@@ -192,17 +191,10 @@ backup-local: ## Backup local data
 	@echo "✅ Backup created"
 
 # Database migration targets
-migrate: ## Run database migrations for local environment
-	@echo "Running database migrations..."
-	@ENV=local go run db/scripts/migrate.go
-
-migrate-dev: ## Run database migrations for dev environment
-	@echo "Running database migrations for dev environment..."
-	@ENV=dev go run db/scripts/migrate.go
-
-migrate-prod: ## Run database migrations for prod environment
-	@echo "Running database migrations for prod environment..."
-	@ENV=prod go run db/scripts/migrate.go
+migrate: ## Run database migrations for specified environment (ENV=local|dev|prod)
+	@echo "Running database migrations for $(ENV) environment..."
+	@if [ ! -f "db/scripts/migrate.go" ]; then echo "⚠️  Migration script not found"; exit 1; fi
+	@ENV=$(ENV) go run db/scripts/migrate.go
 
 verify-migrations: ## Verify migrations are idempotent and correct
 	@echo "Verifying database migrations..."
@@ -227,21 +219,13 @@ install-deps: ## Install development dependencies
 	@echo "✅ Dependencies installed"
 
 # Environment-specific build targets
-build-local: ## Build and start local environment
-	@$(MAKE) build-all ENV=local
-	@$(MAKE) start-local
-
-build-dev: ## Build for development environment
-	@$(MAKE) build-all ENV=dev
-	@$(MAKE) docker-build-env ENV=dev
-
-build-staging: ## Build for staging environment
-	@$(MAKE) build-all ENV=staging
-	@$(MAKE) docker-build-env ENV=staging
-
-build-prod: ## Build for production environment
-	@$(MAKE) build-all ENV=prod
-	@$(MAKE) docker-build-env ENV=prod
+build-env: ## Build for specific environment (ENV=local|dev|staging|prod)
+	@$(MAKE) build-all ENV=$(ENV)
+	@if [ "$(ENV)" = "local" ]; then \
+		$(MAKE) start-local; \
+	else \
+		$(MAKE) docker-build-env ENV=$(ENV); \
+	fi
 
 # CI/CD Pipeline targets
 ci: install-deps lint test ## CI pipeline: install deps, lint, test
@@ -253,15 +237,10 @@ cd: build-all ## CD pipeline: complete build including docs and docker
 pre-commit: fmt lint test ## Pre-commit checks
 	@echo "✅ Pre-commit checks passed"
 
-# Release targets
-release-local: build-local ## Release to local environment
-	@echo "✅ Released to local environment"
-
-release-dev: build-dev deploy-dev ## Release to development environment
-	@echo "✅ Released to development environment"
-
-release-staging: build-staging deploy-staging ## Release to staging environment
-	@echo "✅ Released to staging environment"
-
-release-prod: build-prod deploy-prod ## Release to production environment
-	@echo "✅ Released to production environment"
+# Release target
+release: ## Release to specified environment (ENV=local|dev|staging|prod)
+	@$(MAKE) build-env ENV=$(ENV)
+	@if [ "$(ENV)" != "local" ]; then \
+		$(MAKE) deploy ENV=$(ENV); \
+	fi
+	@echo "✅ Released to $(ENV) environment"

@@ -8,6 +8,9 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	commonpb "go.opentelemetry.io/proto/otlp/common/v1"
+	logspb "go.opentelemetry.io/proto/otlp/logs/v1"
+	metricspb "go.opentelemetry.io/proto/otlp/metrics/v1"
 	tracepb "go.opentelemetry.io/proto/otlp/trace/v1"
 )
 
@@ -73,7 +76,15 @@ func TestKinesisHandlerEventRouting(t *testing.T) {
 						TenantID:   "test-tenant",
 					},
 				},
-				ResourceSpans: &tracepb.ResourceSpans{}, // Mock protobuf data
+				ResourceSpans: &tracepb.ResourceSpans{
+					ScopeSpans: []*tracepb.ScopeSpans{{
+						Spans: []*tracepb.Span{{
+							Name:    "mock-span",
+							TraceId: []byte("test-trace-id-16"),
+							SpanId:  []byte("span-id8"),
+						}},
+					}},
+				}, // Mock protobuf data with content
 			},
 			description: "Trace events should have proper structure for routing",
 		},
@@ -89,7 +100,13 @@ func TestKinesisHandlerEventRouting(t *testing.T) {
 						TenantID:   "metrics-tenant",
 					},
 				},
-				ResourceMetrics: nil, // Mock protobuf data
+				ResourceMetrics: &metricspb.ResourceMetrics{
+					ScopeMetrics: []*metricspb.ScopeMetrics{{
+						Metrics: []*metricspb.Metric{{
+							Name: "mock-metric",
+						}},
+					}},
+				}, // Mock protobuf data with content
 			},
 			description: "Metrics events should have proper structure for routing",
 		},
@@ -106,7 +123,17 @@ func TestKinesisHandlerEventRouting(t *testing.T) {
 						TenantID:   "logs-tenant",
 					},
 				},
-				ResourceLogs: nil, // Mock protobuf data
+				ResourceLogs: &logspb.ResourceLogs{
+					ScopeLogs: []*logspb.ScopeLogs{{
+						LogRecords: []*logspb.LogRecord{{
+							Body: &commonpb.AnyValue{
+								Value: &commonpb.AnyValue_StringValue{
+									StringValue: "mock log message",
+								},
+							},
+						}},
+					}},
+				}, // Mock protobuf data with content
 			},
 			description: "Logs events should have proper structure for routing",
 		},
@@ -122,7 +149,15 @@ func TestKinesisHandlerEventRouting(t *testing.T) {
 						TenantID:   "default",
 					},
 				},
-				ResourceSpans: &tracepb.ResourceSpans{},
+				ResourceSpans: &tracepb.ResourceSpans{
+					ScopeSpans: []*tracepb.ScopeSpans{{
+						Spans: []*tracepb.Span{{
+							Name:    "unknown-span",
+							TraceId: []byte("unknown-trace-16"),
+							SpanId:  []byte("span-id8"),
+						}},
+					}},
+				},
 			},
 			description: "Unknown event types should have proper structure",
 		},
@@ -232,7 +267,15 @@ func TestKinesisHandlerWithRealClient(t *testing.T) {
 					TenantID:   "test",
 				},
 			},
-			ResourceSpans: &tracepb.ResourceSpans{},
+			ResourceSpans: &tracepb.ResourceSpans{
+				ScopeSpans: []*tracepb.ScopeSpans{{
+					Spans: []*tracepb.Span{{
+						Name:    "context-test-span",
+						TraceId: []byte("context-trace-16"),
+						SpanId:  []byte("span-id8"),
+					}},
+				}},
+			},
 		}
 
 		// Test context cancellation handling
@@ -268,7 +311,15 @@ func TestTelemetryEventValidation(t *testing.T) {
 						TenantID:   "complete-tenant",
 					},
 				},
-				ResourceSpans: &tracepb.ResourceSpans{},
+				ResourceSpans: &tracepb.ResourceSpans{
+					ScopeSpans: []*tracepb.ScopeSpans{{
+						Spans: []*tracepb.Span{{
+							Name:    "complete-span",
+							TraceId: []byte("complete-trace-16"),
+							SpanId:  []byte("span-id8"),
+						}},
+					}},
+				},
 			},
 			description: "Complete event should have all required fields",
 		},
@@ -283,7 +334,13 @@ func TestTelemetryEventValidation(t *testing.T) {
 						TenantID:   "default",
 					},
 				},
-				ResourceMetrics: nil,
+				ResourceMetrics: &metricspb.ResourceMetrics{
+					ScopeMetrics: []*metricspb.ScopeMetrics{{
+						Metrics: []*metricspb.Metric{{
+							Name: "minimal-metric",
+						}},
+					}},
+				},
 			},
 			description: "Minimal event should work with required fields only",
 		},

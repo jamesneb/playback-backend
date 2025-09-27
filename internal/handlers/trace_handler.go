@@ -14,6 +14,7 @@ import (
 	"github.com/jamesneb/playback-backend/internal/resilience"
 	"github.com/jamesneb/playback-backend/internal/streaming"
 	"github.com/jamesneb/playback-backend/pkg/logger"
+	"github.com/jamesneb/playback-backend/pkg/telemetry"
 	"go.uber.org/zap"
 )
 
@@ -25,8 +26,8 @@ var (
 // TraceHandler handles HTTP trace ingestion requests with comprehensive
 // validation, rate limiting, and resilience patterns.
 type TraceHandler struct {
-	kinesisClient *streaming.KinesisClient
-	validator     *RequestValidator
+	eventPublisher telemetry.EventPublisher
+	validator      *RequestValidator
 	// Resilience components
 	kinesisBuffer   *resilience.KinesisBuffer
 	rateLimiter     *resilience.TenantRateLimiter
@@ -42,10 +43,10 @@ type TraceHandler struct {
 //
 // Returns:
 //   - *TraceHandler: Fully initialized trace handler ready for request processing
-func NewTraceHandler(kinesisClient *streaming.KinesisClient, resilienceComponents *interfaces.ResilienceComponents) *TraceHandler {
+func NewTraceHandler(eventPublisher telemetry.EventPublisher, resilienceComponents *interfaces.ResilienceComponents) *TraceHandler {
 	handler := &TraceHandler{
-		kinesisClient: kinesisClient,
-		validator:     NewRequestValidator(),
+		eventPublisher: eventPublisher,
+		validator:      NewRequestValidator(),
 	}
 
 	// Handle optional resilience components gracefully
@@ -181,7 +182,7 @@ func (h *TraceHandler) applyRateLimit(c *gin.Context, tenantID string) bool {
 }
 
 func (h *TraceHandler) logIngestedTrace(c *gin.Context, metadata *traceMetadata, dataSize int) {
-	logger.Info("Received OTLP trace data",
+	logger.Debug("Received OTLP trace data",
 		zap.String("service_name", logging.SanitizeServiceName(metadata.ServiceName)),
 		zap.String("trace_id", logging.SanitizeTraceID(metadata.TraceID)),
 		zap.String("tenant", logging.SanitizeTenantID(metadata.TenantID)),
@@ -216,7 +217,7 @@ func (h *TraceHandler) publishTraceToKinesis(c *gin.Context, otlpData json.RawMe
 		err = h.kinesisBuffer.BufferEvent(ctx, event, metadata.TenantID, "http")
 	} else {
 		// Fallback to direct Kinesis (original behavior)
-		err = h.kinesisClient.PublishTrace(
+		err = h.eventPublisher.PublishTrace(
 			ctx,
 			otlpData,
 			metadata.ServiceName,
@@ -278,7 +279,7 @@ func (h *TraceHandler) handlePublishFailure(ctx context.Context, otlpData json.R
 
 func (h *TraceHandler) sendSuccessResponse(c *gin.Context, metadata *traceMetadata) {
 	// Log successful ingestion
-	logger.Info("Successfully processed HTTP trace via Kinesis-first approach",
+	logger.Debug("Successfully processed HTTP trace via Kinesis-first approach",
 		zap.String("service_name", logging.SanitizeServiceName(metadata.ServiceName)),
 		zap.String("trace_id", logging.SanitizeTraceID(metadata.TraceID)),
 		zap.String("tenant", logging.SanitizeTenantID(metadata.TenantID)),

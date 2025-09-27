@@ -11,6 +11,7 @@ import (
 	"github.com/jamesneb/playback-backend/pkg/config"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	commonpb "go.opentelemetry.io/proto/otlp/common/v1"
 	logspb "go.opentelemetry.io/proto/otlp/logs/v1"
 	metricspb "go.opentelemetry.io/proto/otlp/metrics/v1"
 	tracepb "go.opentelemetry.io/proto/otlp/trace/v1"
@@ -57,8 +58,8 @@ func TestNewKinesisClient(t *testing.T) {
 				},
 				BatchSize:     100,
 				FlushInterval: "5s",
-				MaxRetries:    3,
-				RetryDelay:    "1s",
+				RetryAttempts: 3,
+				RetryDelay:    time.Second,
 			},
 			expectedError: false,
 			description:   "LocalStack configuration should work without AWS credentials",
@@ -74,8 +75,8 @@ func TestNewKinesisClient(t *testing.T) {
 				},
 				BatchSize:     100,
 				FlushInterval: "5s",
-				MaxRetries:    3,
-				RetryDelay:    "1s",
+				RetryAttempts: 3,
+				RetryDelay:    time.Second,
 			},
 			expectedError: false,
 			description:   "AWS configuration structure should be valid",
@@ -235,7 +236,15 @@ func TestPublishTrace(t *testing.T) {
 						TenantID:   "test-tenant",
 					},
 				},
-				ResourceSpans: &tracepb.ResourceSpans{}, // Mock protobuf data - tests focus on structure, not parsing
+				ResourceSpans: &tracepb.ResourceSpans{
+					ScopeSpans: []*tracepb.ScopeSpans{{
+						Spans: []*tracepb.Span{{
+							Name:    "mock-span",
+							TraceId: []byte("test-trace-id-16"),
+							SpanId:  []byte("span-id8"),
+						}},
+					}},
+				}, // Mock protobuf data - tests focus on structure, not parsing
 			}
 
 			// Validate event structure
@@ -322,7 +331,13 @@ func TestPublishMetrics(t *testing.T) {
 						TenantID:   "test-tenant",
 					},
 				},
-				ResourceMetrics: &metricspb.ResourceMetrics{}, // Mock protobuf data
+				ResourceMetrics: &metricspb.ResourceMetrics{
+					ScopeMetrics: []*metricspb.ScopeMetrics{{
+						Metrics: []*metricspb.Metric{{
+							Name: "test-metric",
+						}},
+					}},
+				}, // Mock protobuf data
 			}
 
 			// Validate event structure
@@ -399,7 +414,17 @@ func TestPublishLogs(t *testing.T) {
 						TenantID:   "test-tenant",
 					},
 				},
-				ResourceLogs: &logspb.ResourceLogs{}, // Mock protobuf data
+				ResourceLogs: &logspb.ResourceLogs{
+					ScopeLogs: []*logspb.ScopeLogs{{
+						LogRecords: []*logspb.LogRecord{{
+							Body: &commonpb.AnyValue{
+								Value: &commonpb.AnyValue_StringValue{
+									StringValue: "test log message",
+								},
+							},
+						}},
+					}},
+				}, // Mock protobuf data
 			}
 
 			// Validate event structure
@@ -456,7 +481,15 @@ func TestPublishBatch(t *testing.T) {
 							TenantID:   "service-1-tenant",
 						},
 					},
-					ResourceSpans: &tracepb.ResourceSpans{}, // Mock protobuf data
+					ResourceSpans: &tracepb.ResourceSpans{
+						ScopeSpans: []*tracepb.ScopeSpans{{
+							Spans: []*tracepb.Span{{
+								Name:    "batch-span",
+								TraceId: []byte("batch-trace-id16"),
+								SpanId:  []byte("span-id8"),
+							}},
+						}},
+					}, // Mock protobuf data
 				},
 				&TraceTelemetryEvent{
 					BaseTelemetryEvent: BaseTelemetryEvent{
@@ -469,7 +502,15 @@ func TestPublishBatch(t *testing.T) {
 							TenantID:   "service-2-tenant",
 						},
 					},
-					ResourceSpans: &tracepb.ResourceSpans{}, // Mock protobuf data
+					ResourceSpans: &tracepb.ResourceSpans{
+						ScopeSpans: []*tracepb.ScopeSpans{{
+							Spans: []*tracepb.Span{{
+								Name:    "batch-span",
+								TraceId: []byte("batch-trace-id16"),
+								SpanId:  []byte("span-id8"),
+							}},
+						}},
+					}, // Mock protobuf data
 				},
 			},
 			description: "Multiple trace events should be batched correctly",
@@ -488,7 +529,13 @@ func TestPublishBatch(t *testing.T) {
 							TenantID:   "metrics-tenant",
 						},
 					},
-					ResourceMetrics: &metricspb.ResourceMetrics{}, // Mock protobuf data
+					ResourceMetrics: &metricspb.ResourceMetrics{
+						ScopeMetrics: []*metricspb.ScopeMetrics{{
+							Metrics: []*metricspb.Metric{{
+								Name: "batch-metric",
+							}},
+						}},
+					}, // Mock protobuf data
 				},
 			},
 			description: "Single metrics event should be processed in batch",
@@ -503,8 +550,28 @@ func TestPublishBatch(t *testing.T) {
 			name:       "mixed event types (invalid)",
 			streamType: "traces",
 			events: []TelemetryEvent{
-				&TraceTelemetryEvent{BaseTelemetryEvent: BaseTelemetryEvent{Type: "traces", ServiceName: "svc1"}, ResourceSpans: &tracepb.ResourceSpans{}},
-				&MetricsTelemetryEvent{BaseTelemetryEvent: BaseTelemetryEvent{Type: "metrics", ServiceName: "svc2"}, ResourceMetrics: &metricspb.ResourceMetrics{}},
+				&TraceTelemetryEvent{
+					BaseTelemetryEvent: BaseTelemetryEvent{Type: "traces", ServiceName: "svc1"},
+					ResourceSpans: &tracepb.ResourceSpans{
+						ScopeSpans: []*tracepb.ScopeSpans{{
+							Spans: []*tracepb.Span{{
+								Name:    "mixed-span",
+								TraceId: []byte("mixed-trace-id16"),
+								SpanId:  []byte("span-id8"),
+							}},
+						}},
+					},
+				},
+				&MetricsTelemetryEvent{
+					BaseTelemetryEvent: BaseTelemetryEvent{Type: "metrics", ServiceName: "svc2"},
+					ResourceMetrics: &metricspb.ResourceMetrics{
+						ScopeMetrics: []*metricspb.ScopeMetrics{{
+							Metrics: []*metricspb.Metric{{
+								Name: "mixed-metric",
+							}},
+						}},
+					},
+				},
 			},
 			description: "Mixed event types should be handled appropriately",
 		},
@@ -747,7 +814,15 @@ func TestKinesisHandler(t *testing.T) {
 					TenantID:   "trace-tenant",
 				},
 			},
-			ResourceSpans: &tracepb.ResourceSpans{}, // Mock protobuf data
+			ResourceSpans: &tracepb.ResourceSpans{
+				ScopeSpans: []*tracepb.ScopeSpans{{
+					Spans: []*tracepb.Span{{
+						Name:    "handler-span",
+						TraceId: []byte("handler-trace-16"),
+						SpanId:  []byte("span-id8"),
+					}},
+				}},
+			}, // Mock protobuf data
 		}
 
 		// Test that handler correctly identifies trace events
@@ -770,7 +845,13 @@ func TestKinesisHandler(t *testing.T) {
 					TenantID:   "metrics-tenant",
 				},
 			},
-			ResourceMetrics: &metricspb.ResourceMetrics{}, // Mock protobuf data
+			ResourceMetrics: &metricspb.ResourceMetrics{
+				ScopeMetrics: []*metricspb.ScopeMetrics{{
+					Metrics: []*metricspb.Metric{{
+						Name: "handler-metric",
+					}},
+				}},
+			}, // Mock protobuf data
 		}
 
 		// Test that handler correctly identifies metrics events
@@ -792,7 +873,17 @@ func TestKinesisHandler(t *testing.T) {
 					TenantID:   "logs-tenant",
 				},
 			},
-			ResourceLogs: &logspb.ResourceLogs{}, // Mock protobuf data
+			ResourceLogs: &logspb.ResourceLogs{
+				ScopeLogs: []*logspb.ScopeLogs{{
+					LogRecords: []*logspb.LogRecord{{
+						Body: &commonpb.AnyValue{
+							Value: &commonpb.AnyValue_StringValue{
+								StringValue: "handler log message",
+							},
+						},
+					}},
+				}},
+			}, // Mock protobuf data
 		}
 
 		// Test that handler correctly identifies logs events
@@ -813,7 +904,15 @@ func TestKinesisHandler(t *testing.T) {
 					TenantID:   "unknown-tenant",
 				},
 			},
-			ResourceSpans: &tracepb.ResourceSpans{}, // Mock protobuf data
+			ResourceSpans: &tracepb.ResourceSpans{
+				ScopeSpans: []*tracepb.ScopeSpans{{
+					Spans: []*tracepb.Span{{
+						Name:    "handler-span",
+						TraceId: []byte("handler-trace-16"),
+						SpanId:  []byte("span-id8"),
+					}},
+				}},
+			}, // Mock protobuf data
 		}
 
 		// Test that handler can handle unknown event types gracefully
@@ -873,7 +972,15 @@ func BenchmarkTelemetryEventCreation(b *testing.B) {
 					TenantID:   "bench-tenant",
 				},
 			},
-			ResourceSpans: &tracepb.ResourceSpans{}, // Mock protobuf data
+			ResourceSpans: &tracepb.ResourceSpans{
+				ScopeSpans: []*tracepb.ScopeSpans{{
+					Spans: []*tracepb.Span{{
+						Name:    "handler-span",
+						TraceId: []byte("handler-trace-16"),
+						SpanId:  []byte("span-id8"),
+					}},
+				}},
+			}, // Mock protobuf data
 		}
 		if event.GetType() == "" {
 			b.Fatal("Event type should not be empty")

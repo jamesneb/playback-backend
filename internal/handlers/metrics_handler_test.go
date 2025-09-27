@@ -8,17 +8,17 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
-	"github.com/jamesneb/playback-backend/internal/streaming"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
 
 func TestNewMetricsHandler(t *testing.T) {
-	client := &streaming.KinesisClient{}
-	handler := NewMetricsHandler(client)
+	mockPublisher := &MockEventPublisher{}
+	handler := NewMetricsHandler(mockPublisher)
 
 	assert.NotNil(t, handler)
-	assert.Equal(t, client, handler.kinesisClient)
+	assert.Equal(t, mockPublisher, handler.eventPublisher)
 }
 
 func TestMetricsHandler_CreateMetrics(t *testing.T) {
@@ -69,12 +69,13 @@ func TestMetricsHandler_CreateMetrics(t *testing.T) {
 				},
 			},
 			contentType:    "application/json",
-			expectedStatus: http.StatusInternalServerError, // Expect failure due to unconfigured Kinesis
+			expectedStatus: http.StatusAccepted, // Expect success with proper mock
 			validateResponse: func(t *testing.T, w *httptest.ResponseRecorder) {
-				var response ErrorResponse
+				var response MetricsResponse
 				err := json.Unmarshal(w.Body.Bytes(), &response)
 				require.NoError(t, err)
-				assert.Equal(t, "Failed to process metrics data", response.Error)
+				assert.Equal(t, "accepted", response.Status)
+				assert.Equal(t, 1, response.Received)
 			},
 		},
 		{
@@ -99,7 +100,13 @@ func TestMetricsHandler_CreateMetrics(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			mockClient := &streaming.KinesisClient{}
+			mockClient := &MockEventPublisher{}
+
+			// Set up mock expectations for successful test case
+			if tt.name == "valid OTLP metrics data" {
+				mockClient.On("PublishMetrics", mock.Anything, mock.Anything, "test-service", mock.Anything, mock.Anything).Return(nil)
+			}
+
 			handler := NewMetricsHandler(mockClient)
 
 			var body []byte
@@ -126,6 +133,11 @@ func TestMetricsHandler_CreateMetrics(t *testing.T) {
 			if tt.validateResponse != nil {
 				tt.validateResponse(t, w)
 			}
+
+			// Assert mock expectations if they were set
+			if tt.name == "valid OTLP metrics data" {
+				mockClient.AssertExpectations(t)
+			}
 		})
 	}
 }
@@ -133,7 +145,7 @@ func TestMetricsHandler_CreateMetrics(t *testing.T) {
 func TestMetricsHandler_GetMetrics(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
-	mockClient := &streaming.KinesisClient{}
+	mockClient := &MockEventPublisher{}
 	handler := NewMetricsHandler(mockClient)
 
 	tests := []struct {
@@ -473,7 +485,9 @@ func TestMetricsHandler_Integration(t *testing.T) {
 		},
 	}
 
-	mockClient := &streaming.KinesisClient{}
+	mockClient := &MockEventPublisher{}
+	mockClient.On("PublishMetrics", mock.Anything, mock.Anything, "integration-metrics-service", mock.Anything, mock.Anything).Return(nil)
+
 	handler := NewMetricsHandler(mockClient)
 	router := gin.New()
 	router.POST("/metrics", handler.CreateMetrics)
@@ -488,13 +502,16 @@ func TestMetricsHandler_Integration(t *testing.T) {
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
-	// Should return error due to unconfigured Kinesis but parsing should work
-	assert.Equal(t, http.StatusInternalServerError, w.Code)
+	// Should return success with proper mock setup
+	assert.Equal(t, http.StatusAccepted, w.Code)
 
-	var response ErrorResponse
+	var response MetricsResponse
 	err = json.Unmarshal(w.Body.Bytes(), &response)
 	require.NoError(t, err)
-	assert.Equal(t, "Failed to process metrics data", response.Error)
+	assert.Equal(t, "accepted", response.Status)
+	assert.Equal(t, 2, response.Received) // Two metrics in the test data
+
+	mockClient.AssertExpectations(t)
 }
 
 // Helper functions for creating pointers
@@ -510,7 +527,7 @@ func int64Ptr(i int64) *int64 {
 func BenchmarkMetricsHandler_CreateMetrics(b *testing.B) {
 	gin.SetMode(gin.TestMode)
 
-	handler := NewMetricsHandler(&streaming.KinesisClient{})
+	handler := NewMetricsHandler(&MockEventPublisher{})
 
 	metricsData := map[string]interface{}{
 		"resourceMetrics": []interface{}{

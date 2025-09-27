@@ -76,7 +76,7 @@ streaming:
 			},
 		},
 		{
-			name: "environment variable overrides",
+			name: "log level environment override",
 			configContent: `
 app:
   name: "test-service"
@@ -91,27 +91,27 @@ database:
     database: "telemetry"
     password: "config_password"
 
+logging:
+  level: "info"
+
 streaming:
   kinesis:
     region: "us-west-2"
 `,
 			envVars: map[string]string{
-				"CLICKHOUSE_HOST":     "override-host:9000",
-				"CLICKHOUSE_PASSWORD": "env_password",
-				"AWS_DEFAULT_REGION":  "eu-west-1",
-				"LOG_LEVEL":           "debug",
+				"LOG_LEVEL": "debug",
 			},
 			expectedError: false,
 			validateFunc: func(t *testing.T, cfg *Config) {
-				// Verify environment overrides
-				assert.Equal(t, "override-host:9000", cfg.Database.ClickHouse.Host)
-				assert.Equal(t, "env_password", cfg.Database.ClickHouse.Password)
-				assert.Equal(t, "eu-west-1", cfg.Streaming.Kinesis.Region)
+				// Verify only log level override works
 				assert.Equal(t, "debug", cfg.Logging.Level)
 
-				// Verify non-overridden values remain
+				// Verify all other values remain from config file
 				assert.Equal(t, "localhost", cfg.Server.Host)
 				assert.Equal(t, "telemetry", cfg.Database.ClickHouse.Database)
+				assert.Equal(t, "localhost:9000", cfg.Database.ClickHouse.Host)
+				assert.Equal(t, "config_password", cfg.Database.ClickHouse.Password)
+				assert.Equal(t, "us-west-2", cfg.Streaming.Kinesis.Region)
 			},
 		},
 		{
@@ -268,80 +268,28 @@ func TestApplyEnvOverrides(t *testing.T) {
 		validateFunc func(*testing.T, *Config)
 	}{
 		{
-			name: "server overrides",
+			name: "log level override only",
 			baseConfig: &Config{
+				App: AppConfig{
+					Environment: "test",
+				},
+				Logging: LoggingConfig{
+					Level: "info",
+				},
 				Server: ServerConfig{
 					Host: "localhost",
 					Port: 8080,
-					Mode: "debug",
 				},
 			},
 			envVars: map[string]string{
-				"HOST":     "0.0.0.0",
-				"GIN_MODE": "release",
+				"LOG_LEVEL": "debug",
 			},
 			validateFunc: func(t *testing.T, cfg *Config) {
-				assert.Equal(t, "0.0.0.0", cfg.Server.Host)
-				assert.Equal(t, "release", cfg.Server.Mode)
-				assert.Equal(t, 8080, cfg.Server.Port) // Unchanged
-			},
-		},
-		{
-			name: "database overrides",
-			baseConfig: &Config{
-				Database: DatabaseConfig{
-					ClickHouse: ClickHouseConfig{
-						Host:     "localhost:9000",
-						Database: "telemetry",
-						Username: "default",
-						Password: "password",
-					},
-					Redis: RedisConfig{
-						Host:     "localhost:6379",
-						Password: "password",
-						Database: 0,
-					},
-				},
-			},
-			envVars: map[string]string{
-				"CLICKHOUSE_HOST":     "prod-ch:9000",
-				"CLICKHOUSE_DB":       "production",
-				"CLICKHOUSE_USER":     "admin",
-				"CLICKHOUSE_PASSWORD": "secret123",
-				"REDIS_HOST":          "redis-cluster:6379",
-				"REDIS_PASSWORD":      "newpassword",
-			},
-			validateFunc: func(t *testing.T, cfg *Config) {
-				assert.Equal(t, "prod-ch:9000", cfg.Database.ClickHouse.Host)
-				assert.Equal(t, "production", cfg.Database.ClickHouse.Database)
-				assert.Equal(t, "admin", cfg.Database.ClickHouse.Username)
-				assert.Equal(t, "secret123", cfg.Database.ClickHouse.Password)
-				assert.Equal(t, "redis-cluster:6379", cfg.Database.Redis.Host)
-				assert.Equal(t, "newpassword", cfg.Database.Redis.Password)
-			},
-		},
-		{
-			name: "streaming overrides",
-			baseConfig: &Config{
-				Streaming: StreamingConfig{
-					Kinesis: KinesisConfig{
-						Region:          "us-east-1",
-						AccessKeyID:     "key",
-						SecretAccessKey: "secret",
-					},
-				},
-			},
-			envVars: map[string]string{
-				"AWS_DEFAULT_REGION":    "eu-west-1",
-				"AWS_ACCESS_KEY_ID":     "new-key",
-				"AWS_SECRET_ACCESS_KEY": "new-secret",
-				"AWS_ENDPOINT_URL":      "http://localhost:4566",
-			},
-			validateFunc: func(t *testing.T, cfg *Config) {
-				assert.Equal(t, "eu-west-1", cfg.Streaming.Kinesis.Region)
-				assert.Equal(t, "new-key", cfg.Streaming.Kinesis.AccessKeyID)
-				assert.Equal(t, "new-secret", cfg.Streaming.Kinesis.SecretAccessKey)
-				assert.Equal(t, "http://localhost:4566", cfg.Streaming.Kinesis.EndpointURL)
+				assert.Equal(t, "debug", cfg.Logging.Level)
+				// Verify other values unchanged
+				assert.Equal(t, "localhost", cfg.Server.Host)
+				assert.Equal(t, 8080, cfg.Server.Port)
+				assert.Equal(t, "test", cfg.App.Environment)
 			},
 		},
 	}
@@ -431,16 +379,10 @@ logging:
 	require.NoError(t, err)
 
 	// Set environment overrides
-	if err := os.Setenv("CLICKHOUSE_PASSWORD", "env_override_password"); err != nil {
-		t.Fatalf("Failed to set CLICKHOUSE_PASSWORD: %v", err)
-	}
 	if err := os.Setenv("LOG_LEVEL", "debug"); err != nil {
 		t.Fatalf("Failed to set LOG_LEVEL: %v", err)
 	}
 	defer func() {
-		if err := os.Unsetenv("CLICKHOUSE_PASSWORD"); err != nil {
-			t.Errorf("Failed to unset CLICKHOUSE_PASSWORD: %v", err)
-		}
 		if err := os.Unsetenv("LOG_LEVEL"); err != nil {
 			t.Errorf("Failed to unset LOG_LEVEL: %v", err)
 		}
@@ -457,7 +399,7 @@ logging:
 
 	assert.Equal(t, "clickhouse:9000", config.Database.ClickHouse.Host)
 	assert.Equal(t, "telemetry", config.Database.ClickHouse.Database)
-	assert.Equal(t, "env_override_password", config.Database.ClickHouse.Password) // Overridden by env
+	assert.Equal(t, "admin123", config.Database.ClickHouse.Password) // From config file
 
 	assert.Equal(t, "us-east-1", config.Streaming.Kinesis.Region)
 	assert.Equal(t, "telemetry-traces", config.Streaming.Kinesis.Streams["traces"])

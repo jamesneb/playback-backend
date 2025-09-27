@@ -24,8 +24,8 @@ func isDLQConfigured(cfg *config.Config) bool {
 
 	// Check if we have all components to build a URL
 	return cfg.Streaming.Kinesis.Region != "" &&
-		   dlqCfg.AccountID != "" &&
-		   dlqCfg.QueueName != ""
+		dlqCfg.AccountID != "" &&
+		dlqCfg.QueueName != ""
 }
 
 // InitializeResilienceComponents creates and configures all resilience components

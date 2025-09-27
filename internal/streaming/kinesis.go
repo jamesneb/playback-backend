@@ -14,6 +14,7 @@ import (
 	"github.com/jamesneb/playback-backend/internal/validation"
 	"github.com/jamesneb/playback-backend/pkg/config"
 	"github.com/jamesneb/playback-backend/pkg/logger"
+	"github.com/jamesneb/playback-backend/pkg/telemetry"
 	logspb "go.opentelemetry.io/proto/otlp/logs/v1"
 	metricspb "go.opentelemetry.io/proto/otlp/metrics/v1"
 	tracepb "go.opentelemetry.io/proto/otlp/trace/v1"
@@ -312,7 +313,7 @@ func (kc *KinesisClient) PublishBatch(ctx context.Context, streamType string, ev
 	}
 
 	// Log results
-	logger.Info("Batch published to stream",
+	logger.Debug("Batch published to stream",
 		zap.Int("total_records", len(records)),
 		zap.String("stream_name", streamName),
 		zap.Int32("failed_records", *result.FailedRecordCount))
@@ -488,7 +489,7 @@ func (kc *KinesisClient) flushBatch(ctx context.Context, streamType string, even
 		return fmt.Errorf("all individual publishes failed after batch failure")
 	}
 
-	logger.Info("Successfully flushed batch", zap.Int("event_count", len(events)), zap.String("stream_type", streamType))
+	logger.Debug("Successfully flushed batch", zap.Int("event_count", len(events)), zap.String("stream_type", streamType))
 	return nil
 }
 
@@ -776,3 +777,38 @@ func (kc *KinesisClient) flushBatchSafely(ctx context.Context, streamType string
 	logger.Error("Failed to flush batch after all retry attempts", zap.String("stream_type", streamType), zap.Int("max_attempts", MaxRetryAttempts))
 	return 0
 }
+
+// EventPublisherAdapter wraps KinesisClient to implement telemetry.EventPublisher interface
+type EventPublisherAdapter struct {
+	client *KinesisClient
+}
+
+// NewEventPublisherAdapter creates a new adapter for KinesisClient
+func NewEventPublisherAdapter(client *KinesisClient) telemetry.EventPublisher {
+	return &EventPublisherAdapter{client: client}
+}
+
+// PublishTrace implements telemetry.EventPublisher.PublishTrace
+func (adapter *EventPublisherAdapter) PublishTrace(ctx context.Context, data json.RawMessage, serviceName, traceID, sourceIP, userAgent string) error {
+	return adapter.client.PublishTrace(ctx, data, serviceName, traceID, sourceIP, userAgent)
+}
+
+// PublishMetrics implements telemetry.EventPublisher.PublishMetrics
+func (adapter *EventPublisherAdapter) PublishMetrics(ctx context.Context, data json.RawMessage, serviceName, sourceIP, userAgent string) error {
+	return adapter.client.PublishMetrics(ctx, data, serviceName, sourceIP, userAgent)
+}
+
+// PublishLogs implements telemetry.EventPublisher.PublishLogs
+func (adapter *EventPublisherAdapter) PublishLogs(ctx context.Context, data json.RawMessage, serviceName, traceID, sourceIP, userAgent string) error {
+	return adapter.client.PublishLogs(ctx, data, serviceName, traceID, sourceIP, userAgent)
+}
+
+// Close implements telemetry.EventPublisher.Close
+func (adapter *EventPublisherAdapter) Close() error {
+	return adapter.client.Close()
+}
+
+// Interface compliance checks
+var (
+	_ telemetry.EventPublisher = (*EventPublisherAdapter)(nil)
+)

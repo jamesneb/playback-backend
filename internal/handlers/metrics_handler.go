@@ -4,22 +4,23 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/jamesneb/playback-backend/internal/logging"
-	"github.com/jamesneb/playback-backend/internal/streaming"
 	"github.com/jamesneb/playback-backend/pkg/logger"
+	"github.com/jamesneb/playback-backend/pkg/telemetry"
 	"go.uber.org/zap"
 )
 
 type MetricsHandler struct {
-	kinesisClient *streaming.KinesisClient
+	eventPublisher telemetry.EventPublisher
 }
 
-func NewMetricsHandler(kinesisClient *streaming.KinesisClient) *MetricsHandler {
+func NewMetricsHandler(eventPublisher telemetry.EventPublisher) *MetricsHandler {
 	return &MetricsHandler{
-		kinesisClient: kinesisClient,
+		eventPublisher: eventPublisher,
 	}
 }
 
@@ -34,6 +35,21 @@ func NewMetricsHandler(kinesisClient *streaming.KinesisClient) *MetricsHandler {
 // @Failure 400 {object} ErrorResponse
 // @Router /api/v1/metrics [post]
 func (h *MetricsHandler) CreateMetrics(c *gin.Context) {
+	// Validate content type
+	contentType := c.GetHeader("Content-Type")
+	if !strings.Contains(contentType, ContentTypeJSON) {
+		logger.Warn("Invalid content type received",
+			zap.String("content_type", contentType),
+			zap.String("expected", ContentTypeJSON),
+			zap.String("client_ip", logging.SanitizeClientIP(c.ClientIP())),
+			zap.String("user_agent", logging.SanitizeUserAgent(c.GetHeader("User-Agent"))))
+		c.JSON(http.StatusBadRequest, ErrorResponse{
+			Error:   "Invalid content type",
+			Message: "Content-Type must be application/json",
+		})
+		return
+	}
+
 	// Parse the OTLP metrics data (raw JSON)
 	var otlpData json.RawMessage
 	if err := c.ShouldBindJSON(&otlpData); err != nil {
@@ -54,7 +70,7 @@ func (h *MetricsHandler) CreateMetrics(c *gin.Context) {
 	metricsCount := countMetrics(otlpData)
 
 	// Log the ingestion event
-	logger.Info("Received OTLP metrics data",
+	logger.Debug("Received OTLP metrics data",
 		zap.String("service_name", logging.SanitizeServiceName(serviceName)),
 		zap.Int("metrics_count", metricsCount),
 		zap.String("client_ip", logging.SanitizeClientIP(c.ClientIP())),
@@ -66,7 +82,7 @@ func (h *MetricsHandler) CreateMetrics(c *gin.Context) {
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 10*time.Second)
 	defer cancel()
 
-	err := h.kinesisClient.PublishMetrics(
+	err := h.eventPublisher.PublishMetrics(
 		ctx,
 		otlpData,
 		serviceName,
@@ -87,7 +103,7 @@ func (h *MetricsHandler) CreateMetrics(c *gin.Context) {
 	}
 
 	// Log successful ingestion
-	logger.Info("Successfully published metrics to Kinesis",
+	logger.Debug("Successfully published metrics to Kinesis",
 		zap.String("service_name", serviceName),
 		zap.Int("metrics_count", metricsCount),
 	)

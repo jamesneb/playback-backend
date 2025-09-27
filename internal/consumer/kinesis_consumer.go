@@ -217,7 +217,7 @@ func (kc *KinesisConsumer) pollStream(ctx context.Context, streamType, streamNam
 
 	// Process records in batches for better performance
 	if len(resp.Records) > 0 {
-		logger.Info("Processing records",
+		logger.Debug("Processing records",
 			zap.String("stream", streamName),
 			zap.Int("count", len(resp.Records)))
 
@@ -234,7 +234,7 @@ func (kc *KinesisConsumer) pollStream(ctx context.Context, streamType, streamNam
 
 			// Debug: Check if we have any protobuf records
 			if isProtobuf {
-				logger.Info("Found protobuf record!",
+				logger.Debug("Found protobuf record!",
 					zap.String("partition_key", partitionKey),
 					zap.String("stream", streamName))
 			}
@@ -391,14 +391,23 @@ func (kc *KinesisConsumer) processRecordDirect(ctx context.Context, streamType s
 // parseRawProtobuf parses raw OTLP protobuf data sent directly from gRPC path
 func (kc *KinesisConsumer) parseRawProtobuf(data []byte, partitionKey, streamType string) (streaming.TelemetryEvent, error) {
 	// Extract metadata from partition key: "pb:<service>:<trace_id>:<timestamp>"
-	parts := strings.Split(partitionKey, ":")
-	if len(parts) < 3 {
-		return nil, fmt.Errorf("invalid protobuf partition key format")
+	// Use strings.Cut to avoid slice allocations from strings.Split
+
+	// Remove "pb:" prefix
+	if !strings.HasPrefix(partitionKey, "pb:") {
+		return nil, fmt.Errorf("invalid protobuf partition key format: missing pb: prefix")
+	}
+	remaining := partitionKey[3:] // Skip "pb:"
+
+	// Extract service name
+	serviceName, remaining, found := strings.Cut(remaining, ":")
+	if !found {
+		return nil, fmt.Errorf("invalid protobuf partition key format: missing service name")
 	}
 
-	serviceName := parts[1]
-	traceID := parts[2]
-	// timestamp is parts[3] if present
+	// Extract trace ID
+	traceID, _, _ := strings.Cut(remaining, ":")
+	// timestamp would be after the second colon, but we don't need it for parsing
 
 	// Parse raw OTLP protobuf based on stream type
 	switch streamType {

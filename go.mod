@@ -2,8 +2,6 @@ module github.com/jamesneb/playback-backend
 
 go 1.23.0
 
-toolchain go1.24.5
-
 require (
 	github.com/ClickHouse/clickhouse-go/v2 v2.15.0
 	github.com/aws/aws-sdk-go-v2 v1.38.3

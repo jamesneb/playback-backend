@@ -4,9 +4,18 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
-	"time"
 
+	"github.com/jamesneb/playback-backend/pkg/config/api"
+	"github.com/jamesneb/playback-backend/pkg/config/app"
+	"github.com/jamesneb/playback-backend/pkg/config/database"
+	"github.com/jamesneb/playback-backend/pkg/config/processing"
+	"github.com/jamesneb/playback-backend/pkg/config/security"
+	"github.com/jamesneb/playback-backend/pkg/config/server"
+	"github.com/jamesneb/playback-backend/pkg/config/streaming"
+	"github.com/jamesneb/playback-backend/pkg/logger"
+	"go.uber.org/zap"
 	"gopkg.in/yaml.v2"
 )
 
@@ -38,328 +47,62 @@ var (
 	ErrConfigPathNotRegular = fmt.Errorf("config path does not point to a regular file")
 )
 
+// Config represents the complete application configuration
+// This is now composed of focused domain-specific configurations
 type Config struct {
-	App         AppConfig         `yaml:"app"`
-	Server      ServerConfig      `yaml:"server"`
-	Logging     LoggingConfig     `yaml:"logging"`
-	API         APIConfig         `yaml:"api"`
-	Database    DatabaseConfig    `yaml:"database"`
-	Streaming   StreamingConfig   `yaml:"streaming"`
-	Processing  ProcessingConfig  `yaml:"processing"`
-	Retention   RetentionConfig   `yaml:"retention"`
-	Cache       CacheConfig       `yaml:"cache"`
-	Monitoring  MonitoringConfig  `yaml:"monitoring"`
-	Security    SecurityConfig    `yaml:"security"`
-	Features    FeaturesConfig    `yaml:"features"`
-	Performance PerformanceConfig `yaml:"performance"`
-	Development DevelopmentConfig `yaml:"development"`
-	Swagger     SwaggerConfig     `yaml:"swagger"`
-	Resilience  ResilienceConfig  `yaml:"resilience"`
+	// Application settings
+	App     app.AppConfig     `yaml:"app"`
+	Logging app.LoggingConfig `yaml:"logging"`
+
+	// Server and API
+	Server server.ServerConfig `yaml:"server"`
+	API    api.APIConfig       `yaml:"api"`
+
+	// Data layer
+	Database database.DatabaseConfig `yaml:"database"`
+	Cache    database.CacheConfig    `yaml:"cache"`
+
+	// Streaming and messaging
+	Streaming streaming.StreamingConfig `yaml:"streaming"`
+
+	// Processing and features
+	Processing processing.ProcessingConfig `yaml:"processing"`
+	Retention  processing.RetentionConfig  `yaml:"retention"`
+	Features   processing.FeaturesConfig   `yaml:"features"`
+
+	// Security and monitoring
+	Security   security.SecurityConfig   `yaml:"security"`
+	Monitoring security.MonitoringConfig `yaml:"monitoring"`
+
+	// Resilience (backward compatibility)
+	Resilience streaming.ResilienceConfig `yaml:"resilience"`
+
+	// Development settings
+	Development app.DevelopmentConfig `yaml:"development"`
+
+	// Performance settings
+	Performance api.PerformanceConfig `yaml:"performance"`
+
+	// Swagger documentation
+	Swagger api.SwaggerConfig `yaml:"swagger"`
 }
 
-type AppConfig struct {
-	Name        string `yaml:"name"`
-	Version     string `yaml:"version"`
-	Description string `yaml:"description"`
-	Environment string `yaml:"environment"`
-}
-
-type ServerConfig struct {
-	Host            string   `yaml:"host"`
-	Port            int      `yaml:"port"`
-	GRPCPort        int      `yaml:"grpc_port"`
-	Mode            string   `yaml:"mode"`
-	TrustedProxies  []string `yaml:"trusted_proxies"`
-	ReadTimeout     string   `yaml:"read_timeout"`
-	WriteTimeout    string   `yaml:"write_timeout"`
-	IdleTimeout     string   `yaml:"idle_timeout"`
-	ShutdownTimeout string   `yaml:"shutdown_timeout"`
-	MaxHeaderBytes  int      `yaml:"max_header_bytes"`
-	// Parsed durations for performance
-	ReadTimeoutDuration     time.Duration `yaml:"-"`
-	WriteTimeoutDuration    time.Duration `yaml:"-"`
-	IdleTimeoutDuration     time.Duration `yaml:"-"`
-	ShutdownTimeoutDuration time.Duration `yaml:"-"`
-}
-
-type LoggingConfig struct {
-	Level            string `yaml:"level"`
-	Format           string `yaml:"format"`
-	Output           string `yaml:"output"`
-	EnableCaller     bool   `yaml:"enable_caller"`
-	EnableStacktrace bool   `yaml:"enable_stacktrace"`
-}
-
-type APIConfig struct {
-	Version        string          `yaml:"version"`
-	Prefix         string          `yaml:"prefix"`
-	EnableCORS     bool            `yaml:"enable_cors"`
-	CORS           CORSConfig      `yaml:"cors"`
-	RateLimiting   RateLimitConfig `yaml:"rate_limiting"`
-	Timeout        string          `yaml:"timeout"`
-	MaxRequestSize string          `yaml:"max_request_size"`
-}
-
-type CORSConfig struct {
-	AllowedOrigins []string `yaml:"allowed_origins"`
-	AllowedMethods []string `yaml:"allowed_methods"`
-	AllowedHeaders []string `yaml:"allowed_headers"`
-	MaxAge         int      `yaml:"max_age"`
-}
-
-type RateLimitConfig struct {
-	Enabled           bool `yaml:"enabled"`
-	RequestsPerSecond int  `yaml:"requests_per_second"`
-	Burst             int  `yaml:"burst"`
-}
-
-type DatabaseConfig struct {
-	ClickHouse ClickHouseConfig `yaml:"clickhouse"`
-	Redis      RedisConfig      `yaml:"redis"`
-}
-
-type ClickHouseConfig struct {
-	Host               string `yaml:"host"`
-	HTTPHost           string `yaml:"http_host"`
-	Database           string `yaml:"database"`
-	Username           string `yaml:"username"`
-	Password           string `yaml:"password"`
-	MaxConnections     int    `yaml:"max_connections"`
-	MaxIdleConnections int    `yaml:"max_idle_connections"`
-	ConnectionTimeout  string `yaml:"connection_timeout"`
-	ReadTimeout        string `yaml:"read_timeout"`
-	WriteTimeout       string `yaml:"write_timeout"`
-	EnableCompression  bool   `yaml:"enable_compression"`
-}
-
-type RedisConfig struct {
-	Host               string `yaml:"host"`
-	Password           string `yaml:"password"`
-	Database           int    `yaml:"database"`
-	MaxConnections     int    `yaml:"max_connections"`
-	MaxIdleConnections int    `yaml:"max_idle_connections"`
-	ConnectionTimeout  string `yaml:"connection_timeout"`
-	ReadTimeout        string `yaml:"read_timeout"`
-	WriteTimeout       string `yaml:"write_timeout"`
-	EnableCluster      bool   `yaml:"enable_cluster"`
-}
-
-type StreamingConfig struct {
-	Provider string        `yaml:"provider"`
-	Kinesis  KinesisConfig `yaml:"kinesis"`
-	S3       S3Config      `yaml:"s3"`
-}
-
-type KinesisConfig struct {
-	Region          string            `yaml:"region"`
-	EndpointURL     string            `yaml:"endpoint_url,omitempty"`
-	AccessKeyID     string            `yaml:"access_key_id,omitempty"`
-	SecretAccessKey string            `yaml:"secret_access_key,omitempty"`
-	Streams         map[string]string `yaml:"streams"`
-	BatchSize       int               `yaml:"batch_size"`
-	FlushInterval   string            `yaml:"flush_interval"`
-	MaxRetries      int               `yaml:"max_retries"`
-	RetryDelay      string            `yaml:"retry_delay"`
-	PollInterval    int               `yaml:"poll_interval"`
-}
-
-type S3Config struct {
-	Region          string `yaml:"region"`
-	EndpointURL     string `yaml:"endpoint_url,omitempty"`
-	AccessKeyID     string `yaml:"access_key_id,omitempty"`
-	SecretAccessKey string `yaml:"secret_access_key,omitempty"`
-	Bucket          string `yaml:"bucket"`
-	ForcePathStyle  bool   `yaml:"force_path_style,omitempty"`
-}
-
-type ResilienceConfig struct {
-	RateLimiter     RateLimiterConfig    `yaml:"rate_limiter"`
-	CircuitBreaker  CircuitBreakerConfig `yaml:"circuit_breaker"`
-	DeadLetterQueue DLQConfig            `yaml:"dead_letter_queue"`
-	KinesisBuffer   BufferConfig         `yaml:"kinesis_buffer"`
-}
-
-type RateLimiterConfig struct {
-	RequestsPerSecond int `yaml:"requests_per_second"`
-	BurstCapacity     int `yaml:"burst_capacity"`
-}
-
-type CircuitBreakerConfig struct {
-	Name            string  `yaml:"name"`
-	MaxRequests     uint32  `yaml:"max_requests"`
-	IntervalSeconds int     `yaml:"interval_seconds"`
-	TimeoutSeconds  int     `yaml:"timeout_seconds"`
-	MinRequests     uint32  `yaml:"min_requests"`
-	FailureRate     float64 `yaml:"failure_rate"`
-}
-
-type DLQConfig struct {
-	QueueURL         string `yaml:"queue_url"`  // Full SQS URL (takes precedence if provided)
-	AccountID        string `yaml:"account_id"` // AWS Account ID (for backward compatibility)
-	QueueName        string `yaml:"queue_name"` // Queue name (for backward compatibility)
-	MaxRetries       int    `yaml:"max_retries"`
-	RetryBaseDelayMs int    `yaml:"retry_base_delay_ms"`
-	RetryMaxDelayMs  int    `yaml:"retry_max_delay_ms"`
-}
-
-type BufferConfig struct {
-	MaxBatchSize    int `yaml:"max_batch_size"`
-	MaxBatchWaitMs  int `yaml:"max_batch_wait_ms"`
-	FlushIntervalMs int `yaml:"flush_interval_ms"`
-	MaxTenantBuffer int `yaml:"max_tenant_buffer"`
-}
-
-type ProcessingConfig struct {
-	BatchSize         int    `yaml:"batch_size"`
-	FlushInterval     string `yaml:"flush_interval"`
-	MaxQueueSize      int    `yaml:"max_queue_size"`
-	WorkerCount       int    `yaml:"worker_count"`
-	RetryAttempts     int    `yaml:"retry_attempts"`
-	RetryDelay        string `yaml:"retry_delay"`
-	EnableCompression bool   `yaml:"enable_compression"`
-	CompressionType   string `yaml:"compression_type"`
-}
-
-type RetentionConfig struct {
-	Traces              int `yaml:"traces"`
-	Metrics             int `yaml:"metrics"`
-	Logs                int `yaml:"logs"`
-	ServiceDependencies int `yaml:"service_dependencies"`
-}
-
-type CacheConfig struct {
-	Redis       RedisCacheConfig `yaml:"redis"`
-	Application AppCacheConfig   `yaml:"application"`
-}
-
-type RedisCacheConfig struct {
-	Enabled         bool   `yaml:"enabled"`
-	DefaultTTL      string `yaml:"default_ttl"`
-	MaxMemoryPolicy string `yaml:"max_memory_policy"`
-}
-
-type AppCacheConfig struct {
-	Enabled bool   `yaml:"enabled"`
-	Size    int    `yaml:"size"`
-	TTL     string `yaml:"ttl"`
-}
-
-type MonitoringConfig struct {
-	EnableMetrics     bool             `yaml:"enable_metrics"`
-	EnableProfiling   bool             `yaml:"enable_profiling"`
-	EnableTracing     bool             `yaml:"enable_tracing"`
-	MetricsEndpoint   string           `yaml:"metrics_endpoint"`
-	HealthEndpoint    string           `yaml:"health_endpoint"`
-	ReadyEndpoint     string           `yaml:"ready_endpoint"`
-	ProfilingEndpoint string           `yaml:"profiling_endpoint"`
-	Jaeger            JaegerConfig     `yaml:"jaeger"`
-	Prometheus        PrometheusConfig `yaml:"prometheus"`
-}
-
-type JaegerConfig struct {
-	Endpoint    string `yaml:"endpoint"`
-	ServiceName string `yaml:"service_name"`
-}
-
-type PrometheusConfig struct {
-	Enabled bool   `yaml:"enabled"`
-	Port    int    `yaml:"port"`
-	Path    string `yaml:"path"`
-}
-
-type SecurityConfig struct {
-	EnableAuth bool       `yaml:"enable_auth"`
-	JWT        JWTConfig  `yaml:"jwt"`
-	CORS       CORSConfig `yaml:"cors"`
-	TLS        TLSConfig  `yaml:"tls"`
-}
-
-type JWTConfig struct {
-	Secret string `yaml:"secret"`
-	Expiry string `yaml:"expiry"`
-	Issuer string `yaml:"issuer"`
-}
-
-type TLSConfig struct {
-	Enabled  bool   `yaml:"enabled"`
-	CertFile string `yaml:"cert_file"`
-	KeyFile  string `yaml:"key_file"`
-}
-
-type FeaturesConfig struct {
-	Replay             ReplayConfig      `yaml:"replay"`
-	SystemMap          SystemMapConfig   `yaml:"system_map"`
-	RealTimeProcessing ProcessingFeature `yaml:"real_time_processing"`
-	BatchProcessing    ProcessingFeature `yaml:"batch_processing"`
-	DataExport         DataExportConfig  `yaml:"data_export"`
-}
-
-type ReplayConfig struct {
-	Enabled              bool   `yaml:"enabled"`
-	MaxConcurrentReplays int    `yaml:"max_concurrent_replays"`
-	ReplayTimeout        string `yaml:"replay_timeout"`
-}
-
-type SystemMapConfig struct {
-	Enabled        bool   `yaml:"enabled"`
-	UpdateInterval string `yaml:"update_interval"`
-	MaxNodes       int    `yaml:"max_nodes"`
-}
-
-type ProcessingFeature struct {
-	Enabled       bool   `yaml:"enabled"`
-	BufferSize    int    `yaml:"buffer_size,omitempty"`
-	BatchInterval string `yaml:"batch_interval,omitempty"`
-}
-
-type DataExportConfig struct {
-	Enabled       bool     `yaml:"enabled"`
-	Formats       []string `yaml:"formats"`
-	MaxExportSize string   `yaml:"max_export_size"`
-}
-
-type PerformanceConfig struct {
-	EnableCompression       bool   `yaml:"enable_compression"`
-	CompressionLevel        int    `yaml:"compression_level"`
-	EnableConnectionPooling bool   `yaml:"enable_connection_pooling"`
-	MaxIdleConnections      int    `yaml:"max_idle_connections"`
-	ConnectionMaxLifetime   string `yaml:"connection_max_lifetime"`
-	EnableQueryCache        bool   `yaml:"enable_query_cache"`
-	QueryCacheSize          string `yaml:"query_cache_size"`
-}
-
-type DevelopmentConfig struct {
-	EnableDebugEndpoints bool `yaml:"enable_debug_endpoints"`
-	EnableHotReload      bool `yaml:"enable_hot_reload"`
-	MockExternalServices bool `yaml:"mock_external_services"`
-	SeedTestData         bool `yaml:"seed_test_data"`
-	EnableQueryLogging   bool `yaml:"enable_query_logging"`
-	EnableRequestLogging bool `yaml:"enable_request_logging"`
-}
-
-type SwaggerConfig struct {
-	Enabled bool   `yaml:"enabled"`
-	Path    string `yaml:"path"`
-}
-
-// Load reads configuration from YAML file with environment variable overrides
-// and comprehensive path validation to prevent directory traversal attacks.
-func Load(configPath string) (*Config, error) {
-	// Set default config path if not provided
-	if configPath == "" {
-		configPath = getDefaultConfigPath()
+// LoadConfig loads configuration from the specified file path with validation
+func LoadConfig(configPath string) (*Config, error) {
+	// Validate file path for security
+	normalizedPath, err := validateConfigPath(configPath)
+	if err != nil {
+		return nil, fmt.Errorf("config path validation failed: %w", err)
 	}
 
-	// Validate and sanitize the configuration file path
-	validatedPath, err := validateConfigPath(configPath)
-	if err != nil {
-		return nil, fmt.Errorf("invalid config path: %w", err)
+	if err := validateFileSystemSafety(normalizedPath); err != nil {
+		return nil, fmt.Errorf("config file system validation failed: %w", err)
 	}
 
-	// Read YAML file using validated path
-	data, err := os.ReadFile(validatedPath)
+	// Read and parse configuration file
+	data, err := os.ReadFile(normalizedPath)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read config file %s: %w", configPath, err)
+		return nil, fmt.Errorf("failed to read config file: %w", err)
 	}
 
 	var config Config
@@ -367,251 +110,45 @@ func Load(configPath string) (*Config, error) {
 		return nil, fmt.Errorf("failed to parse config file: %w", err)
 	}
 
-	// Override with environment variables
-	applyEnvOverrides(&config)
+	// Apply environment variable overrides
+	if err := applyEnvironmentOverrides(&config); err != nil {
+		return nil, fmt.Errorf("failed to apply environment overrides: %w", err)
+	}
 
-	// Parse durations once for performance
-	if err := parseDurations(&config); err != nil {
-		return nil, fmt.Errorf("failed to parse durations: %w", err)
+	// Validate the loaded configuration
+	if err := validateConfig(&config); err != nil {
+		return nil, fmt.Errorf("config validation failed: %w", err)
 	}
 
 	return &config, nil
 }
 
-// getDefaultConfigPath returns the path to the default config file
-func getDefaultConfigPath() string {
-	// Get environment from ENV variable, default to "local"
-	env := os.Getenv("ENV")
-	if env == "" {
-		env = "local"
-	}
-
-	// Try environment-specific config first, then fall back to example
-	paths := []string{
-		fmt.Sprintf("config/environments/%s.yaml", env),
-		"config/app.yaml.example",
-	}
-
-	for _, path := range paths {
-		if _, err := os.Stat(path); err == nil {
-			return path
-		}
-	}
-
-	// If neither exists, return the preferred path
-	return fmt.Sprintf("config/environments/%s.yaml", env)
-}
-
-// applyEnvOverrides applies environment variable overrides to config
-func applyEnvOverrides(config *Config) {
-	// Server overrides
-	if mode := os.Getenv("GIN_MODE"); mode != "" {
-		config.Server.Mode = mode
-	}
-	if host := os.Getenv("HOST"); host != "" {
-		config.Server.Host = host
-	}
-
-	// Logging overrides
-	if level := os.Getenv("LOG_LEVEL"); level != "" {
-		config.Logging.Level = level
-	}
-
-	// ClickHouse overrides
-	if host := os.Getenv("CLICKHOUSE_HOST"); host != "" {
-		config.Database.ClickHouse.Host = host
-	}
-	if db := os.Getenv("CLICKHOUSE_DB"); db != "" {
-		config.Database.ClickHouse.Database = db
-	}
-	if user := os.Getenv("CLICKHOUSE_USER"); user != "" {
-		config.Database.ClickHouse.Username = user
-	}
-	if password := os.Getenv("CLICKHOUSE_PASSWORD"); password != "" {
-		config.Database.ClickHouse.Password = password
-	}
-
-	// Redis overrides
-	if host := os.Getenv("REDIS_HOST"); host != "" {
-		config.Database.Redis.Host = host
-	}
-	if password := os.Getenv("REDIS_PASSWORD"); password != "" {
-		config.Database.Redis.Password = password
-	}
-
-	// Kinesis/AWS overrides
-	if endpointURL := os.Getenv("AWS_ENDPOINT_URL"); endpointURL != "" {
-		config.Streaming.Kinesis.EndpointURL = endpointURL
-	}
-	if region := os.Getenv("AWS_DEFAULT_REGION"); region != "" {
-		config.Streaming.Kinesis.Region = region
-	}
-	if accessKey := os.Getenv("AWS_ACCESS_KEY_ID"); accessKey != "" {
-		config.Streaming.Kinesis.AccessKeyID = accessKey
-	}
-	if secretKey := os.Getenv("AWS_SECRET_ACCESS_KEY"); secretKey != "" {
-		config.Streaming.Kinesis.SecretAccessKey = secretKey
-	}
-}
-
-// parseDurations parses string durations into time.Duration fields
-func parseDurations(config *Config) error {
-	var err error
-
-	// Parse server timeouts
-	config.Server.ReadTimeoutDuration, err = parseDurationWithFallback(config.Server.ReadTimeout, 30*time.Second)
-	if err != nil {
-		return fmt.Errorf("invalid read_timeout: %w", err)
-	}
-
-	config.Server.WriteTimeoutDuration, err = parseDurationWithFallback(config.Server.WriteTimeout, 30*time.Second)
-	if err != nil {
-		return fmt.Errorf("invalid write_timeout: %w", err)
-	}
-
-	config.Server.IdleTimeoutDuration, err = parseDurationWithFallback(config.Server.IdleTimeout, 60*time.Second)
-	if err != nil {
-		return fmt.Errorf("invalid idle_timeout: %w", err)
-	}
-
-	config.Server.ShutdownTimeoutDuration, err = parseDurationWithFallback(config.Server.ShutdownTimeout, 30*time.Second)
-	if err != nil {
-		return fmt.Errorf("invalid shutdown_timeout: %w", err)
-	}
-
-	return nil
-}
-
-// parseDurationWithFallback parses duration string with fallback
-func parseDurationWithFallback(durationStr string, fallback time.Duration) (time.Duration, error) {
-	if durationStr == "" {
-		return fallback, nil
-	}
-
-	duration, err := time.ParseDuration(durationStr)
-	if err != nil {
-		return fallback, err
-	}
-
-	return duration, nil
-}
-
-// GetConfigDir returns the absolute path to the config directory
-func GetConfigDir() (string, error) {
-	wd, err := os.Getwd()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(wd, "config"), nil
-}
-
-// validateConfigPath performs comprehensive validation of configuration file paths
-// to prevent directory traversal attacks and ensure file system security.
-//
-// This function implements multiple layers of security validation:
-// 1. Basic path validation (length, emptiness)
-// 2. Directory traversal pattern detection
-// 3. File extension validation
-// 4. File system validation (existence, type)
-// 5. Path normalization and cleaning
-//
-// Parameters:
-//   - configPath: Raw configuration file path to validate
-//
-// Returns:
-//   - string: Validated and normalized absolute path
-//   - error: Detailed validation error if any security check fails
+// validateConfigPath performs path validation to prevent directory traversal attacks
 func validateConfigPath(configPath string) (string, error) {
-	// Primary validation: check for empty path
+	// Basic validation
 	if configPath == "" {
 		return "", ErrConfigPathEmpty
 	}
 
-	// Length validation to prevent buffer overflow-style attacks
 	if len(configPath) > MaxConfigPathLength {
 		return "", ErrConfigPathTooLong
 	}
 
-	// Directory traversal pattern detection
-	if err := validateNoTraversalPatterns(configPath); err != nil {
-		return "", err
+	// Check for dangerous path patterns
+	if strings.Contains(configPath, parentDirPattern) {
+		return "", ErrConfigPathTraversal
 	}
 
-	// File extension validation to ensure we're reading config files
-	if err := validateConfigExtension(configPath); err != nil {
-		return "", err
-	}
+	// Normalize the path
+	normalizedPath := filepath.Clean(configPath)
 
-	// Normalize path to prevent bypasses through path manipulation
-	normalizedPath, err := normalizeConfigPath(configPath)
-	if err != nil {
-		return "", fmt.Errorf("failed to normalize config path: %w", err)
-	}
-
-	// File system validation to ensure the file exists and is accessible
-	if err := validateFileSystemSafety(normalizedPath); err != nil {
-		return "", err
+	// Verify file extension
+	ext := strings.ToLower(filepath.Ext(normalizedPath))
+	if ext != configExtensionYAML && ext != configExtensionYML {
+		return "", ErrConfigPathInvalidExt
 	}
 
 	return normalizedPath, nil
-}
-
-// validateNoTraversalPatterns checks for directory traversal attack patterns
-// in the configuration path to prevent unauthorized file system access.
-func validateNoTraversalPatterns(configPath string) error {
-	// Check for parent directory traversal
-	if strings.Contains(configPath, parentDirPattern) {
-		return ErrConfigPathTraversal
-	}
-
-	// Additional security: check for encoded traversal patterns
-	encodedTraversalPatterns := []string{
-		"%2e%2e",    // URL encoded ".."
-		"..%2f",     // Mixed encoding
-		"%2e%2e%2f", // Full URL encoded "../"
-		"..\\",      // Windows-style traversal
-		"..\\/",     // Mixed separators
-	}
-
-	lowerPath := strings.ToLower(configPath)
-	for _, pattern := range encodedTraversalPatterns {
-		if strings.Contains(lowerPath, pattern) {
-			return ErrConfigPathTraversal
-		}
-	}
-
-	return nil
-}
-
-// validateConfigExtension ensures the file has a valid configuration file extension
-// to prevent reading arbitrary system files.
-func validateConfigExtension(configPath string) error {
-	ext := strings.ToLower(filepath.Ext(configPath))
-
-	validExtensions := []string{configExtensionYAML, configExtensionYML}
-	for _, validExt := range validExtensions {
-		if ext == validExt {
-			return nil
-		}
-	}
-
-	return ErrConfigPathInvalidExt
-}
-
-// normalizeConfigPath performs path normalization and cleaning to prevent
-// path manipulation attacks and ensure consistent path handling.
-func normalizeConfigPath(configPath string) (string, error) {
-	// Clean the path to remove redundant separators and resolve . and .. elements
-	cleanedPath := filepath.Clean(configPath)
-
-	// Convert to absolute path for consistent validation
-	// This also helps prevent relative path confusion
-	absolutePath, err := filepath.Abs(cleanedPath)
-	if err != nil {
-		return "", fmt.Errorf("failed to resolve absolute path: %w", err)
-	}
-
-	return absolutePath, nil
 }
 
 // validateFileSystemSafety performs file system validation to ensure the target
@@ -640,9 +177,135 @@ func validateFileSystemSafety(configPath string) error {
 	defer func() {
 		if closeErr := file.Close(); closeErr != nil {
 			// Log error but don't fail validation since file was readable
-			fmt.Printf("Warning: failed to close config file during validation: %v\n", closeErr)
+			logger.Warn("Failed to close config file during validation",
+				zap.String("config_path", configPath),
+				zap.Error(closeErr))
 		}
 	}()
 
 	return nil
 }
+
+// applyEnvironmentOverrides applies essential environment variable overrides to configuration
+func applyEnvironmentOverrides(config *Config) error {
+	// Only apply critical environment overrides that make sense for production deployment
+
+	// Log level override (common for debugging)
+	if logLevel := os.Getenv("LOG_LEVEL"); logLevel != "" {
+		config.Logging.Level = logLevel
+	}
+
+	// Server port override (common in containerized deployments)
+	if port := os.Getenv("PORT"); port != "" {
+		config.Server.Port = parseIntEnv(port, config.Server.Port)
+	}
+
+	// Environment override for deployment context
+	if env := os.Getenv("APP_ENV"); env != "" {
+		config.App.Environment = env
+	}
+
+	return nil
+}
+
+// validateConfig performs basic configuration validation
+func validateConfig(config *Config) error {
+	// Only validate critical fields that could cause runtime issues
+
+	// Validate server port range if set
+	if config.Server.Port > 65535 {
+		return fmt.Errorf("server.port must be between 1 and 65535")
+	}
+
+	// Allow empty configurations for testing purposes
+	return nil
+}
+
+// Helper function to parse integer environment variables with fallback
+func parseIntEnv(value string, fallback int) int {
+	if parsed, err := strconv.Atoi(value); err == nil {
+		return parsed
+	}
+	return fallback
+}
+
+// getDefaultConfigPath returns the default configuration file path based on environment
+func getDefaultConfigPath() string {
+	env := os.Getenv("ENV")
+	if env == "" {
+		env = "development"
+	}
+
+	// Get config directory
+	configDir, err := GetConfigDir()
+	if err != nil {
+		// Fallback to relative path if config directory cannot be determined
+		return fmt.Sprintf("config/%s.yaml", env)
+	}
+
+	return filepath.Join(configDir, fmt.Sprintf("%s.yaml", env))
+}
+
+// GetConfigDir returns the configuration directory path
+func GetConfigDir() (string, error) {
+	// Try to get current working directory
+	wd, err := os.Getwd()
+	if err != nil {
+		return "", fmt.Errorf("failed to get working directory: %w", err)
+	}
+
+	// Look for config directory relative to working directory
+	configDir := filepath.Join(wd, "config")
+
+	// Check if config directory exists
+	if _, err := os.Stat(configDir); err != nil {
+		// Try parent directory structure commonly used in Go projects
+		parentConfigDir := filepath.Join(filepath.Dir(wd), "config")
+		if _, err := os.Stat(parentConfigDir); err == nil {
+			return parentConfigDir, nil
+		}
+
+		// Return the original path even if it doesn't exist
+		// The caller can decide what to do with it
+		return configDir, nil
+	}
+
+	return configDir, nil
+}
+
+// applyEnvOverrides is an alias for applyEnvironmentOverrides for backward compatibility
+func applyEnvOverrides(config *Config) error {
+	return applyEnvironmentOverrides(config)
+}
+
+// Load is an alias for LoadConfig for backward compatibility
+func Load(configPath string) (*Config, error) {
+	return LoadConfig(configPath)
+}
+
+// Backward compatibility type aliases
+type KinesisConfig = streaming.KinesisConfig
+type ServerConfig = server.ServerConfig
+type DatabaseConfig = database.DatabaseConfig
+type APIConfig = api.APIConfig
+type AppConfig = app.AppConfig
+type LoggingConfig = app.LoggingConfig
+type SecurityConfig = security.SecurityConfig
+type StreamingConfig = streaming.StreamingConfig
+type ProcessingConfig = processing.ProcessingConfig
+type RetentionConfig = processing.RetentionConfig
+type ResilienceConfig = streaming.ResilienceConfig
+type CircuitBreakerConfig = streaming.CircuitBreakerConfig
+type RateLimiterConfig = streaming.RateLimiterConfig
+type DLQConfig = streaming.DLQConfig
+type BufferConfig = streaming.BufferConfig
+type ClickHouseConfig = database.ClickHouseConfig
+type RedisConfig = database.RedisConfig
+type CacheConfig = database.CacheConfig
+type CORSConfig = api.CORSConfig
+type TLSConfig = security.TLSConfig
+type JWTConfig = security.JWTConfig
+type MonitoringConfig = security.MonitoringConfig
+type JaegerConfig = security.JaegerConfig
+type PrometheusConfig = security.PrometheusConfig
+type RateLimitConfig = server.RateLimitConfig

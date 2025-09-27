@@ -9,28 +9,22 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/jamesneb/playback-backend/internal/interfaces"
-	"github.com/jamesneb/playback-backend/internal/streaming"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
 
 func TestNewTraceHandler(t *testing.T) {
-	// Create a mock Kinesis client with proper configuration
-	client := createMockKinesisClient()
-	handler := NewTraceHandler(client, &interfaces.ResilienceComponents{})
+	mockPublisher := &MockEventPublisher{}
+	handler := NewTraceHandler(mockPublisher, &interfaces.ResilienceComponents{})
 
 	assert.NotNil(t, handler)
-	assert.Equal(t, client, handler.kinesisClient)
+	assert.Equal(t, mockPublisher, handler.eventPublisher)
 }
 
-// Helper function to create a mock Kinesis client with stream configuration
-func createMockKinesisClient() *streaming.KinesisClient {
-	// Create a KinesisClient with configured streams to avoid "stream not configured" errors
-	// This bypasses AWS client creation for testing
-	return &streaming.KinesisClient{
-		// We can't directly set private fields, so we'll create a nil client
-		// The test expects the PublishTrace method to fail gracefully
-	}
+// createMockEventPublisher creates a mock event publisher for testing
+func createMockEventPublisher() *MockEventPublisher {
+	return &MockEventPublisher{}
 }
 
 func TestTraceHandler_CreateTrace(t *testing.T) {
@@ -63,8 +57,8 @@ func TestTraceHandler_CreateTrace(t *testing.T) {
 							map[string]interface{}{
 								"spans": []interface{}{
 									map[string]interface{}{
-										"traceId": "dGVzdC10cmFjZS1pZA==", // base64 encoded "test-trace-id"
-										"spanId":  "dGVzdC1zcGFuLWlk",     // base64 encoded "test-span-id"
+										"traceId": "0123456789abcdef0123456789abcdef", // 32-char hex trace ID
+										"spanId":  "0123456789abcdef",                 // 16-char hex span ID
 										"name":    "test-operation",
 									},
 								},
@@ -74,12 +68,13 @@ func TestTraceHandler_CreateTrace(t *testing.T) {
 				},
 			},
 			contentType:    "application/json",
-			expectedStatus: http.StatusInternalServerError, // Expect failure due to unconfigured Kinesis
+			expectedStatus: http.StatusAccepted, // Expect success with proper mock
 			validateResponse: func(t *testing.T, w *httptest.ResponseRecorder) {
-				var response ErrorResponse
+				var response TraceResponse
 				err := json.Unmarshal(w.Body.Bytes(), &response)
 				require.NoError(t, err)
-				assert.Equal(t, "Failed to process trace data", response.Error)
+				assert.NotEmpty(t, response.ID)
+				assert.Equal(t, "0123456789abcdef0123456789abcdef", response.TraceID)
 			},
 		},
 		{
@@ -113,7 +108,13 @@ func TestTraceHandler_CreateTrace(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Create mock Kinesis client that doesn't make real calls
-			mockClient := &streaming.KinesisClient{}
+			mockClient := &MockEventPublisher{}
+
+			// Set up mock expectations for successful test case
+			if tt.name == "valid OTLP trace data" {
+				mockClient.On("PublishTrace", mock.Anything, mock.Anything, "test-service", "0123456789abcdef0123456789abcdef", mock.Anything, mock.Anything).Return(nil)
+			}
+
 			handler := NewTraceHandler(mockClient, &interfaces.ResilienceComponents{})
 
 			// Create request
@@ -147,6 +148,11 @@ func TestTraceHandler_CreateTrace(t *testing.T) {
 			if tt.validateResponse != nil {
 				tt.validateResponse(t, w)
 			}
+
+			// Assert mock expectations if they were set
+			if tt.name == "valid OTLP trace data" {
+				mockClient.AssertExpectations(t)
+			}
 		})
 	}
 }
@@ -154,7 +160,7 @@ func TestTraceHandler_CreateTrace(t *testing.T) {
 func TestTraceHandler_GetTrace(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
-	mockClient := &streaming.KinesisClient{}
+	mockClient := &MockEventPublisher{}
 	handler := NewTraceHandler(mockClient, &interfaces.ResilienceComponents{})
 
 	// Create request
@@ -389,8 +395,8 @@ func TestTraceHandler_Integration(t *testing.T) {
 						},
 						"spans": []interface{}{
 							map[string]interface{}{
-								"traceId":           "aW50ZWdyYXRpb24tdGVzdC10cmFjZQ==", // base64 "integration-test-trace"
-								"spanId":            "aW50ZWdyYXRpb24tc3Bhbg==",         // base64 "integration-span"
+								"traceId":           "fedcba9876543210fedcba9876543210", // 32-char hex trace ID
+								"spanId":            "fedcba9876543210",                 // 16-char hex span ID
 								"name":              "integration-operation",
 								"kind":              1, // SPAN_KIND_INTERNAL
 								"startTimeUnixNano": "1640995200000000000",
@@ -408,7 +414,9 @@ func TestTraceHandler_Integration(t *testing.T) {
 	}
 
 	// Create handler
-	mockClient := &streaming.KinesisClient{}
+	mockClient := &MockEventPublisher{}
+	mockClient.On("PublishTrace", mock.Anything, mock.Anything, "integration-test-service", "fedcba9876543210fedcba9876543210", mock.Anything, mock.Anything).Return(nil)
+
 	handler := NewTraceHandler(mockClient, &interfaces.ResilienceComponents{})
 	router := gin.New()
 	router.POST("/traces", handler.CreateTrace)
@@ -426,12 +434,14 @@ func TestTraceHandler_Integration(t *testing.T) {
 	// Execute request
 	router.ServeHTTP(w, req)
 
-	// The handler should return an error due to unconfigured Kinesis client
-	// but the parsing and structure validation should work correctly
-	assert.Equal(t, http.StatusInternalServerError, w.Code)
+	// Should return success with proper mock setup
+	assert.Equal(t, http.StatusAccepted, w.Code)
 
-	var response ErrorResponse
+	var response TraceResponse
 	err = json.Unmarshal(w.Body.Bytes(), &response)
 	require.NoError(t, err)
-	assert.Equal(t, "Failed to process trace data", response.Error)
+	assert.NotEmpty(t, response.ID)
+	assert.Equal(t, "fedcba9876543210fedcba9876543210", response.TraceID)
+
+	mockClient.AssertExpectations(t)
 }

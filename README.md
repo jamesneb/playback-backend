@@ -4,14 +4,26 @@ A high-performance distributed system telemetry backend for ingesting, processin
 
 ## 🚀 Features
 
-- **Multi-Protocol Ingestion**: HTTP/JSON and gRPC/OTLP endpoints
-- **Real-time Processing**: Stream processing via AWS Kinesis with ClickHouse storage
-- **System Mapping**: Automatic service dependency discovery and visualization  
+### ✅ Implemented
+- **Multi-Protocol Ingestion**: HTTP/JSON and gRPC/OTLP endpoints for traces, metrics, and logs
+- **Real-time Processing**: AWS Kinesis streaming with ClickHouse storage
+- **Telemetry Interfaces**: Generic abstractions for swappable streaming and storage backends
+- **Resilience Patterns**: Circuit breakers, rate limiting, and dead letter queues
+- **Performance Optimized**: Protobuf marshaling, efficient hex encoding, structured logging
+- **Testing Suite**: Comprehensive unit and integration tests with error scenario coverage
+
+### 🚧 In Progress
+- **Multi-Tenant Support**: Basic tenant isolation infrastructure
+- **ClickHouse Integration**: Database schema and batch operations
+- **Monitoring & Health**: Basic health checks and metrics endpoints
+
+### 📋 Roadmap
+- **System Mapping**: Automatic service dependency discovery and visualization
 - **Request Replay**: Store and replay production traffic patterns for testing
 - **Clock Calibration**: Advanced clock drift correction using Hybrid Logical Clocks
-- **Multi-Tenant**: Secure tenant isolation for customer data
 - **Data Scrubbing**: Configurable PII/sensitive data filtering
-- **Scalable Storage**: ClickHouse with compression and automated TTL policies
+- **Advanced Security**: JWT authentication, RBAC, audit logging
+- **Compression & TTL**: Automated data lifecycle management
 
 ## 🏗️ Architecture
 
@@ -105,58 +117,42 @@ curl http://localhost:8080/api/v1/replays/list
 - **Indexing**: Optimized for time-range and service-based queries
 - **TTL Policies**: Automatic data lifecycle management
 
-### 4. Data Scrubbing & Security
+### 4. Data Processing & Security
 
-The system includes configurable data scrubbing to protect sensitive customer information:
+**Current Implementation**:
+- **OTLP Protocol**: Native protobuf processing for OpenTelemetry data
+- **Stream Processing**: Kinesis integration with error handling
+- **Resilience**: Circuit breakers and rate limiting for production stability
 
-```yaml
-# config/environments/{env}.yaml
-security:
-  data_scrubbing:
-    enabled: true
-    rules:
-      - field_patterns: ["password", "token", "key", "secret"]
-        action: "redact"
-        replacement: "[REDACTED]"
-      - field_patterns: ["email", "ssn", "credit_card"]  
-        action: "hash"
-        algorithm: "sha256"
-      - attribute_keys: ["user.id", "customer.email"]
-        action: "encrypt"
-        key_id: "customer-data-key"
-```
-
-**Scrubbing Locations**:
-- **Ingestion Layer**: Applied before Kinesis streaming
-- **Storage Layer**: Additional filtering before ClickHouse writes
-- **Query Layer**: Runtime filtering for API responses
+**Planned Features**:
+- **Data Scrubbing**: Configurable PII/sensitive data filtering
+- **Advanced Security**: Field-level encryption and audit trails
 
 ## 🗄️ Database Schema
 
-The system uses a sophisticated schema optimized for telemetry data:
+**Current Implementation**:
+- ClickHouse integration with protobuf batch operations
+- Basic table schema for traces, metrics, and logs
+- Tenant-aware data partitioning
+
+**Planned Enhancements**:
+- Clock calibration and hybrid logical clocks
+- Advanced compression and TTL policies
+- Optimized indexing strategies
 
 ```sql
--- Processed spans with full schema and calibration
-CREATE TABLE spans_final (
+-- Current basic schema (example)
+CREATE TABLE traces (
     trace_id String,
-    span_id String, 
-    tenant LowCardinality(String) DEFAULT 'default',
+    span_id String,
     service_name LowCardinality(String),
     operation_name String,
-    start_time_cal DateTime64(9),
+    start_time DateTime64(9),
     duration_ns UInt64,
-    -- ... additional telemetry fields
+    tenant LowCardinality(String) DEFAULT 'default'
 ) ENGINE = MergeTree()
-ORDER BY (tenant, start_time_cal, service_name, trace_id);
+ORDER BY (tenant, start_time, service_name, trace_id);
 ```
-
-**Key Features**:
-- **Clock Calibration**: Corrects timestamp drift across distributed systems
-- **Hybrid Logical Clocks**: Ensures causal ordering of events
-- **Multi-tenancy**: Secure data isolation per customer
-- **Compression**: 10:1+ compression ratios with ZSTD
-
-See [Database Documentation](db/docs/README.md) for complete schema details.
 
 ## 🔧 Configuration
 
@@ -231,34 +227,37 @@ All deployments use Terraform for infrastructure as code. See `infrastructure/te
 
 ## 📈 Monitoring & Observability
 
-The backend includes comprehensive monitoring:
+### Current Implementation
+- **Structured Logging**: JSON logging with configurable levels (Debug/Info/Warn/Error)
+- **Circuit Breaker Metrics**: State transitions, failure rates, and timing metrics
+- **Rate Limiter Stats**: Per-tenant request counts and throttling metrics
+- **Error Handling**: Comprehensive error scenarios and fallback mechanisms
 
+### Planned Monitoring Features
 - **Health Checks**: `/api/v1/health` endpoint for load balancer checks
-- **Metrics**: Prometheus metrics on `/metrics` endpoint
+- **Prometheus Metrics**: `/metrics` endpoint with custom telemetry metrics
 - **Profiling**: pprof endpoints for performance debugging
-- **Tracing**: Self-instrumented with OpenTelemetry
-- **Logging**: Structured JSON logging with configurable levels
+- **Self-Instrumentation**: OpenTelemetry integration for eating our own dogfood
 
 ## 🔒 Security
 
-### Multi-Tenant Isolation
-- **Database**: Row-level security with tenant-based partitioning  
-- **API**: JWT-based authentication with tenant claim validation
-- **Storage**: S3 bucket policies with tenant-specific prefixes
+### Current Implementation
+- **Rate Limiting**: Per-tenant request throttling with configurable limits
+- **Input Validation**: Request parsing and content-type verification
+- **Basic Tenant Support**: Infrastructure for tenant isolation
 
-### Data Protection
-- **Encryption**: TLS in transit, AES-256 at rest
-- **PII Scrubbing**: Configurable field-level redaction
-- **Access Control**: RBAC with service-specific database users
-- **Audit Logging**: Complete audit trail for data access
+### Planned Security Features
+- **JWT Authentication**: Token-based API access control
+- **Data Encryption**: TLS in transit, encryption at rest
+- **PII Scrubbing**: Configurable field-level data redaction
+- **RBAC**: Role-based access control with fine-grained permissions
+- **Audit Logging**: Complete audit trail for compliance
 
-### Rate Limiting
-```yaml
-api:
-  rate_limiting:
-    enabled: true
-    requests_per_second: 1000
-    burst: 2000
+### Rate Limiting Configuration
+```go
+// Current rate limiting implementation
+rl := NewTenantRateLimiter(1000, 2000) // 1000 req/sec, 2000 burst
+rl.Allow(tenantID) // Per-tenant limits
 ```
 
 ## 🤝 Contributing

@@ -1,13 +1,13 @@
 package streaming
 
 import (
-	"fmt"
+	"encoding/hex"
 	"time"
 
 	logspb "go.opentelemetry.io/proto/otlp/logs/v1"
 	metricspb "go.opentelemetry.io/proto/otlp/metrics/v1"
 	tracepb "go.opentelemetry.io/proto/otlp/trace/v1"
-	"google.golang.org/protobuf/encoding/protojson"
+	"google.golang.org/protobuf/proto"
 )
 
 // TelemetryMetadata contains metadata about the telemetry ingestion
@@ -93,7 +93,8 @@ func (e *TraceTelemetryEvent) Validate() error {
 }
 
 func (e *TraceTelemetryEvent) GetSerializedData() ([]byte, error) {
-	return protojson.Marshal(e.ResourceSpans)
+	// Use efficient binary protobuf marshaling instead of expensive JSON
+	return proto.Marshal(e.ResourceSpans)
 }
 
 // Implement TelemetryEvent interface for MetricsTelemetryEvent
@@ -127,7 +128,8 @@ func (e *MetricsTelemetryEvent) Validate() error {
 }
 
 func (e *MetricsTelemetryEvent) GetSerializedData() ([]byte, error) {
-	return protojson.Marshal(e.ResourceMetrics)
+	// Use efficient binary protobuf marshaling instead of expensive JSON
+	return proto.Marshal(e.ResourceMetrics)
 }
 
 // Implement TelemetryEvent interface for LogsTelemetryEvent
@@ -161,7 +163,8 @@ func (e *LogsTelemetryEvent) Validate() error {
 }
 
 func (e *LogsTelemetryEvent) GetSerializedData() ([]byte, error) {
-	return protojson.Marshal(e.ResourceLogs)
+	// Use efficient binary protobuf marshaling instead of expensive JSON
+	return proto.Marshal(e.ResourceLogs)
 }
 
 // ProtobufTelemetryEvent is used for transporting native protobuf events via Kinesis
@@ -190,7 +193,7 @@ func ExtractServiceNameFromTraces(resourceSpans *tracepb.ResourceSpans) string {
 func ExtractTraceIDFromTraces(resourceSpans *tracepb.ResourceSpans) string {
 	if len(resourceSpans.ScopeSpans) > 0 && len(resourceSpans.ScopeSpans[0].Spans) > 0 {
 		// Return canonical lowercase hex representation
-		return fmt.Sprintf("%x", resourceSpans.ScopeSpans[0].Spans[0].TraceId)
+		return hex.EncodeToString(resourceSpans.ScopeSpans[0].Spans[0].TraceId)
 	}
 	return "unknown"
 }

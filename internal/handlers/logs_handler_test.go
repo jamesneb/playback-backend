@@ -8,17 +8,17 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
-	"github.com/jamesneb/playback-backend/internal/streaming"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
 
 func TestNewLogsHandler(t *testing.T) {
-	client := &streaming.KinesisClient{}
-	handler := NewLogsHandler(client)
+	mockPublisher := &MockEventPublisher{}
+	handler := NewLogsHandler(mockPublisher)
 
 	assert.NotNil(t, handler)
-	assert.Equal(t, client, handler.kinesisClient)
+	assert.Equal(t, mockPublisher, handler.eventPublisher)
 }
 
 func TestLogsHandler_CreateLogs(t *testing.T) {
@@ -69,12 +69,13 @@ func TestLogsHandler_CreateLogs(t *testing.T) {
 				},
 			},
 			contentType:    "application/json",
-			expectedStatus: http.StatusInternalServerError, // Expect failure due to unconfigured Kinesis
+			expectedStatus: http.StatusAccepted, // Expect success with proper mock
 			validateResponse: func(t *testing.T, w *httptest.ResponseRecorder) {
-				var response ErrorResponse
+				var response LogsResponse
 				err := json.Unmarshal(w.Body.Bytes(), &response)
 				require.NoError(t, err)
-				assert.Equal(t, "Failed to process logs data", response.Error)
+				assert.Equal(t, "accepted", response.Status)
+				assert.Equal(t, 1, response.Received)
 			},
 		},
 		{
@@ -99,7 +100,13 @@ func TestLogsHandler_CreateLogs(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			mockClient := &streaming.KinesisClient{}
+			mockClient := &MockEventPublisher{}
+
+			// Set up mock expectations for successful test case
+			if tt.name == "valid OTLP logs data" {
+				mockClient.On("PublishLogs", mock.Anything, mock.Anything, "test-service", "dGVzdC10cmFjZS1pZA==", mock.Anything, mock.Anything).Return(nil)
+			}
+
 			handler := NewLogsHandler(mockClient)
 
 			var body []byte
@@ -126,6 +133,11 @@ func TestLogsHandler_CreateLogs(t *testing.T) {
 			if tt.validateResponse != nil {
 				tt.validateResponse(t, w)
 			}
+
+			// Assert mock expectations if they were set
+			if tt.name == "valid OTLP logs data" {
+				mockClient.AssertExpectations(t)
+			}
 		})
 	}
 }
@@ -133,7 +145,7 @@ func TestLogsHandler_CreateLogs(t *testing.T) {
 func TestLogsHandler_GetLogs(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
-	mockClient := &streaming.KinesisClient{}
+	mockClient := &MockEventPublisher{}
 	handler := NewLogsHandler(mockClient)
 
 	tests := []struct {
@@ -568,7 +580,9 @@ func TestLogsHandler_Integration(t *testing.T) {
 		},
 	}
 
-	mockClient := &streaming.KinesisClient{}
+	mockClient := &MockEventPublisher{}
+	mockClient.On("PublishLogs", mock.Anything, mock.Anything, "integration-logs-service", "integration-trace-123", mock.Anything, mock.Anything).Return(nil)
+
 	handler := NewLogsHandler(mockClient)
 	router := gin.New()
 	router.POST("/logs", handler.CreateLogs)
@@ -583,20 +597,26 @@ func TestLogsHandler_Integration(t *testing.T) {
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
-	// Should return error due to unconfigured Kinesis but parsing should work
-	assert.Equal(t, http.StatusInternalServerError, w.Code)
+	// Should return success with proper mock setup
+	assert.Equal(t, http.StatusAccepted, w.Code)
 
-	var response ErrorResponse
+	var response LogsResponse
 	err = json.Unmarshal(w.Body.Bytes(), &response)
 	require.NoError(t, err)
-	assert.Equal(t, "Failed to process logs data", response.Error)
+	assert.Equal(t, "accepted", response.Status)
+	assert.Equal(t, 2, response.Received) // Two log records in the test data
+
+	mockClient.AssertExpectations(t)
 }
 
 // Benchmark test for logs handler performance
 func BenchmarkLogsHandler_CreateLogs(b *testing.B) {
 	gin.SetMode(gin.TestMode)
 
-	handler := NewLogsHandler(&streaming.KinesisClient{})
+	mockClient := &MockEventPublisher{}
+	mockClient.On("PublishLogs", mock.Anything, mock.Anything, "benchmark-service", mock.Anything, mock.Anything, mock.Anything).Return(nil)
+
+	handler := NewLogsHandler(mockClient)
 
 	logsData := map[string]interface{}{
 		"resourceLogs": []interface{}{

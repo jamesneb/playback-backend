@@ -15,7 +15,6 @@ import (
 	"github.com/jamesneb/playback-backend/pkg/logger"
 	"github.com/jamesneb/playback-backend/pkg/telemetry"
 	"go.uber.org/zap"
-	"google.golang.org/protobuf/proto"
 )
 
 type ClickHouseClient struct {
@@ -360,11 +359,7 @@ func (ch *ClickHouseClient) InsertLogProtobuf(ctx context.Context, event *stream
 	logger.Debug("Inserting log data using native protobuf",
 		zap.String("service_name", logging.SanitizeServiceName(event.GetServiceName())))
 
-	// Serialize the native protobuf data
-	protobufData, err := proto.Marshal(event.ResourceLogs)
-	if err != nil {
-		return fmt.Errorf("failed to marshal logs protobuf: %w", err)
-	}
+	// Skip unnecessary protobuf marshaling - we extract data directly from the protobuf structure
 
 	// Insert directly into logs table
 	batch, err := ch.conn.PrepareBatch(ctx, `
@@ -415,8 +410,7 @@ func (ch *ClickHouseClient) InsertLogProtobuf(ctx context.Context, event *stream
 	}
 
 	logger.Debug("Inserted protobuf logs into ClickHouse",
-		zap.String("service", event.GetServiceName()),
-		zap.Int("protobuf_data_length", len(protobufData)))
+		zap.String("service", event.GetServiceName()))
 
 	return nil
 }

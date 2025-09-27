@@ -271,7 +271,7 @@ func TestCircuitBreakerEdgeCases(t *testing.T) {
 
 		// Should handle nil function gracefully by panicking, which Execute should catch
 		assert.Panics(t, func() {
-			cb.Execute(nil)
+			_, _ = cb.Execute(nil)
 		})
 	})
 }

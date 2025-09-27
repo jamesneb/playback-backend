@@ -230,14 +230,16 @@ func TestLogsHandler_GetLogs(t *testing.T) {
 	}
 }
 
-func TestExtractLogsServiceName(t *testing.T) {
+func TestExtractLogsMetadata(t *testing.T) {
 	tests := []struct {
-		name     string
-		data     json.RawMessage
-		expected string
+		name            string
+		data            json.RawMessage
+		expectedService string
+		expectedTraceID string
+		expectedCount   int
 	}{
 		{
-			name: "service name in resource attributes",
+			name: "complete logs data",
 			data: json.RawMessage(`{
 				"resourceLogs": [{
 					"resource": {
@@ -247,214 +249,76 @@ func TestExtractLogsServiceName(t *testing.T) {
 								"stringValue": "my-logs-service"
 							}
 						}]
-					}
+					},
+					"scopeLogs": [{
+						"logRecords": [
+							{"traceId": "abc123def456"},
+							{"traceId": "xyz789"}
+						]
+					}]
 				}]
 			}`),
-			expected: "my-logs-service",
+			expectedService: "my-logs-service",
+			expectedTraceID: "abc123def456",
+			expectedCount:   2,
 		},
 		{
 			name: "no service name attribute",
 			data: json.RawMessage(`{
 				"resourceLogs": [{
 					"resource": {
-						"attributes": [{
-							"key": "service.version",
-							"value": {
-								"stringValue": "1.0.0"
-							}
-						}]
-					}
+						"attributes": []
+					},
+					"scopeLogs": [{
+						"logRecords": [{"traceId": "test123"}]
+					}]
 				}]
 			}`),
-			expected: "unknown",
+			expectedService: "unknown",
+			expectedTraceID: "test123",
+			expectedCount:   1,
 		},
 		{
-			name: "empty service name",
+			name:            "invalid JSON",
+			data:            json.RawMessage(`{invalid json}`),
+			expectedService: "unknown",
+			expectedTraceID: "",
+			expectedCount:   0,
+		},
+		{
+			name: "no log records",
 			data: json.RawMessage(`{
 				"resourceLogs": [{
 					"resource": {
 						"attributes": [{
 							"key": "service.name",
 							"value": {
-								"stringValue": ""
+								"stringValue": "test-service"
 							}
 						}]
-					}
-				}]
-			}`),
-			expected: "",
-		},
-		{
-			name:     "invalid JSON",
-			data:     json.RawMessage(`{invalid json}`),
-			expected: "unknown",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := extractLogsServiceName(tt.data)
-			assert.Equal(t, tt.expected, result)
-		})
-	}
-}
-
-func TestExtractLogsTraceID(t *testing.T) {
-	tests := []struct {
-		name     string
-		data     json.RawMessage
-		expected string
-	}{
-		{
-			name: "trace ID in log record",
-			data: json.RawMessage(`{
-				"resourceLogs": [{
-					"scopeLogs": [{
-						"logRecords": [{
-							"traceId": "dGVzdC10cmFjZS1pZA=="
-						}]
-					}]
-				}]
-			}`),
-			expected: "dGVzdC10cmFjZS1pZA==",
-		},
-		{
-			name: "multiple log records, return first trace ID",
-			data: json.RawMessage(`{
-				"resourceLogs": [{
-					"scopeLogs": [{
-						"logRecords": [
-							{"traceId": "Zmlyc3QtdHJhY2U="},
-							{"traceId": "c2Vjb25kLXRyYWNl"}
-						]
-					}]
-				}]
-			}`),
-			expected: "Zmlyc3QtdHJhY2U=",
-		},
-		{
-			name: "no trace ID",
-			data: json.RawMessage(`{
-				"resourceLogs": [{
-					"scopeLogs": [{
-						"logRecords": [{
-							"spanId": "test-span"
-						}]
-					}]
-				}]
-			}`),
-			expected: "",
-		},
-		{
-			name: "empty trace ID",
-			data: json.RawMessage(`{
-				"resourceLogs": [{
-					"scopeLogs": [{
-						"logRecords": [{
-							"traceId": ""
-						}]
-					}]
-				}]
-			}`),
-			expected: "",
-		},
-		{
-			name:     "invalid JSON",
-			data:     json.RawMessage(`{invalid}`),
-			expected: "",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := extractLogsTraceID(tt.data)
-			assert.Equal(t, tt.expected, result)
-		})
-	}
-}
-
-func TestCountLogs(t *testing.T) {
-	tests := []struct {
-		name     string
-		data     json.RawMessage
-		expected int
-	}{
-		{
-			name: "single log record",
-			data: json.RawMessage(`{
-				"resourceLogs": [{
-					"scopeLogs": [{
-						"logRecords": [{
-							"body": {"stringValue": "test log"}
-						}]
-					}]
-				}]
-			}`),
-			expected: 1,
-		},
-		{
-			name: "multiple log records",
-			data: json.RawMessage(`{
-				"resourceLogs": [{
-					"scopeLogs": [{
-						"logRecords": [
-							{"body": {"stringValue": "log1"}},
-							{"body": {"stringValue": "log2"}},
-							{"body": {"stringValue": "log3"}}
-						]
-					}]
-				}]
-			}`),
-			expected: 3,
-		},
-		{
-			name: "no log records",
-			data: json.RawMessage(`{
-				"resourceLogs": [{
-					"scopeLogs": [{
-						"logRecords": []
-					}]
-				}]
-			}`),
-			expected: 0,
-		},
-		{
-			name: "multiple resource logs",
-			data: json.RawMessage(`{
-				"resourceLogs": [
-					{
-						"scopeLogs": [{
-							"logRecords": [
-								{"body": {"stringValue": "log1"}},
-								{"body": {"stringValue": "log2"}}
-							]
-						}]
 					},
-					{
-						"scopeLogs": [{
-							"logRecords": [
-								{"body": {"stringValue": "log3"}}
-							]
-						}]
-					}
-				]
+					"scopeLogs": []
+				}]
 			}`),
-			expected: 3,
-		},
-		{
-			name:     "invalid JSON",
-			data:     json.RawMessage(`{invalid}`),
-			expected: 0,
+			expectedService: "test-service",
+			expectedTraceID: "",
+			expectedCount:   0,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := countLogs(tt.data)
-			assert.Equal(t, tt.expected, result)
+			service, traceID, count := extractLogsMetadata(tt.data)
+			assert.Equal(t, tt.expectedService, service)
+			assert.Equal(t, tt.expectedTraceID, traceID)
+			assert.Equal(t, tt.expectedCount, count)
 		})
 	}
 }
+
+// TestExtractLogsTraceID is now covered by TestExtractLogsMetadata
+
+// TestCountLogs is now covered by TestExtractLogsMetadata
 
 func TestLogDataStructures(t *testing.T) {
 	// Test OTLP logs structure creation

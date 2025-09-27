@@ -120,7 +120,7 @@ func BenchmarkCircuitBreakerMetrics(b *testing.B) {
 	}
 
 	for i := 0; i < 100; i++ {
-		cb.Execute(successfulFunc)
+		_, _ = cb.Execute(successfulFunc)
 	}
 
 	b.ResetTimer()

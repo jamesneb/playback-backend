@@ -65,9 +65,8 @@ func (h *MetricsHandler) CreateMetrics(c *gin.Context) {
 		return
 	}
 
-	// Extract service name for logging and partitioning
-	serviceName := extractMetricsServiceName(otlpData)
-	metricsCount := countMetrics(otlpData)
+	// Extract service name and metrics count with single parse operation
+	serviceName, metricsCount := extractMetricsServiceNameAndCount(otlpData)
 
 	// Log the ingestion event
 	logger.Debug("Received OTLP metrics data",
@@ -264,8 +263,8 @@ type MetricData struct {
 }
 
 // Helper functions for extracting metadata from OTLP metrics data
-func extractMetricsServiceName(data json.RawMessage) string {
-	// Parse OTLP metrics structure to extract service name
+func extractMetricsServiceNameAndCount(data json.RawMessage) (string, int) {
+	// Parse OTLP metrics structure once to extract both service name and count
 	var otlp struct {
 		ResourceMetrics []struct {
 			Resource struct {
@@ -276,28 +275,6 @@ func extractMetricsServiceName(data json.RawMessage) string {
 					} `json:"value"`
 				} `json:"attributes"`
 			} `json:"resource"`
-		} `json:"resourceMetrics"`
-	}
-
-	if err := json.Unmarshal(data, &otlp); err != nil {
-		return "unknown"
-	}
-
-	for _, rm := range otlp.ResourceMetrics {
-		for _, attr := range rm.Resource.Attributes {
-			if attr.Key == "service.name" {
-				return attr.Value.StringValue
-			}
-		}
-	}
-
-	return "unknown"
-}
-
-func countMetrics(data json.RawMessage) int {
-	// Parse OTLP metrics structure to count metrics
-	var otlp struct {
-		ResourceMetrics []struct {
 			ScopeMetrics []struct {
 				Metrics []struct {
 					Name string `json:"name"`
@@ -307,15 +284,28 @@ func countMetrics(data json.RawMessage) int {
 	}
 
 	if err := json.Unmarshal(data, &otlp); err != nil {
-		return 0
+		return "unknown", 0
 	}
 
-	count := 0
+	serviceName := "unknown"
+	metricsCount := 0
+
 	for _, rm := range otlp.ResourceMetrics {
+		// Extract service name from first ResourceMetric with service.name attribute
+		if serviceName == "unknown" {
+			for _, attr := range rm.Resource.Attributes {
+				if attr.Key == "service.name" && attr.Value.StringValue != "" {
+					serviceName = attr.Value.StringValue
+					break
+				}
+			}
+		}
+
+		// Count metrics in all scope metrics
 		for _, sm := range rm.ScopeMetrics {
-			count += len(sm.Metrics)
+			metricsCount += len(sm.Metrics)
 		}
 	}
 
-	return count
+	return serviceName, metricsCount
 }

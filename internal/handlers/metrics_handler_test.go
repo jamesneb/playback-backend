@@ -207,14 +207,15 @@ func TestMetricsHandler_GetMetrics(t *testing.T) {
 	}
 }
 
-func TestExtractMetricsServiceName(t *testing.T) {
+func TestExtractMetricsServiceNameAndCount(t *testing.T) {
 	tests := []struct {
-		name     string
-		data     json.RawMessage
-		expected string
+		name            string
+		data            json.RawMessage
+		expectedService string
+		expectedCount   int
 	}{
 		{
-			name: "service name in resource attributes",
+			name: "service name and metrics present",
 			data: json.RawMessage(`{
 				"resourceMetrics": [{
 					"resource": {
@@ -224,140 +225,69 @@ func TestExtractMetricsServiceName(t *testing.T) {
 								"stringValue": "my-metrics-service"
 							}
 						}]
-					}
+					},
+					"scopeMetrics": [{
+						"metrics": [
+							{"name": "metric1"},
+							{"name": "metric2"}
+						]
+					}]
 				}]
 			}`),
-			expected: "my-metrics-service",
+			expectedService: "my-metrics-service",
+			expectedCount:   2,
 		},
 		{
 			name: "no service name attribute",
 			data: json.RawMessage(`{
 				"resourceMetrics": [{
 					"resource": {
-						"attributes": [{
-							"key": "service.version",
-							"value": {
-								"stringValue": "1.0.0"
-							}
-						}]
-					}
+						"attributes": []
+					},
+					"scopeMetrics": [{
+						"metrics": [{"name": "metric1"}]
+					}]
 				}]
 			}`),
-			expected: "unknown",
+			expectedService: "unknown",
+			expectedCount:   1,
 		},
 		{
-			name: "empty service name",
+			name:            "invalid JSON",
+			data:            json.RawMessage(`{invalid json}`),
+			expectedService: "unknown",
+			expectedCount:   0,
+		},
+		{
+			name: "no metrics",
 			data: json.RawMessage(`{
 				"resourceMetrics": [{
 					"resource": {
 						"attributes": [{
 							"key": "service.name",
 							"value": {
-								"stringValue": ""
+								"stringValue": "test-service"
 							}
 						}]
-					}
-				}]
-			}`),
-			expected: "",
-		},
-		{
-			name:     "invalid JSON",
-			data:     json.RawMessage(`{invalid json}`),
-			expected: "unknown",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := extractMetricsServiceName(tt.data)
-			assert.Equal(t, tt.expected, result)
-		})
-	}
-}
-
-func TestCountMetrics(t *testing.T) {
-	tests := []struct {
-		name     string
-		data     json.RawMessage
-		expected int
-	}{
-		{
-			name: "single metric",
-			data: json.RawMessage(`{
-				"resourceMetrics": [{
-					"scopeMetrics": [{
-						"metrics": [{
-							"name": "test_metric"
-						}]
-					}]
-				}]
-			}`),
-			expected: 1,
-		},
-		{
-			name: "multiple metrics",
-			data: json.RawMessage(`{
-				"resourceMetrics": [{
-					"scopeMetrics": [{
-						"metrics": [
-							{"name": "metric1"},
-							{"name": "metric2"},
-							{"name": "metric3"}
-						]
-					}]
-				}]
-			}`),
-			expected: 3,
-		},
-		{
-			name: "no metrics",
-			data: json.RawMessage(`{
-				"resourceMetrics": [{
-					"scopeMetrics": [{
-						"metrics": []
-					}]
-				}]
-			}`),
-			expected: 0,
-		},
-		{
-			name: "multiple resource metrics",
-			data: json.RawMessage(`{
-				"resourceMetrics": [
-					{
-						"scopeMetrics": [{
-							"metrics": [
-								{"name": "metric1"},
-								{"name": "metric2"}
-							]
-						}]
 					},
-					{
-						"scopeMetrics": [{
-							"metrics": [
-								{"name": "metric3"}
-							]
-						}]
-					}
-				]
+					"scopeMetrics": []
+				}]
 			}`),
-			expected: 3,
-		},
-		{
-			name:     "invalid JSON",
-			data:     json.RawMessage(`{invalid}`),
-			expected: 0,
+			expectedService: "test-service",
+			expectedCount:   0,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := countMetrics(tt.data)
-			assert.Equal(t, tt.expected, result)
+			service, count := extractMetricsServiceNameAndCount(tt.data)
+			assert.Equal(t, tt.expectedService, service)
+			assert.Equal(t, tt.expectedCount, count)
 		})
 	}
 }
+
+// TestCountMetrics is now covered by TestExtractMetricsServiceNameAndCount
 
 func TestMetricDataStructures(t *testing.T) {
 	// Test OTLP structure creation

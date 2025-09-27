@@ -65,10 +65,8 @@ func (h *LogsHandler) CreateLogs(c *gin.Context) {
 		return
 	}
 
-	// Extract service name and trace ID for logging and partitioning
-	serviceName := extractLogsServiceName(otlpData)
-	traceID := extractLogsTraceID(otlpData)
-	logsCount := countLogs(otlpData)
+	// Extract service name, trace ID, and logs count with single parse operation
+	serviceName, traceID, logsCount := extractLogsMetadata(otlpData)
 
 	// Log the ingestion event
 	logger.Debug("Received OTLP logs data",
@@ -239,8 +237,8 @@ type LogEntry struct {
 }
 
 // Helper functions for extracting metadata from OTLP logs data
-func extractLogsServiceName(data json.RawMessage) string {
-	// Parse OTLP logs structure to extract service name
+func extractLogsMetadata(data json.RawMessage) (string, string, int) {
+	// Parse OTLP logs structure once to extract service name, trace ID, and count
 	var otlp struct {
 		ResourceLogs []struct {
 			Resource struct {
@@ -251,60 +249,10 @@ func extractLogsServiceName(data json.RawMessage) string {
 					} `json:"value"`
 				} `json:"attributes"`
 			} `json:"resource"`
-		} `json:"resourceLogs"`
-	}
-
-	if err := json.Unmarshal(data, &otlp); err != nil {
-		return "unknown"
-	}
-
-	for _, rl := range otlp.ResourceLogs {
-		for _, attr := range rl.Resource.Attributes {
-			if attr.Key == "service.name" {
-				return attr.Value.StringValue
-			}
-		}
-	}
-
-	return "unknown"
-}
-
-func extractLogsTraceID(data json.RawMessage) string {
-	// Parse OTLP logs structure to extract trace ID
-	var otlp struct {
-		ResourceLogs []struct {
 			ScopeLogs []struct {
 				LogRecords []struct {
 					TraceID string `json:"traceId"`
-				} `json:"logRecords"`
-			} `json:"scopeLogs"`
-		} `json:"resourceLogs"`
-	}
-
-	if err := json.Unmarshal(data, &otlp); err != nil {
-		return ""
-	}
-
-	for _, rl := range otlp.ResourceLogs {
-		for _, sl := range rl.ScopeLogs {
-			for _, logRecord := range sl.LogRecords {
-				if logRecord.TraceID != "" {
-					return logRecord.TraceID
-				}
-			}
-		}
-	}
-
-	return ""
-}
-
-func countLogs(data json.RawMessage) int {
-	// Parse OTLP logs structure to count log records
-	var otlp struct {
-		ResourceLogs []struct {
-			ScopeLogs []struct {
-				LogRecords []struct {
-					Body struct {
+					Body    struct {
 						StringValue string `json:"stringValue"`
 					} `json:"body"`
 				} `json:"logRecords"`
@@ -313,15 +261,34 @@ func countLogs(data json.RawMessage) int {
 	}
 
 	if err := json.Unmarshal(data, &otlp); err != nil {
-		return 0
+		return "unknown", "", 0
 	}
 
-	count := 0
+	serviceName := "unknown"
+	traceID := ""
+	logsCount := 0
+
 	for _, rl := range otlp.ResourceLogs {
+		// Extract service name from first ResourceLog with service.name attribute
+		if serviceName == "unknown" {
+			for _, attr := range rl.Resource.Attributes {
+				if attr.Key == "service.name" && attr.Value.StringValue != "" {
+					serviceName = attr.Value.StringValue
+					break
+				}
+			}
+		}
+
+		// Extract trace ID from first log record and count all log records
 		for _, sl := range rl.ScopeLogs {
-			count += len(sl.LogRecords)
+			for _, logRecord := range sl.LogRecords {
+				if traceID == "" && logRecord.TraceID != "" {
+					traceID = logRecord.TraceID
+				}
+			}
+			logsCount += len(sl.LogRecords)
 		}
 	}
 
-	return count
+	return serviceName, traceID, logsCount
 }

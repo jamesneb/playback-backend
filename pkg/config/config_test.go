@@ -320,7 +320,7 @@ func TestApplyEnvOverrides(t *testing.T) {
 			}()
 
 			// Apply environment overrides
-			applyEnvOverrides(tt.baseConfig)
+			_ = applyEnvOverrides(tt.baseConfig)
 
 			// Validate results
 			if tt.validateFunc != nil {

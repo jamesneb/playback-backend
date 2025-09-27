@@ -239,6 +239,12 @@ func (tb *TenantBuffer) size() int {
 	return len(tb.events)
 }
 
+func (tb *TenantBuffer) hasData() bool {
+	tb.mutex.Lock()
+	defer tb.mutex.Unlock()
+	return len(tb.events) > 0
+}
+
 func (tb *TenantBuffer) getEvents() []streaming.TelemetryEvent {
 	tb.mutex.Lock()
 	defer tb.mutex.Unlock()
@@ -274,32 +280,53 @@ func (kb *KinesisBuffer) flushLoop() {
 }
 
 func (kb *KinesisBuffer) flushAll(ctx context.Context) {
+	// Collect tenants that actually have data to flush
 	kb.bufferMutex.RLock()
-	tenantIDs := make([]string, 0, len(kb.tenantBuffers))
-	for tenantID := range kb.tenantBuffers {
-		tenantIDs = append(tenantIDs, tenantID)
+	tenantsToFlush := make([]string, 0, len(kb.tenantBuffers))
+	for tenantID, buffer := range kb.tenantBuffers {
+		if buffer.hasData() {
+			tenantsToFlush = append(tenantsToFlush, tenantID)
+		}
 	}
 	kb.bufferMutex.RUnlock()
 
+	// If no tenants have data, return early
+	if len(tenantsToFlush) == 0 {
+		kb.healthMetrics.updateLastFlushTime()
+		return
+	}
+
+	// Use a worker pool to limit concurrent goroutines
+	maxWorkers := min(len(tenantsToFlush), 10) // Cap at 10 concurrent flushes
+	workChan := make(chan string, len(tenantsToFlush))
 	var wg sync.WaitGroup
-	for _, tenantID := range tenantIDs {
+
+	// Start worker goroutines
+	for i := 0; i < maxWorkers; i++ {
 		wg.Add(1)
-		go func(tID string) {
+		go func() {
 			defer wg.Done()
+			for tenantID := range workChan {
+				kb.bufferMutex.RLock()
+				buffer := kb.tenantBuffers[tenantID]
+				kb.bufferMutex.RUnlock()
 
-			kb.bufferMutex.RLock()
-			buffer := kb.tenantBuffers[tID]
-			kb.bufferMutex.RUnlock()
-
-			if buffer != nil {
-				if err := kb.flushTenantBuffer(ctx, tID, buffer); err != nil {
-					logger.Error("Failed to flush tenant buffer",
-						zap.String("tenant", tID),
-						zap.Error(err))
+				if buffer != nil {
+					if err := kb.flushTenantBuffer(ctx, tenantID, buffer); err != nil {
+						logger.Error("Failed to flush tenant buffer",
+							zap.String("tenant", tenantID),
+							zap.Error(err))
+					}
 				}
 			}
-		}(tenantID)
+		}()
 	}
+
+	// Send work to workers
+	for _, tenantID := range tenantsToFlush {
+		workChan <- tenantID
+	}
+	close(workChan)
 
 	wg.Wait()
 	kb.healthMetrics.updateLastFlushTime()
@@ -555,4 +582,12 @@ func (kb *KinesisBuffer) GetHealthMetrics() *BufferHealthMetrics {
 		avgProcessingTime:    kb.healthMetrics.avgProcessingTime,
 		lastFlushTime:        kb.healthMetrics.lastFlushTime,
 	}
+}
+
+// min returns the smaller of two integers
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }

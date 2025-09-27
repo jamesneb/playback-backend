@@ -17,23 +17,23 @@ func TestNewTenantRateLimiter(t *testing.T) {
 }
 
 func TestRateLimiterAllow(t *testing.T) {
-	rl := NewTenantRateLimiter(2, 1) // 2 requests per second, 1 burst
+	rl := NewTenantRateLimiter(2, 2) // 2 requests per second, 2 burst capacity
 	tenantID := "test-tenant"
 
 	// First request should be allowed (uses burst)
 	allowed := rl.Allow(tenantID)
 	assert.True(t, allowed)
 
-	// Second request should be allowed (uses normal rate)
+	// Second request should be allowed (uses remaining burst)
 	allowed = rl.Allow(tenantID)
 	assert.True(t, allowed)
 
-	// Third request should be denied (rate limit exceeded)
+	// Third request should be denied (burst exhausted, rate limit not replenished)
 	allowed = rl.Allow(tenantID)
 	assert.False(t, allowed)
 
-	// Wait for rate limit to replenish
-	time.Sleep(time.Millisecond * 600) // Wait for more than 500ms (at 2 req/sec)
+	// Wait for rate limit to replenish (at 2 req/sec, need to wait 500ms for 1 token)
+	time.Sleep(time.Millisecond * 600)
 
 	// Should be allowed again
 	allowed = rl.Allow(tenantID)
@@ -80,26 +80,57 @@ func TestRateLimiterWait(t *testing.T) {
 }
 
 func TestRateLimiterWaitWithTimeout(t *testing.T) {
-	rl := NewTenantRateLimiter(1, 1) // Very slow rate
-	tenantID := "timeout-test-tenant"
+	// Test the underlying rate limiter behavior directly
+	limiter := rate.NewLimiter(rate.Limit(0.5), 1) // 0.5 req/sec, burst of 1
 
-	// Use up the burst
-	allowed := rl.Allow(tenantID)
-	assert.True(t, allowed)
+	// Consume the burst token
+	ok1 := limiter.Allow()
+	assert.True(t, ok1, "First request should be allowed (burst token)")
 
-	// Create context with short timeout
+	// Second request should be denied
+	ok2 := limiter.Allow()
+	assert.False(t, ok2, "Second request should be denied")
+
+	// Test Wait with timeout - this should return immediately with deadline error
+	// since it knows the context will timeout before a token becomes available
 	ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond*100)
 	defer cancel()
 
-	// This should timeout waiting for rate limit
 	start := time.Now()
-	err := rl.Wait(ctx, tenantID)
+	err := limiter.Wait(ctx)
 	elapsed := time.Since(start)
 
+	// Should return immediately with deadline-related error
 	assert.Error(t, err)
-	assert.Equal(t, context.DeadlineExceeded, err)
-	assert.Greater(t, elapsed, time.Millisecond*90) // Should wait close to timeout
-	assert.Less(t, elapsed, time.Millisecond*150)   // But not much longer
+	// The error message indicates the context deadline would be exceeded
+	assert.Contains(t, err.Error(), "deadline")
+	// Should return very quickly (not actually wait)
+	assert.Less(t, elapsed, time.Millisecond*10)
+
+	// Now test our wrapper behaves the same way
+	rl := NewTenantRateLimiter(rate.Limit(0.5), 1)
+	tenantID := "timeout-test-tenant"
+
+	// Consume burst
+	allowed := rl.Allow(tenantID)
+	assert.True(t, allowed)
+
+	// Should be denied
+	allowed = rl.Allow(tenantID)
+	assert.False(t, allowed)
+
+	// Test our Wait wrapper
+	ctx2, cancel2 := context.WithTimeout(context.Background(), time.Millisecond*100)
+	defer cancel2()
+
+	start2 := time.Now()
+	err2 := rl.Wait(ctx2, tenantID)
+	elapsed2 := time.Since(start2)
+
+	// Should behave like the underlying limiter
+	assert.Error(t, err2)
+	assert.Contains(t, err2.Error(), "deadline")
+	assert.Less(t, elapsed2, time.Millisecond*10)
 }
 
 func TestRateLimiterGetStats(t *testing.T) {

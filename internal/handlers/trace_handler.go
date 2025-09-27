@@ -3,8 +3,8 @@ package handlers
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"net/http"
+	"strconv"
 	"sync/atomic"
 	"time"
 
@@ -147,9 +147,8 @@ func (h *TraceHandler) validateAndParseRequest(c *gin.Context) (json.RawMessage,
 }
 
 func (h *TraceHandler) extractTraceMetadata(c *gin.Context, otlpData json.RawMessage) (*traceMetadata, error) {
-	// Extract and validate service name and trace ID for logging and partitioning
-	rawServiceName := h.extractServiceName(otlpData)
-	rawTraceID := h.extractTraceID(otlpData)
+	// Single parse operation to extract both service name and trace ID
+	rawServiceName, rawTraceID := h.extractServiceNameAndTraceID(otlpData)
 
 	serviceName := h.validator.ValidateServiceName(rawServiceName)
 	traceID := h.validator.ValidateTraceID(rawTraceID)
@@ -364,9 +363,9 @@ func (h *TraceHandler) getStatusCodeForValidationError(validationErr *Validation
 	}
 }
 
-// extractServiceName extracts the service name from OTLP trace data using
-// proper error handling and null safety checks.
-func (h *TraceHandler) extractServiceName(data json.RawMessage) string {
+// extractServiceNameAndTraceID performs a single parse to extract both
+// service name and trace ID from OTLP trace data, eliminating repeated unmarshalling.
+func (h *TraceHandler) extractServiceNameAndTraceID(data json.RawMessage) (string, string) {
 	var otlpStructure struct {
 		ResourceSpans []struct {
 			Resource struct {
@@ -377,51 +376,6 @@ func (h *TraceHandler) extractServiceName(data json.RawMessage) string {
 					} `json:"value"`
 				} `json:"attributes"`
 			} `json:"resource"`
-		} `json:"resourceSpans"`
-	}
-
-	if err := json.Unmarshal(data, &otlpStructure); err != nil {
-		logger.Debug("Failed to parse OTLP for service name extraction",
-			zap.Error(err))
-		return DefaultServiceName
-	}
-
-	serviceName := h.findServiceNameInResourceSpans(otlpStructure.ResourceSpans)
-	if serviceName == "" {
-		return DefaultServiceName
-	}
-	return serviceName
-}
-
-// findServiceNameInResourceSpans searches for service.name attribute in resource spans.
-func (h *TraceHandler) findServiceNameInResourceSpans(resourceSpans []struct {
-	Resource struct {
-		Attributes []struct {
-			Key   string `json:"key"`
-			Value struct {
-				StringValue string `json:"stringValue"`
-			} `json:"value"`
-		} `json:"attributes"`
-	} `json:"resource"`
-}) string {
-	const serviceNameKey = "service.name"
-
-	for _, rs := range resourceSpans {
-		for _, attr := range rs.Resource.Attributes {
-			if attr.Key == serviceNameKey && attr.Value.StringValue != "" {
-				return attr.Value.StringValue
-			}
-		}
-	}
-
-	return ""
-}
-
-// extractTraceID extracts the trace ID from OTLP trace data with support
-// for both modern scopeSpans and legacy instrumentationLibrarySpans formats.
-func (h *TraceHandler) extractTraceID(data json.RawMessage) string {
-	var otlpStructure struct {
-		ResourceSpans []struct {
 			ScopeSpans []struct {
 				Spans []struct {
 					TraceID string `json:"traceId"`
@@ -437,17 +391,33 @@ func (h *TraceHandler) extractTraceID(data json.RawMessage) string {
 	}
 
 	if err := json.Unmarshal(data, &otlpStructure); err != nil {
-		logger.Debug("Failed to parse OTLP for trace ID extraction",
+		logger.Debug("Failed to parse OTLP for metadata extraction",
 			zap.Error(err))
-		return ""
+		return DefaultServiceName, ""
 	}
 
-	return h.findTraceIDInResourceSpans(otlpStructure.ResourceSpans)
+	// Extract service name
+	serviceName := h.findServiceNameInResourceSpans(otlpStructure.ResourceSpans)
+	if serviceName == "" {
+		serviceName = DefaultServiceName
+	}
+
+	// Extract trace ID using the same parsed structure
+	traceID := h.findTraceIDInResourceSpansOptimized(otlpStructure.ResourceSpans)
+
+	return serviceName, traceID
 }
 
-// findTraceIDInResourceSpans searches for the first valid trace ID in resource spans,
-// checking both modern and legacy span formats.
-func (h *TraceHandler) findTraceIDInResourceSpans(resourceSpans []struct {
+// findTraceIDInResourceSpansOptimized searches for the first valid trace ID using the combined structure.
+func (h *TraceHandler) findTraceIDInResourceSpansOptimized(resourceSpans []struct {
+	Resource struct {
+		Attributes []struct {
+			Key   string `json:"key"`
+			Value struct {
+				StringValue string `json:"stringValue"`
+			} `json:"value"`
+		} `json:"attributes"`
+	} `json:"resource"`
 	ScopeSpans []struct {
 		Spans []struct {
 			TraceID string `json:"traceId"`
@@ -461,56 +431,79 @@ func (h *TraceHandler) findTraceIDInResourceSpans(resourceSpans []struct {
 }) string {
 	for _, rs := range resourceSpans {
 		// Check modern scopeSpans format first
-		if traceID := h.findTraceIDInScopeSpans(rs.ScopeSpans); traceID != "" {
-			return traceID
+		for _, ss := range rs.ScopeSpans {
+			for _, span := range ss.Spans {
+				if span.TraceID != "" {
+					return span.TraceID
+				}
+			}
 		}
 
 		// Fall back to legacy instrumentationLibrarySpans format
-		if traceID := h.findTraceIDInInstrumentationLibrarySpans(rs.InstrumentationLibrarySpans); traceID != "" {
-			return traceID
-		}
-	}
-
-	return ""
-}
-
-// findTraceIDInScopeSpans searches for trace ID in modern scopeSpans format.
-func (h *TraceHandler) findTraceIDInScopeSpans(scopeSpans []struct {
-	Spans []struct {
-		TraceID string `json:"traceId"`
-	} `json:"spans"`
-}) string {
-	for _, ss := range scopeSpans {
-		for _, span := range ss.Spans {
-			if span.TraceID != "" {
-				return span.TraceID
+		for _, ils := range rs.InstrumentationLibrarySpans {
+			for _, span := range ils.Spans {
+				if span.TraceID != "" {
+					return span.TraceID
+				}
 			}
 		}
 	}
 	return ""
 }
 
-// findTraceIDInInstrumentationLibrarySpans searches for trace ID in legacy format.
-func (h *TraceHandler) findTraceIDInInstrumentationLibrarySpans(instrumentationLibrarySpans []struct {
-	Spans []struct {
-		TraceID string `json:"traceId"`
-	} `json:"spans"`
+// findServiceNameInResourceSpans searches for service.name attribute in resource spans.
+func (h *TraceHandler) findServiceNameInResourceSpans(resourceSpans []struct {
+	Resource struct {
+		Attributes []struct {
+			Key   string `json:"key"`
+			Value struct {
+				StringValue string `json:"stringValue"`
+			} `json:"value"`
+		} `json:"attributes"`
+	} `json:"resource"`
+	ScopeSpans []struct {
+		Spans []struct {
+			TraceID string `json:"traceId"`
+		} `json:"spans"`
+	} `json:"scopeSpans"`
+	InstrumentationLibrarySpans []struct {
+		Spans []struct {
+			TraceID string `json:"traceId"`
+		} `json:"spans"`
+	} `json:"instrumentationLibrarySpans"`
 }) string {
-	for _, ils := range instrumentationLibrarySpans {
-		for _, span := range ils.Spans {
-			if span.TraceID != "" {
-				return span.TraceID
+	const serviceNameKey = "service.name"
+
+	for _, rs := range resourceSpans {
+		for _, attr := range rs.Resource.Attributes {
+			if attr.Key == serviceNameKey && attr.Value.StringValue != "" {
+				return attr.Value.StringValue
 			}
 		}
 	}
+
 	return ""
 }
 
 // generateID creates a unique identifier based on current timestamp
 // with nanosecond precision and atomic counter for guaranteed uniqueness.
+// Optimized to avoid fmt.Sprintf allocation overhead on hot path.
 func generateID() string {
 	// Add atomic counter to nanosecond timestamp for guaranteed uniqueness
 	timestamp := time.Now().UnixNano()
 	counter := atomic.AddInt64(&idCounter, 1)
-	return fmt.Sprintf("%d%03d", timestamp, counter%1000) // Append 3-digit counter suffix
+
+	// Use strconv for better performance than fmt.Sprintf
+	timestampStr := strconv.FormatInt(timestamp, 10)
+	counterStr := strconv.FormatInt(counter%1000, 10)
+
+	// Pre-pad counter to 3 digits
+	switch len(counterStr) {
+	case 1:
+		return timestampStr + "00" + counterStr
+	case 2:
+		return timestampStr + "0" + counterStr
+	default:
+		return timestampStr + counterStr
+	}
 }

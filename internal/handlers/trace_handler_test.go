@@ -22,11 +22,6 @@ func TestNewTraceHandler(t *testing.T) {
 	assert.Equal(t, mockPublisher, handler.eventPublisher)
 }
 
-// createMockEventPublisher creates a mock event publisher for testing
-func createMockEventPublisher() *MockEventPublisher {
-	return &MockEventPublisher{}
-}
-
 func TestTraceHandler_CreateTrace(t *testing.T) {
 	// Set Gin to test mode
 	gin.SetMode(gin.TestMode)
@@ -185,14 +180,15 @@ func TestTraceHandler_GetTrace(t *testing.T) {
 	assert.Contains(t, response.TraceID, "sample-trace-test-trace-id")
 }
 
-func TestExtractServiceName(t *testing.T) {
+func TestExtractServiceNameAndTraceID(t *testing.T) {
 	tests := []struct {
-		name     string
-		data     json.RawMessage
-		expected string
+		name            string
+		data            json.RawMessage
+		expectedService string
+		expectedTraceID string
 	}{
 		{
-			name: "service name in resource attributes",
+			name: "service name and trace ID present",
 			data: json.RawMessage(`{
 				"resourceSpans": [{
 					"resource": {
@@ -201,60 +197,58 @@ func TestExtractServiceName(t *testing.T) {
 							"value": {
 								"stringValue": "my-service"
 							}
-						}, {
-							"key": "service.version",
-							"value": {
-								"stringValue": "1.0.0"
-							}
 						}]
-					}
+					},
+					"scopeSpans": [{
+						"spans": [{
+							"traceId": "abc123def456"
+						}]
+					}]
 				}]
 			}`),
-			expected: "my-service",
+			expectedService: "my-service",
+			expectedTraceID: "abc123def456",
 		},
 		{
 			name: "no service name attribute",
 			data: json.RawMessage(`{
 				"resourceSpans": [{
 					"resource": {
-						"attributes": [{
-							"key": "service.version",
-							"value": {
-								"stringValue": "1.0.0"
-							}
+						"attributes": []
+					},
+					"scopeSpans": [{
+						"spans": [{
+							"traceId": "xyz789"
 						}]
-					}
+					}]
 				}]
 			}`),
-			expected: "unknown",
+			expectedService: "unknown",
+			expectedTraceID: "xyz789",
 		},
 		{
-			name: "empty service name",
+			name:            "invalid JSON",
+			data:            json.RawMessage(`{invalid json}`),
+			expectedService: "unknown",
+			expectedTraceID: "",
+		},
+		{
+			name: "no spans",
 			data: json.RawMessage(`{
 				"resourceSpans": [{
 					"resource": {
 						"attributes": [{
 							"key": "service.name",
 							"value": {
-								"stringValue": ""
+								"stringValue": "test-service"
 							}
 						}]
-					}
+					},
+					"scopeSpans": []
 				}]
 			}`),
-			expected: "unknown",
-		},
-		{
-			name:     "invalid JSON",
-			data:     json.RawMessage(`{invalid json}`),
-			expected: "unknown",
-		},
-		{
-			name: "no resource spans",
-			data: json.RawMessage(`{
-				"resourceSpans": []
-			}`),
-			expected: "unknown",
+			expectedService: "test-service",
+			expectedTraceID: "",
 		},
 	}
 
@@ -263,91 +257,14 @@ func TestExtractServiceName(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := handler.extractServiceName(tt.data)
-			assert.Equal(t, tt.expected, result)
+			service, traceID := handler.extractServiceNameAndTraceID(tt.data)
+			assert.Equal(t, tt.expectedService, service)
+			assert.Equal(t, tt.expectedTraceID, traceID)
 		})
 	}
 }
 
-func TestExtractTraceID(t *testing.T) {
-	tests := []struct {
-		name     string
-		data     json.RawMessage
-		expected string
-	}{
-		{
-			name: "trace ID in first span",
-			data: json.RawMessage(`{
-				"resourceSpans": [{
-					"scopeSpans": [{
-						"spans": [{
-							"traceId": "dGVzdC10cmFjZS1pZA==",
-							"spanId": "dGVzdC1zcGFuLWlk"
-						}]
-					}]
-				}]
-			}`),
-			expected: "dGVzdC10cmFjZS1pZA==",
-		},
-		{
-			name: "multiple spans, return first trace ID",
-			data: json.RawMessage(`{
-				"resourceSpans": [{
-					"scopeSpans": [{
-						"spans": [{
-							"traceId": "Zmlyc3QtdHJhY2U=",
-							"spanId": "first-span"
-						}, {
-							"traceId": "c2Vjb25kLXRyYWNl",
-							"spanId": "second-span"
-						}]
-					}]
-				}]
-			}`),
-			expected: "Zmlyc3QtdHJhY2U=",
-		},
-		{
-			name: "no spans",
-			data: json.RawMessage(`{
-				"resourceSpans": [{
-					"scopeSpans": [{
-						"spans": []
-					}]
-				}]
-			}`),
-			expected: "",
-		},
-		{
-			name: "empty trace ID",
-			data: json.RawMessage(`{
-				"resourceSpans": [{
-					"scopeSpans": [{
-						"spans": [{
-							"traceId": "",
-							"spanId": "test-span"
-						}]
-					}]
-				}]
-			}`),
-			expected: "",
-		},
-		{
-			name:     "invalid JSON",
-			data:     json.RawMessage(`{invalid}`),
-			expected: "",
-		},
-	}
-
-	// Create a handler instance for testing the method
-	handler := &TraceHandler{}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := handler.extractTraceID(tt.data)
-			assert.Equal(t, tt.expected, result)
-		})
-	}
-}
+// TestExtractTraceID is now covered by TestExtractServiceNameAndTraceID
 
 func TestGenerateID(t *testing.T) {
 	// Test that generateID produces different IDs

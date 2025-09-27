@@ -170,8 +170,13 @@ func (kb *KinesisBuffer) BufferEvent(ctx context.Context, event streaming.Teleme
 	// Check if we should flush immediately (batch size reached)
 	if buffer.size() >= kb.maxBatchSize {
 		go func() {
-			if err := kb.flushTenantBuffer(ctx, tenantID, buffer); err != nil {
-				logger.Error("Failed to flush full buffer", 
+			// Create background context with timeout for async flush
+			// Don't inherit request context which gets cancelled when handler returns
+			flushCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+
+			if err := kb.flushTenantBuffer(flushCtx, tenantID, buffer); err != nil {
+				logger.Error("Failed to flush full buffer",
 					zap.String("tenant", tenantID),
 					zap.Error(err))
 			}

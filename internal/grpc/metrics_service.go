@@ -14,12 +14,12 @@ import (
 
 type MetricsService struct {
 	metricscollectorpb.UnimplementedMetricsServiceServer
-	streamHandler     *streaming.KinesisHandler
+	streamHandler     streaming.Handler // Use interface to support mocks
 	clickhouseHandler streaming.Handler
 	validator         *validation.ProtobufValidator
 }
 
-func NewMetricsService(streamHandler *streaming.KinesisHandler, clickhouseHandler streaming.Handler) *MetricsService {
+func NewMetricsService(streamHandler streaming.Handler, clickhouseHandler streaming.Handler) *MetricsService {
 	return &MetricsService{
 		streamHandler:     streamHandler,
 		clickhouseHandler: clickhouseHandler,

@@ -43,13 +43,19 @@ type TraceHandler struct {
 // Returns:
 //   - *TraceHandler: Fully initialized trace handler ready for request processing
 func NewTraceHandler(kinesisClient *streaming.KinesisClient, resilienceComponents *interfaces.ResilienceComponents) *TraceHandler {
-	return &TraceHandler{
-		kinesisClient:   kinesisClient,
-		validator:       NewRequestValidator(),
-		kinesisBuffer:   resilienceComponents.KinesisBuffer,
-		rateLimiter:    resilienceComponents.RateLimiter,
-		deadLetterQueue: resilienceComponents.DeadLetterQueue,
+	handler := &TraceHandler{
+		kinesisClient: kinesisClient,
+		validator:     NewRequestValidator(),
 	}
+
+	// Handle optional resilience components gracefully
+	if resilienceComponents != nil {
+		handler.kinesisBuffer = resilienceComponents.KinesisBuffer
+		handler.rateLimiter = resilienceComponents.RateLimiter
+		handler.deadLetterQueue = resilienceComponents.DeadLetterQueue
+	}
+
+	return handler
 }
 
 
@@ -64,6 +70,42 @@ func NewTraceHandler(kinesisClient *streaming.KinesisClient, resilienceComponent
 // @Failure 400 {object} ErrorResponse
 // @Router /api/v1/traces [post]
 func (h *TraceHandler) CreateTrace(c *gin.Context) {
+	// Validate and parse request
+	otlpData, err := h.validateAndParseRequest(c)
+	if err != nil {
+		return // Response already sent by validation method
+	}
+
+	// Extract trace metadata
+	traceMetadata, err := h.extractTraceMetadata(c, otlpData)
+	if err != nil {
+		return // Response already sent
+	}
+
+	// Apply rate limiting
+	if !h.applyRateLimit(c, traceMetadata.TenantID) {
+		return // Response already sent
+	}
+
+	// Log ingestion event
+	h.logIngestedTrace(c, traceMetadata, len(otlpData))
+
+	// Publish to Kinesis
+	if !h.publishTraceToKinesis(c, otlpData, traceMetadata) {
+		return // Response already sent
+	}
+
+	// Send success response
+	h.sendSuccessResponse(c, traceMetadata)
+}
+
+type traceMetadata struct {
+	ServiceName string
+	TraceID     string
+	TenantID    string
+}
+
+func (h *TraceHandler) validateAndParseRequest(c *gin.Context) (json.RawMessage, error) {
 	// Perform comprehensive request validation
 	if validationErr := h.validator.ValidateRequest(c); validationErr != nil {
 		logger.Warn("Request validation failed",
@@ -72,7 +114,7 @@ func (h *TraceHandler) CreateTrace(c *gin.Context) {
 			zap.String("user_agent", logging.SanitizeUserAgent(c.GetHeader("User-Agent"))))
 
 		h.respondWithValidationError(c, validationErr)
-		return
+		return nil, validationErr
 	}
 
 	// Parse the OTLP trace data with size already validated
@@ -87,7 +129,7 @@ func (h *TraceHandler) CreateTrace(c *gin.Context) {
 			Error:   ErrInvalidTraceData,
 			Message: "Malformed JSON in request body",
 		})
-		return
+		return nil, err
 	}
 
 	// Validate OTLP structure and content
@@ -98,9 +140,13 @@ func (h *TraceHandler) CreateTrace(c *gin.Context) {
 			zap.String("data_size", logging.SanitizeDataSize(len(otlpData))))
 
 		h.respondWithValidationError(c, validationErr)
-		return
+		return nil, validationErr
 	}
 
+	return otlpData, nil
+}
+
+func (h *TraceHandler) extractTraceMetadata(c *gin.Context, otlpData json.RawMessage) (*traceMetadata, error) {
 	// Extract and validate service name and trace ID for logging and partitioning
 	rawServiceName := h.extractServiceName(otlpData)
 	rawTraceID := h.extractTraceID(otlpData)
@@ -114,7 +160,14 @@ func (h *TraceHandler) CreateTrace(c *gin.Context) {
 		tenantID = DefaultTenantID
 	}
 
-	// Apply tenant rate limiting
+	return &traceMetadata{
+		ServiceName: serviceName,
+		TraceID:     traceID,
+		TenantID:    tenantID,
+	}, nil
+}
+
+func (h *TraceHandler) applyRateLimit(c *gin.Context, tenantID string) bool {
 	if h.rateLimiter != nil && !h.rateLimiter.Allow(tenantID) {
 		logger.Warn("HTTP trace request rate limited",
 			zap.String("tenant", logging.SanitizeTenantID(tenantID)),
@@ -123,116 +176,119 @@ func (h *TraceHandler) CreateTrace(c *gin.Context) {
 			Error:   "Rate limit exceeded",
 			Message: "Too many requests for this tenant",
 		})
-		return
+		return false
 	}
+	return true
+}
 
-	// Log the ingestion event
+func (h *TraceHandler) logIngestedTrace(c *gin.Context, metadata *traceMetadata, dataSize int) {
 	logger.Info("Received OTLP trace data",
-		zap.String("service_name", logging.SanitizeServiceName(serviceName)),
-		zap.String("trace_id", logging.SanitizeTraceID(traceID)),
-		zap.String("tenant", logging.SanitizeTenantID(tenantID)),
+		zap.String("service_name", logging.SanitizeServiceName(metadata.ServiceName)),
+		zap.String("trace_id", logging.SanitizeTraceID(metadata.TraceID)),
+		zap.String("tenant", logging.SanitizeTenantID(metadata.TenantID)),
 		zap.String("client_ip", logging.SanitizeClientIP(c.ClientIP())),
 		zap.String("user_agent", logging.SanitizeUserAgent(c.GetHeader("User-Agent"))),
-		zap.String("data_size", logging.SanitizeDataSize(len(otlpData))),
+		zap.String("data_size", logging.SanitizeDataSize(dataSize)),
 	)
+}
 
-	// Create legacy telemetry event for HTTP JSON data
-	event := &streaming.LegacyTelemetryEvent{
-		Type:        "traces",
-		Data:        otlpData,
-		ServiceName: serviceName,
-		TraceID:     traceID,
-		Metadata: streaming.LegacyTelemetryMetadata{
-			IngestedAt: time.Now(),
-			SourceIP:   c.ClientIP(),
-			UserAgent:  c.GetHeader("User-Agent"),
-		},
-	}
-
+func (h *TraceHandler) publishTraceToKinesis(c *gin.Context, otlpData json.RawMessage, metadata *traceMetadata) bool {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	// KINESIS-FIRST: Use resilient buffer if available
+	var err error
+
+	// Use buffer if available for resilience
 	if h.kinesisBuffer != nil {
-		// Convert to proper telemetry event interface (this needs to be implemented)
-		// For now, fallback to direct Kinesis
-		err := h.kinesisClient.PublishTrace(
-			ctx,
-			otlpData,
-			serviceName,
-			traceID,
-			c.ClientIP(),
-			c.GetHeader("User-Agent"),
-		)
-		if err != nil {
-			// Send to DLQ if available
-			if h.deadLetterQueue != nil {
-				// Create a basic telemetry event for DLQ
-				basicEvent := &streaming.TraceTelemetryEvent{
-					BaseTelemetryEvent: streaming.BaseTelemetryEvent{
-						Type:        streaming.TelemetryTypeTraces,
-						ServiceName: serviceName,
-						TraceID:     traceID,
-						Metadata: streaming.TelemetryMetadata{
-						IngestedAt: event.Metadata.IngestedAt,
-						SourceIP:   event.Metadata.SourceIP,
-					},
-					},
-					// Note: ResourceSpans would be nil for JSON data
-				}
-				
-				if dlqErr := h.deadLetterQueue.SendToDLQ(ctx, basicEvent, err, tenantID, "http", "kinesis_publish_failed"); dlqErr != nil {
-					logger.Error("Failed to send to DLQ", zap.Error(dlqErr))
-				}
-			}
-			
-			logger.Error("Failed to publish trace to Kinesis",
-				zap.Error(err),
-				zap.String("service_name", logging.SanitizeServiceName(serviceName)),
-				zap.String("trace_id", logging.SanitizeTraceID(traceID)),
-				zap.String("tenant", logging.SanitizeTenantID(tenantID)),
-			)
-			c.JSON(http.StatusServiceUnavailable, ErrorResponse{
-				Error:   "Telemetry pipeline unavailable",
-				Message: "Please try again later",
-			})
-			return
+		// Create a legacy telemetry event for JSON data
+		event := &streaming.LegacyTelemetryEvent{
+			Type:        string(streaming.TelemetryTypeTraces),
+			ServiceName: metadata.ServiceName,
+			TraceID:     metadata.TraceID,
+			Data:        otlpData,
+			Metadata: streaming.LegacyTelemetryMetadata{
+				IngestedAt: time.Now(),
+				SourceIP:   c.ClientIP(),
+				UserAgent:  c.GetHeader("User-Agent"),
+			},
 		}
+
+		// Buffer the event through the resilience layer
+		err = h.kinesisBuffer.BufferEvent(ctx, event, metadata.TenantID, "http")
 	} else {
 		// Fallback to direct Kinesis (original behavior)
-		err := h.kinesisClient.PublishTrace(
+		err = h.kinesisClient.PublishTrace(
 			ctx,
 			otlpData,
-			serviceName,
-			traceID,
+			metadata.ServiceName,
+			metadata.TraceID,
 			c.ClientIP(),
 			c.GetHeader("User-Agent"),
 		)
-		if err != nil {
-			logger.Error("Failed to publish trace to Kinesis",
-				zap.Error(err),
-				zap.String("service_name", logging.SanitizeServiceName(serviceName)),
-				zap.String("trace_id", logging.SanitizeTraceID(traceID)),
-			)
-			c.JSON(http.StatusInternalServerError, ErrorResponse{
-				Error:   "Failed to process trace data",
-				Message: "Internal server error",
-			})
-			return
-		}
 	}
 
+	if err != nil {
+		// Handle DLQ if available
+		if h.deadLetterQueue != nil {
+			h.handlePublishFailure(ctx, otlpData, metadata, err)
+		}
+
+		logger.Error("Failed to publish trace to Kinesis",
+			zap.Error(err),
+			zap.String("service_name", logging.SanitizeServiceName(metadata.ServiceName)),
+			zap.String("trace_id", logging.SanitizeTraceID(metadata.TraceID)),
+			zap.String("tenant", logging.SanitizeTenantID(metadata.TenantID)),
+		)
+
+		status := http.StatusServiceUnavailable
+		errorMsg := "Telemetry pipeline unavailable"
+		if h.kinesisBuffer == nil {
+			status = http.StatusInternalServerError
+			errorMsg = "Failed to process trace data"
+		}
+
+		c.JSON(status, ErrorResponse{
+			Error:   errorMsg,
+			Message: "Please try again later",
+		})
+		return false
+	}
+
+	return true
+}
+
+func (h *TraceHandler) handlePublishFailure(ctx context.Context, otlpData json.RawMessage, metadata *traceMetadata, err error) {
+	// Create a basic telemetry event for DLQ
+	basicEvent := &streaming.TraceTelemetryEvent{
+		BaseTelemetryEvent: streaming.BaseTelemetryEvent{
+			Type:        streaming.TelemetryTypeTraces,
+			ServiceName: metadata.ServiceName,
+			TraceID:     metadata.TraceID,
+			Metadata: streaming.TelemetryMetadata{
+				IngestedAt: time.Now(),
+				SourceIP:   "", // Will be filled by caller
+			},
+		},
+		// Note: ResourceSpans would be nil for JSON data
+	}
+
+	if dlqErr := h.deadLetterQueue.SendToDLQ(ctx, basicEvent, err, metadata.TenantID, "http", "kinesis_publish_failed"); dlqErr != nil {
+		logger.Error("Failed to send to DLQ", zap.Error(dlqErr))
+	}
+}
+
+func (h *TraceHandler) sendSuccessResponse(c *gin.Context, metadata *traceMetadata) {
 	// Log successful ingestion
 	logger.Info("Successfully processed HTTP trace via Kinesis-first approach",
-		zap.String("service_name", logging.SanitizeServiceName(serviceName)),
-		zap.String("trace_id", logging.SanitizeTraceID(traceID)),
-		zap.String("tenant", logging.SanitizeTenantID(tenantID)),
+		zap.String("service_name", logging.SanitizeServiceName(metadata.ServiceName)),
+		zap.String("trace_id", logging.SanitizeTraceID(metadata.TraceID)),
+		zap.String("tenant", logging.SanitizeTenantID(metadata.TenantID)),
 	)
 
 	// Return success response
 	response := TraceResponse{
 		ID:        generateID(),
-		TraceID:   traceID,
+		TraceID:   metadata.TraceID,
 		CreatedAt: time.Now(),
 	}
 

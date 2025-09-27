@@ -14,6 +14,9 @@ import (
 // InitializeResilienceComponents creates and configures all resilience components
 func InitializeResilienceComponents(cfg *config.Config, services *Services) (*interfaces.ResilienceComponents, *resilience.CircuitBreaker, error) {
 	// Initialize tenant rate limiter from config
+	if cfg.Resilience.RateLimiter.RequestsPerSecond <= 0 {
+		return nil, nil, fmt.Errorf("rate limiter requests_per_second must be greater than 0, got: %d", cfg.Resilience.RateLimiter.RequestsPerSecond)
+	}
 	rpsLimit := time.Second / time.Duration(cfg.Resilience.RateLimiter.RequestsPerSecond)
 	rateLimiter := resilience.NewTenantRateLimiter(
 		rate.Every(rpsLimit),
@@ -28,6 +31,10 @@ func InitializeResilienceComponents(cfg *config.Config, services *Services) (*in
 		Timeout:     time.Duration(cfg.Resilience.CircuitBreaker.TimeoutSeconds) * time.Second,
 		ReadyToTrip: func(counts resilience.Counts) bool {
 			// Trip if failure rate exceeds configured threshold
+			// Guard against division by zero during bootstrap
+			if counts.Requests == 0 {
+				return false
+			}
 			failureRate := float64(counts.TotalFailures) / float64(counts.Requests)
 			return counts.Requests >= cfg.Resilience.CircuitBreaker.MinRequests && failureRate > cfg.Resilience.CircuitBreaker.FailureRate
 		},

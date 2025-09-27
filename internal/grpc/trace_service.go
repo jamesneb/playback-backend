@@ -19,7 +19,7 @@ import (
 
 type TraceService struct {
 	tracecollectorpb.UnimplementedTraceServiceServer
-	streamHandler     *streaming.KinesisHandler
+	streamHandler     streaming.Handler // Use interface to support mocks
 	clickhouseHandler streaming.Handler // Direct ClickHouse for real-time path
 	validator         *validation.ProtobufValidator // Add protobuf validator
 
@@ -30,18 +30,25 @@ type TraceService struct {
 	deadLetterQueue  *resilience.DeadLetterQueue
 }
 
-func NewTraceService(streamHandler *streaming.KinesisHandler, clickhouseHandler streaming.Handler,
+func NewTraceService(streamHandler streaming.Handler, clickhouseHandler streaming.Handler,
 	resilienceComponents *interfaces.ResilienceComponents) *TraceService {
 	log.Printf("🔥 TRACE SERVICE INIT: NewTraceService called - protobuf debugging enabled!")
-	return &TraceService{
+
+	service := &TraceService{
 		streamHandler:     streamHandler,
 		clickhouseHandler: clickhouseHandler,
 		validator:         validation.NewProtobufValidator(),
-		kinesisBuffer:     resilienceComponents.KinesisBuffer,
-		rateLimiter:      resilienceComponents.RateLimiter,
-		circuitBreaker:   resilienceComponents.CircuitBreaker,
-		deadLetterQueue:  resilienceComponents.DeadLetterQueue,
 	}
+
+	// Handle optional resilience components gracefully
+	if resilienceComponents != nil {
+		service.kinesisBuffer = resilienceComponents.KinesisBuffer
+		service.rateLimiter = resilienceComponents.RateLimiter
+		service.circuitBreaker = resilienceComponents.CircuitBreaker
+		service.deadLetterQueue = resilienceComponents.DeadLetterQueue
+	}
+
+	return service
 }
 
 

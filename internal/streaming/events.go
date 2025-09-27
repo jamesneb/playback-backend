@@ -1,6 +1,7 @@
 package streaming
 
 import (
+	"fmt"
 	"time"
 
 	logspb "go.opentelemetry.io/proto/otlp/logs/v1"
@@ -188,7 +189,8 @@ func ExtractServiceNameFromTraces(resourceSpans *tracepb.ResourceSpans) string {
 
 func ExtractTraceIDFromTraces(resourceSpans *tracepb.ResourceSpans) string {
 	if len(resourceSpans.ScopeSpans) > 0 && len(resourceSpans.ScopeSpans[0].Spans) > 0 {
-		return string(resourceSpans.ScopeSpans[0].Spans[0].TraceId)
+		// Return canonical lowercase hex representation
+		return fmt.Sprintf("%x", resourceSpans.ScopeSpans[0].Spans[0].TraceId)
 	}
 	return "unknown"
 }

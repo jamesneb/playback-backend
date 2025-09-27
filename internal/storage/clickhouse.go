@@ -476,261 +476,97 @@ type LogData struct {
 
 // parseTraceData is no longer needed - ClickHouse materialized views handle all processing
 
+// OTLPMetricsResource represents the parsed OTLP ResourceMetrics structure
+type OTLPMetricsResource struct {
+	Resource struct {
+		Attributes []OTLPAttribute `json:"attributes"`
+	} `json:"resource"`
+	ScopeMetrics []OTLPScopeMetric `json:"scopeMetrics"`
+}
+
+type OTLPScopeMetric struct {
+	Scope struct {
+		Name    string `json:"name"`
+		Version string `json:"version"`
+	} `json:"scope"`
+	Metrics []OTLPMetric `json:"metrics"`
+}
+
+type OTLPMetric struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Unit        string `json:"unit"`
+	Sum         *OTLPSum       `json:"sum,omitempty"`
+	Gauge       *OTLPGauge     `json:"gauge,omitempty"`
+	Histogram   *OTLPHistogram `json:"histogram,omitempty"`
+}
+
+type OTLPSum struct {
+	DataPoints             []OTLPDataPoint `json:"dataPoints"`
+	AggregationTemporality string          `json:"aggregationTemporality,omitempty"`
+	IsMonotonic           bool            `json:"isMonotonic,omitempty"`
+}
+
+type OTLPGauge struct {
+	DataPoints []OTLPDataPoint `json:"dataPoints"`
+}
+
+type OTLPHistogram struct {
+	DataPoints             []OTLPHistogramDataPoint `json:"dataPoints"`
+	AggregationTemporality string                   `json:"aggregationTemporality,omitempty"`
+}
+
+type OTLPDataPoint struct {
+	Attributes        []OTLPAttribute `json:"attributes"`
+	StartTimeUnixNano string          `json:"startTimeUnixNano"`
+	TimeUnixNano      string          `json:"timeUnixNano"`
+	AsInt             string          `json:"asInt,omitempty"`
+	AsDouble          interface{}     `json:"asDouble,omitempty"`
+}
+
+type OTLPHistogramDataPoint struct {
+	Attributes        []OTLPAttribute `json:"attributes"`
+	StartTimeUnixNano string          `json:"startTimeUnixNano"`
+	TimeUnixNano      string          `json:"timeUnixNano"`
+	Count             string          `json:"count"`
+	Sum               interface{}     `json:"sum,omitempty"`
+	BucketCounts      []string        `json:"bucketCounts"`
+	ExplicitBounds    []float64       `json:"explicitBounds"`
+}
+
+type OTLPAttribute struct {
+	Key   string `json:"key"`
+	Value struct {
+		StringValue string `json:"stringValue,omitempty"`
+		IntValue    string `json:"intValue,omitempty"`
+		BoolValue   bool   `json:"boolValue,omitempty"`
+	} `json:"value"`
+}
+
 func (ch *ClickHouseClient) parseMetricsData(data interface{}) ([]MetricData, error) {
-	// Parse JSON raw message
 	rawJSON, ok := data.(json.RawMessage)
 	if !ok {
 		return nil, fmt.Errorf("data is not json.RawMessage")
 	}
 
-	// Log a sample of the raw JSON to understand the structure
-	logger.Info("Raw OTLP metrics JSON sample", 
+	logger.Info("Raw OTLP metrics JSON sample",
 		zap.String("json_sample", string(rawJSON[:min(2000, len(rawJSON))])))
 
-	// Parse the OTLP ResourceMetrics structure
-	var resourceMetric struct {
-		Resource struct {
-			Attributes []struct {
-				Key   string `json:"key"`
-				Value struct {
-					StringValue string `json:"stringValue,omitempty"`
-				} `json:"value"`
-			} `json:"attributes"`
-		} `json:"resource"`
-		ScopeMetrics []struct {
-			Scope struct {
-				Name    string `json:"name"`
-				Version string `json:"version"`
-			} `json:"scope"`
-			Metrics []struct {
-				Name        string `json:"name"`
-				Description string `json:"description"`
-				Unit        string `json:"unit"`
-				Sum         *struct {
-					DataPoints []struct {
-						Attributes []struct {
-							Key   string `json:"key"`
-							Value struct {
-								StringValue string `json:"stringValue,omitempty"`
-								IntValue    string `json:"intValue,omitempty"`
-								BoolValue   bool   `json:"boolValue,omitempty"`
-							} `json:"value"`
-						} `json:"attributes"`
-						StartTimeUnixNano string      `json:"startTimeUnixNano"`
-						TimeUnixNano      string      `json:"timeUnixNano"`
-						AsInt             string      `json:"asInt,omitempty"`
-						AsDouble          interface{} `json:"asDouble,omitempty"`
-						Count             string      `json:"count,omitempty"`
-						Sum               interface{} `json:"sum,omitempty"`
-						BucketCounts      []string    `json:"bucketCounts,omitempty"`
-						Bounds            []float64   `json:"bounds,omitempty"`
-					} `json:"dataPoints"`
-					AggregationTemporality string `json:"aggregationTemporality,omitempty"`
-					IsMonotonic           bool   `json:"isMonotonic,omitempty"`
-				} `json:"sum,omitempty"`
-				Gauge *struct {
-					DataPoints []struct {
-						Attributes []struct {
-							Key   string `json:"key"`
-							Value struct {
-								StringValue string `json:"stringValue,omitempty"`
-								IntValue    string `json:"intValue,omitempty"`
-								BoolValue   bool   `json:"boolValue,omitempty"`
-							} `json:"value"`
-						} `json:"attributes"`
-						TimeUnixNano string      `json:"timeUnixNano"`
-						AsInt        string      `json:"asInt,omitempty"`
-						AsDouble     interface{} `json:"asDouble,omitempty"`
-					} `json:"dataPoints"`
-				} `json:"gauge,omitempty"`
-				Histogram *struct {
-					DataPoints []struct {
-						Attributes []struct {
-							Key   string `json:"key"`
-							Value struct {
-								StringValue string `json:"stringValue,omitempty"`
-								IntValue    string `json:"intValue,omitempty"`
-								BoolValue   bool   `json:"boolValue,omitempty"`
-							} `json:"value"`
-						} `json:"attributes"`
-						StartTimeUnixNano string        `json:"startTimeUnixNano"`
-						TimeUnixNano      string        `json:"timeUnixNano"`
-						Count             string        `json:"count"`
-						Sum               interface{}   `json:"sum,omitempty"`
-						BucketCounts      []string      `json:"bucketCounts"`
-						ExplicitBounds    []float64     `json:"explicitBounds"`
-					} `json:"dataPoints"`
-					AggregationTemporality string `json:"aggregationTemporality,omitempty"`
-				} `json:"histogram,omitempty"`
-			} `json:"metrics"`
-		} `json:"scopeMetrics"`
-	}
-
+	var resourceMetric OTLPMetricsResource
 	if err := json.Unmarshal(rawJSON, &resourceMetric); err != nil {
-		// Log the raw JSON for debugging
-		logger.Error("Failed to unmarshal metrics JSON", 
+		logger.Error("Failed to unmarshal metrics JSON",
 			zap.Error(err),
 			zap.String("raw_json", string(rawJSON[:min(500, len(rawJSON))])))
 		return nil, fmt.Errorf("failed to unmarshal metrics JSON: %w", err)
 	}
 
+	serviceName, resourceAttrs := ch.extractResourceInfo(resourceMetric.Resource.Attributes)
 	var metrics []MetricData
 
-	// Extract service name from resource attributes
-	serviceName := "unknown"
-	resourceAttrs := make(map[string]string)
-	
-	for _, attr := range resourceMetric.Resource.Attributes {
-		if attr.Key == "service.name" {
-			serviceName = attr.Value.StringValue
-		}
-		resourceAttrs[attr.Key] = attr.Value.StringValue
-	}
-
-	// Process each metric
 	for _, scopeMetric := range resourceMetric.ScopeMetrics {
 		for _, metric := range scopeMetric.Metrics {
-			// Handle different metric types: Sum, Gauge, Histogram
-			if metric.Sum != nil {
-				// Counter metrics
-				for _, dataPoint := range metric.Sum.DataPoints {
-					timestamp := time.Now()
-					if dataPoint.TimeUnixNano != "" {
-						if nanos, err := strconv.ParseInt(dataPoint.TimeUnixNano, 10, 64); err == nil {
-							timestamp = time.Unix(0, nanos)
-						}
-					}
-
-					metricAttrs := make(map[string]string)
-					for _, attr := range dataPoint.Attributes {
-						if attr.Value.StringValue != "" {
-							metricAttrs[attr.Key] = attr.Value.StringValue
-						} else if attr.Value.IntValue != "" {
-							metricAttrs[attr.Key] = attr.Value.IntValue
-						} else if attr.Value.BoolValue {
-							metricAttrs[attr.Key] = "true"
-						}
-					}
-
-					var value float64
-					if dataPoint.AsInt != "" {
-						if parsed, err := strconv.ParseFloat(dataPoint.AsInt, 64); err == nil {
-							value = parsed
-						}
-					} else if dataPoint.AsDouble != nil {
-						if v, ok := dataPoint.AsDouble.(float64); ok {
-							value = v
-						} else if v, ok := dataPoint.AsDouble.(string); ok {
-							if parsed, err := strconv.ParseFloat(v, 64); err == nil {
-								value = parsed
-							}
-						}
-					}
-
-					metricType := "counter"
-					if !metric.Sum.IsMonotonic {
-						metricType = "gauge"
-					}
-
-					metrics = append(metrics, MetricData{
-						Name:               metric.Name,
-						ServiceName:        serviceName,
-						Timestamp:          timestamp,
-						Type:               metricType,
-						Value:              value,
-						Attributes:         metricAttrs,
-						ResourceAttributes: resourceAttrs,
-					})
-				}
-			} else if metric.Gauge != nil {
-				// Gauge metrics
-				for _, dataPoint := range metric.Gauge.DataPoints {
-					timestamp := time.Now()
-					if dataPoint.TimeUnixNano != "" {
-						if nanos, err := strconv.ParseInt(dataPoint.TimeUnixNano, 10, 64); err == nil {
-							timestamp = time.Unix(0, nanos)
-						}
-					}
-
-					metricAttrs := make(map[string]string)
-					for _, attr := range dataPoint.Attributes {
-						if attr.Value.StringValue != "" {
-							metricAttrs[attr.Key] = attr.Value.StringValue
-						} else if attr.Value.IntValue != "" {
-							metricAttrs[attr.Key] = attr.Value.IntValue
-						} else if attr.Value.BoolValue {
-							metricAttrs[attr.Key] = "true"
-						}
-					}
-
-					var value float64
-					if dataPoint.AsInt != "" {
-						if parsed, err := strconv.ParseFloat(dataPoint.AsInt, 64); err == nil {
-							value = parsed
-						}
-					} else if dataPoint.AsDouble != nil {
-						if v, ok := dataPoint.AsDouble.(float64); ok {
-							value = v
-						} else if v, ok := dataPoint.AsDouble.(string); ok {
-							if parsed, err := strconv.ParseFloat(v, 64); err == nil {
-								value = parsed
-							}
-						}
-					}
-
-					metrics = append(metrics, MetricData{
-						Name:               metric.Name,
-						ServiceName:        serviceName,
-						Timestamp:          timestamp,
-						Type:               "gauge",
-						Value:              value,
-						Attributes:         metricAttrs,
-						ResourceAttributes: resourceAttrs,
-					})
-				}
-			} else if metric.Histogram != nil {
-				// Histogram metrics
-				for _, dataPoint := range metric.Histogram.DataPoints {
-					timestamp := time.Now()
-					if dataPoint.TimeUnixNano != "" {
-						if nanos, err := strconv.ParseInt(dataPoint.TimeUnixNano, 10, 64); err == nil {
-							timestamp = time.Unix(0, nanos)
-						}
-					}
-
-					metricAttrs := make(map[string]string)
-					for _, attr := range dataPoint.Attributes {
-						if attr.Value.StringValue != "" {
-							metricAttrs[attr.Key] = attr.Value.StringValue
-						} else if attr.Value.IntValue != "" {
-							metricAttrs[attr.Key] = attr.Value.IntValue
-						} else if attr.Value.BoolValue {
-							metricAttrs[attr.Key] = "true"
-						}
-					}
-
-					var value float64
-					if dataPoint.Sum != nil {
-						if v, ok := dataPoint.Sum.(float64); ok {
-							value = v
-						} else if v, ok := dataPoint.Sum.(string); ok {
-							if parsed, err := strconv.ParseFloat(v, 64); err == nil {
-								value = parsed
-							}
-						}
-					}
-
-					metrics = append(metrics, MetricData{
-						Name:               metric.Name,
-						ServiceName:        serviceName,
-						Timestamp:          timestamp,
-						Type:               "histogram",
-						Value:              value,
-						Attributes:         metricAttrs,
-						ResourceAttributes: resourceAttrs,
-					})
-				}
-			}
+			processedMetrics := ch.processMetricByType(metric, serviceName, resourceAttrs)
+			metrics = append(metrics, processedMetrics...)
 		}
 	}
 
@@ -739,6 +575,170 @@ func (ch *ClickHouseClient) parseMetricsData(data interface{}) ([]MetricData, er
 		zap.String("service_name", logging.SanitizeServiceName(serviceName)))
 
 	return metrics, nil
+}
+
+func (ch *ClickHouseClient) extractResourceInfo(attributes []OTLPAttribute) (string, map[string]string) {
+	serviceName := "unknown"
+	resourceAttrs := make(map[string]string)
+
+	for _, attr := range attributes {
+		if attr.Key == "service.name" {
+			serviceName = attr.Value.StringValue
+		}
+		resourceAttrs[attr.Key] = attr.Value.StringValue
+	}
+
+	return serviceName, resourceAttrs
+}
+
+func (ch *ClickHouseClient) processMetricByType(metric OTLPMetric, serviceName string, resourceAttrs map[string]string) []MetricData {
+	switch {
+	case metric.Sum != nil:
+		return ch.processSumMetrics(metric, serviceName, resourceAttrs)
+	case metric.Gauge != nil:
+		return ch.processGaugeMetrics(metric, serviceName, resourceAttrs)
+	case metric.Histogram != nil:
+		return ch.processHistogramMetrics(metric, serviceName, resourceAttrs)
+	default:
+		return nil
+	}
+}
+
+func (ch *ClickHouseClient) processSumMetrics(metric OTLPMetric, serviceName string, resourceAttrs map[string]string) []MetricData {
+	var metrics []MetricData
+
+	for _, dataPoint := range metric.Sum.DataPoints {
+		timestamp := ch.parseTimestamp(dataPoint.TimeUnixNano)
+		metricAttrs := ch.parseAttributes(dataPoint.Attributes)
+		value := ch.parseValue(dataPoint.AsInt, dataPoint.AsDouble)
+
+		metricType := "counter"
+		if !metric.Sum.IsMonotonic {
+			metricType = "gauge"
+		}
+
+		metrics = append(metrics, MetricData{
+			Name:               metric.Name,
+			ServiceName:        serviceName,
+			Timestamp:          timestamp,
+			Type:               metricType,
+			Value:              value,
+			Attributes:         metricAttrs,
+			ResourceAttributes: resourceAttrs,
+		})
+	}
+
+	return metrics
+}
+
+func (ch *ClickHouseClient) processGaugeMetrics(metric OTLPMetric, serviceName string, resourceAttrs map[string]string) []MetricData {
+	var metrics []MetricData
+
+	for _, dataPoint := range metric.Gauge.DataPoints {
+		timestamp := ch.parseTimestamp(dataPoint.TimeUnixNano)
+		metricAttrs := ch.parseAttributes(dataPoint.Attributes)
+		value := ch.parseValue(dataPoint.AsInt, dataPoint.AsDouble)
+
+		metrics = append(metrics, MetricData{
+			Name:               metric.Name,
+			ServiceName:        serviceName,
+			Timestamp:          timestamp,
+			Type:               "gauge",
+			Value:              value,
+			Attributes:         metricAttrs,
+			ResourceAttributes: resourceAttrs,
+		})
+	}
+
+	return metrics
+}
+
+func (ch *ClickHouseClient) processHistogramMetrics(metric OTLPMetric, serviceName string, resourceAttrs map[string]string) []MetricData {
+	var metrics []MetricData
+
+	for _, dataPoint := range metric.Histogram.DataPoints {
+		timestamp := ch.parseTimestamp(dataPoint.TimeUnixNano)
+		metricAttrs := ch.parseAttributes(dataPoint.Attributes)
+		value := ch.parseHistogramValue(dataPoint.Sum)
+
+		metrics = append(metrics, MetricData{
+			Name:               metric.Name,
+			ServiceName:        serviceName,
+			Timestamp:          timestamp,
+			Type:               "histogram",
+			Value:              value,
+			Attributes:         metricAttrs,
+			ResourceAttributes: resourceAttrs,
+		})
+	}
+
+	return metrics
+}
+
+func (ch *ClickHouseClient) parseTimestamp(timeUnixNano string) time.Time {
+	if timeUnixNano == "" {
+		return time.Now()
+	}
+
+	if nanos, err := strconv.ParseInt(timeUnixNano, 10, 64); err == nil {
+		return time.Unix(0, nanos)
+	}
+
+	return time.Now()
+}
+
+func (ch *ClickHouseClient) parseAttributes(attributes []OTLPAttribute) map[string]string {
+	metricAttrs := make(map[string]string)
+
+	for _, attr := range attributes {
+		if attr.Value.StringValue != "" {
+			metricAttrs[attr.Key] = attr.Value.StringValue
+		} else if attr.Value.IntValue != "" {
+			metricAttrs[attr.Key] = attr.Value.IntValue
+		} else if attr.Value.BoolValue {
+			metricAttrs[attr.Key] = "true"
+		}
+	}
+
+	return metricAttrs
+}
+
+func (ch *ClickHouseClient) parseValue(asInt string, asDouble interface{}) float64 {
+	if asInt != "" {
+		if parsed, err := strconv.ParseFloat(asInt, 64); err == nil {
+			return parsed
+		}
+	}
+
+	if asDouble != nil {
+		if v, ok := asDouble.(float64); ok {
+			return v
+		}
+		if v, ok := asDouble.(string); ok {
+			if parsed, err := strconv.ParseFloat(v, 64); err == nil {
+				return parsed
+			}
+		}
+	}
+
+	return 0
+}
+
+func (ch *ClickHouseClient) parseHistogramValue(sum interface{}) float64 {
+	if sum == nil {
+		return 0
+	}
+
+	if v, ok := sum.(float64); ok {
+		return v
+	}
+	if v, ok := sum.(string); ok {
+		if parsed, err := strconv.ParseFloat(v, 64); err == nil {
+			return parsed
+		}
+	}
+
+	return 0
 }
 
 func (ch *ClickHouseClient) parseLogsData(data interface{}) ([]LogData, error) {

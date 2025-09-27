@@ -16,18 +16,22 @@ import (
 type TenantRateLimiter struct {
 	limiters map[string]*rate.Limiter
 	mutex    sync.RWMutex
-	
+
 	// Default settings
 	defaultRate  rate.Limit
 	defaultBurst int
-	
+
 	// Per-tenant overrides
 	tenantConfigs map[string]TenantConfig
-	
+
 	// Cleanup settings
 	cleanupInterval time.Duration
 	lastUsed        map[string]time.Time
 	maxIdleTime     time.Duration
+
+	// Lifecycle management
+	stopCh chan struct{}
+	done   chan struct{}
 }
 
 // TenantConfig holds rate limiting configuration for a specific tenant
@@ -46,11 +50,13 @@ func NewTenantRateLimiter(defaultRate rate.Limit, defaultBurst int) *TenantRateL
 		cleanupInterval: 10 * time.Minute,
 		lastUsed:        make(map[string]time.Time),
 		maxIdleTime:     30 * time.Minute,
+		stopCh:          make(chan struct{}),
+		done:            make(chan struct{}),
 	}
-	
+
 	// Start cleanup goroutine
 	go trl.cleanup()
-	
+
 	return trl
 }
 
@@ -142,21 +148,27 @@ func (trl *TenantRateLimiter) getLimiter(tenantID string) *rate.Limiter {
 func (trl *TenantRateLimiter) cleanup() {
 	ticker := time.NewTicker(trl.cleanupInterval)
 	defer ticker.Stop()
-	
-	for range ticker.C {
-		trl.mutex.Lock()
-		now := time.Now()
-		
-		for tenantID, lastUsed := range trl.lastUsed {
-			if now.Sub(lastUsed) > trl.maxIdleTime {
-				delete(trl.limiters, tenantID)
-				delete(trl.lastUsed, tenantID)
-				logger.Debug("Cleaned up unused rate limiter",
-					zap.String("tenant", tenantID))
+	defer close(trl.done)
+
+	for {
+		select {
+		case <-trl.stopCh:
+			return
+		case <-ticker.C:
+			trl.mutex.Lock()
+			now := time.Now()
+
+			for tenantID, lastUsed := range trl.lastUsed {
+				if now.Sub(lastUsed) > trl.maxIdleTime {
+					delete(trl.limiters, tenantID)
+					delete(trl.lastUsed, tenantID)
+					logger.Debug("Cleaned up unused rate limiter",
+						zap.String("tenant", tenantID))
+				}
 			}
+
+			trl.mutex.Unlock()
 		}
-		
-		trl.mutex.Unlock()
 	}
 }
 
@@ -197,6 +209,13 @@ type TenantStats struct {
 	HasCustomConfig bool
 }
 
+// Close stops the cleanup goroutine and releases resources
+func (trl *TenantRateLimiter) Close() error {
+	close(trl.stopCh)
+	<-trl.done // Wait for cleanup goroutine to finish
+	return nil
+}
+
 // GlobalRateLimiter provides system-wide rate limiting
 type GlobalRateLimiter struct {
 	limiter     *rate.Limiter
@@ -217,6 +236,10 @@ func NewGlobalRateLimiter(rps rate.Limit, burst int) *GlobalRateLimiter {
 		Timeout:     10 * time.Second,
 		ReadyToTrip: func(counts Counts) bool {
 			// Trip if more than 50% of requests fail
+			// Guard against division by zero
+			if counts.Requests == 0 {
+				return false
+			}
 			failureRate := float64(counts.TotalFailures) / float64(counts.Requests)
 			return counts.Requests >= 10 && failureRate > 0.5
 		},

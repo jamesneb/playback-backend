@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"sync"
-	"time"
 
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/jamesneb/playback-backend/internal/handlers"
@@ -141,10 +140,8 @@ func computeDependencyKey(deps *Dependencies) (string, error) {
 		hasher.Write([]byte(HASH_COMPONENT_CLICKHOUSE))
 	}
 
-	// Add timestamp-based component to prevent stale handlers
-	if _, err := fmt.Fprintf(hasher, TIMESTAMP_HASH_FORMAT, time.Now().Unix()/SECONDS_PER_HOUR); err != nil {
-		return "", fmt.Errorf("failed to write timestamp to hasher: %w", err)
-	} // Hour precision
+	// Note: Removed timestamp component to prevent unbounded cache growth
+	// Dependencies are sufficient to determine handler uniqueness
 
 	return fmt.Sprintf("%x", hasher.Sum(nil))[:DEPENDENCY_KEY_LENGTH], nil
 }
@@ -166,9 +163,12 @@ func createHandlers(deps *Dependencies) (*APIHandlers, error) {
 		return nil, errors.New(ERROR_LOGS_HANDLER_CREATION)
 	}
 
-	replayHandler := handlers.NewReplayHandler(deps.S3Client, REPLAY_S3_BUCKET_NAME)
-	if replayHandler == nil {
-		return nil, errors.New(ERROR_REPLAY_HANDLER_CREATION)
+	var replayHandler *handlers.ReplayHandler
+	if deps.S3Client != nil {
+		replayHandler = handlers.NewReplayHandler(deps.S3Client, REPLAY_S3_BUCKET_NAME)
+		if replayHandler == nil {
+			return nil, errors.New(ERROR_REPLAY_HANDLER_CREATION)
+		}
 	}
 
 	return &APIHandlers{

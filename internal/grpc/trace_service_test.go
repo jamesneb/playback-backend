@@ -154,7 +154,7 @@ func TestExtractTraceID(t *testing.T) {
 					},
 				},
 			},
-			expected: "my-trace-id-123456789012",
+			expected: "6d792d74726163652d69642d313233343536373839303132", // hex of "my-trace-id-123456789012"
 		},
 		{
 			name: "no spans",

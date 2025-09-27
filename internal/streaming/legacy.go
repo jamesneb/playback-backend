@@ -3,6 +3,7 @@ package streaming
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"time"
 )
 
@@ -30,4 +31,43 @@ type LegacyTelemetryMetadata struct {
 // LegacyHandler interface for backward compatibility with JSON-based events
 type LegacyHandler interface {
 	HandleLegacyTelemetryEvent(ctx context.Context, event *LegacyTelemetryEvent) error
+}
+
+// Implement TelemetryEvent interface for LegacyTelemetryEvent to work with KinesisBuffer
+func (e *LegacyTelemetryEvent) GetType() TelemetryEventType {
+	return TelemetryEventType(e.Type)
+}
+
+func (e *LegacyTelemetryEvent) GetServiceName() string {
+	return e.ServiceName
+}
+
+func (e *LegacyTelemetryEvent) GetTraceID() string {
+	return e.TraceID
+}
+
+func (e *LegacyTelemetryEvent) GetMetadata() TelemetryMetadata {
+	// Convert legacy metadata to new format
+	return TelemetryMetadata{
+		IngestedAt: e.Metadata.IngestedAt,
+		SourceIP:   e.Metadata.SourceIP,
+	}
+}
+
+func (e *LegacyTelemetryEvent) GetSerializedData() ([]byte, error) {
+	// For JSON data, return the raw JSON
+	return e.Data, nil
+}
+
+func (e *LegacyTelemetryEvent) Validate() error {
+	if e.Type == "" {
+		return fmt.Errorf("telemetry event type cannot be empty")
+	}
+	if e.ServiceName == "" {
+		return fmt.Errorf("service name cannot be empty")
+	}
+	if len(e.Data) == 0 {
+		return fmt.Errorf("telemetry data cannot be empty")
+	}
+	return nil
 }

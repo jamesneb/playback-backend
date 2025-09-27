@@ -14,12 +14,12 @@ import (
 
 type LogsService struct {
 	logscollectorpb.UnimplementedLogsServiceServer
-	streamHandler     *streaming.KinesisHandler
+	streamHandler     streaming.Handler // Use interface to support mocks
 	clickhouseHandler streaming.Handler
 	validator         *validation.ProtobufValidator
 }
 
-func NewLogsService(streamHandler *streaming.KinesisHandler, clickhouseHandler streaming.Handler) *LogsService {
+func NewLogsService(streamHandler streaming.Handler, clickhouseHandler streaming.Handler) *LogsService {
 	return &LogsService{
 		streamHandler:     streamHandler,
 		clickhouseHandler: clickhouseHandler,

@@ -107,9 +107,9 @@ func NewServiceCollection(deps *ServiceDependencies) (*ServiceCollection, error)
 		clickhouseHandler = *temp
 	}
 	return &ServiceCollection{
-		TraceService:   grpcservices.NewTraceService(streamHandler.(*streaming.KinesisHandler), &clickhouseHandler, deps.ResilienceComponents),
-		MetricsService: grpcservices.NewMetricsService(streamHandler.(*streaming.KinesisHandler), &clickhouseHandler),
-		LogsService:    grpcservices.NewLogsService(streamHandler.(*streaming.KinesisHandler), &clickhouseHandler),
+		TraceService:   grpcservices.NewTraceService(streamHandler, &clickhouseHandler, deps.ResilienceComponents),
+		MetricsService: grpcservices.NewMetricsService(streamHandler, &clickhouseHandler),
+		LogsService:    grpcservices.NewLogsService(streamHandler, &clickhouseHandler),
 	}, nil
 }
 

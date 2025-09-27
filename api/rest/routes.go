@@ -4,12 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net/http"
-	"net/url"
 	"runtime"
 	"strings"
 	"time"
 
+	"github.com/ClickHouse/clickhouse-go/v2"
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/kinesis"
 	kinesistypes "github.com/aws/aws-sdk-go-v2/service/kinesis/types"
@@ -47,9 +46,6 @@ func setupAPIRoutes(r *gin.Engine, deps *Dependencies) error {
 	if deps.KinesisClient == nil {
 		return errors.New("kinesis client is required for API routes")
 	}
-	if deps.S3Client == nil {
-		return errors.New("S3 client is required for API routes")
-	}
 
 	// Get singleton handlers
 	singleton := getHandlersSingleton()
@@ -69,8 +65,10 @@ func setupAPIRoutes(r *gin.Engine, deps *Dependencies) error {
 		setupMetricsRoutes(api, apiHandlers.Metrics, deps.Endpoints)
 		setupLogsRoutes(api, apiHandlers.Logs, deps.Endpoints)
 
-		// Replay endpoints
-		setupReplayRoutes(api, apiHandlers.Replay, deps.Endpoints)
+		// Replay endpoints (only if S3 is available)
+		if deps.S3Client != nil && apiHandlers.Replay != nil {
+			setupReplayRoutes(api, apiHandlers.Replay, deps.Endpoints)
+		}
 	}
 
 	// Add monitoring endpoints if enabled
@@ -133,54 +131,34 @@ func verifyServerSetup(r *gin.Engine, deps *Dependencies) error {
 	return nil
 }
 
-// checkClickHouseHealthAsync performs an asynchronous health check against ClickHouse database
+// checkClickHouseHealthAsync performs an asynchronous health check against ClickHouse database using native TCP protocol
 func checkClickHouseHealthAsync(ctx context.Context, cfg *config.Config) error {
 	if cfg.Database.ClickHouse.Host == "" {
 		return errors.New("ClickHouse host not configured")
 	}
 
-	// Construct connection string (use default port 8123 if not specified in host)
-	host := cfg.Database.ClickHouse.Host
-	if host == "" {
-		host = "localhost:8123"
-	}
-	// Check if host already includes port
-	if !strings.Contains(host, ":") {
-		host += ":8123"
-	}
-
-	dsn := fmt.Sprintf("http://%s", host)
-	if cfg.Database.ClickHouse.Database != "" {
-		dsn += "/" + cfg.Database.ClickHouse.Database
-	}
-
-	// Create HTTP client with timeout that respects context
-	client := &http.Client{Timeout: HEALTH_CHECK_TIMEOUT}
-
-	// Simple ping query to check connectivity
-	pingQuery := "SELECT 1 FORMAT JSONEachRow"
-	req, err := http.NewRequestWithContext(ctx, "GET", dsn+"?query="+url.QueryEscape(pingQuery), nil)
-	if err != nil {
-		return fmt.Errorf("failed to create ClickHouse health check request: %w", err)
-	}
-
-	// Add basic auth if configured
-	if cfg.Database.ClickHouse.Username != "" {
-		req.SetBasicAuth(cfg.Database.ClickHouse.Username, cfg.Database.ClickHouse.Password)
-	}
-
-	resp, err := client.Do(req)
+	// Use native ClickHouse driver with TCP protocol (same as production client)
+	conn, err := clickhouse.Open(&clickhouse.Options{
+		Addr: []string{cfg.Database.ClickHouse.Host},
+		Auth: clickhouse.Auth{
+			Database: cfg.Database.ClickHouse.Database,
+			Username: cfg.Database.ClickHouse.Username,
+			Password: cfg.Database.ClickHouse.Password,
+		},
+		DialTimeout: HEALTH_CHECK_TIMEOUT,
+	})
 	if err != nil {
 		return fmt.Errorf("ClickHouse connection failed: %w", err)
 	}
 	defer func() {
-		if closeErr := resp.Body.Close(); closeErr != nil {
-			logger.Error("Failed to close response body", zap.Error(closeErr))
+		if closeErr := conn.Close(); closeErr != nil {
+			logger.Error("Failed to close ClickHouse connection", zap.Error(closeErr))
 		}
 	}()
 
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("ClickHouse health check failed with status: %d", resp.StatusCode)
+	// Ping to verify connectivity using context
+	if err := conn.Ping(ctx); err != nil {
+		return fmt.Errorf("ClickHouse ping failed: %w", err)
 	}
 
 	return nil

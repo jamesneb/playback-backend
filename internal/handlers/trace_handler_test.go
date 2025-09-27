@@ -38,10 +38,10 @@ func TestTraceHandler_CreateTrace(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	tests := []struct {
-		name           string
-		requestBody    interface{}
-		contentType    string
-		expectedStatus int
+		name             string
+		requestBody      interface{}
+		contentType      string
+		expectedStatus   int
 		validateResponse func(*testing.T, *httptest.ResponseRecorder)
 	}{
 		{
@@ -105,7 +105,7 @@ func TestTraceHandler_CreateTrace(t *testing.T) {
 			requestBody: map[string]interface{}{
 				"resourceSpans": []interface{}{},
 			},
-			contentType:    "", // No content type
+			contentType:    "",                              // No content type
 			expectedStatus: http.StatusUnsupportedMediaType, // Proper validation now returns 415
 		},
 	}

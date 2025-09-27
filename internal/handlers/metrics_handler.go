@@ -13,7 +13,7 @@ import (
 	"go.uber.org/zap"
 )
 
-type MetricsHandler struct{
+type MetricsHandler struct {
 	kinesisClient *streaming.KinesisClient
 }
 
@@ -63,7 +63,7 @@ func (h *MetricsHandler) CreateMetrics(c *gin.Context) {
 	)
 
 	// Publish to Kinesis
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 10*time.Second)
 	defer cancel()
 
 	err := h.kinesisClient.PublishMetrics(

@@ -62,7 +62,7 @@ func GRPCRateLimitingInterceptor(cfg interface{}) grpc.UnaryServerInterceptor {
 // MethodSpecificRateLimitingInterceptor applies different rate limits per gRPC method
 func MethodSpecificRateLimitingInterceptor() grpc.UnaryServerInterceptor {
 	// Different rate limiters for different methods
-	traceLimiter := resilience.NewTenantRateLimiter(rate.Every(20*time.Millisecond), 100) // 50 RPS, high volume
+	traceLimiter := resilience.NewTenantRateLimiter(rate.Every(20*time.Millisecond), 100)  // 50 RPS, high volume
 	metricsLimiter := resilience.NewTenantRateLimiter(rate.Every(50*time.Millisecond), 60) // 20 RPS, medium volume
 	logsLimiter := resilience.NewTenantRateLimiter(rate.Every(30*time.Millisecond), 80)    // 33 RPS, high volume
 

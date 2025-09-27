@@ -26,7 +26,7 @@ func setupTestConfig() {
 	if err := os.MkdirAll(testConfigDir, 0755); err != nil {
 		panic(fmt.Sprintf("Failed to create test config directory: %v", err))
 	}
-	
+
 	configContent := `
 app:
   name: "playback-backend-test"
@@ -57,7 +57,7 @@ streaming:
 swagger:
   enabled: true
 `
-	
+
 	configPath := filepath.Join(testConfigDir, "config.yaml")
 	if err := os.WriteFile(configPath, []byte(configContent), 0644); err != nil {
 		panic(fmt.Sprintf("Failed to write test config file: %v", err))
@@ -106,7 +106,7 @@ func TestServerAddressFormatting(t *testing.T) {
 			// This tests the fmt.Sprintf logic used in main()
 			httpAddr := fmt.Sprintf("%s:%d", tt.host, tt.port)
 			assert.Equal(t, tt.expected, httpAddr)
-			
+
 			// Test gRPC address formatting
 			grpcAddr := fmt.Sprintf("%s:%d", tt.host, 4317)
 			expectedGrpc := fmt.Sprintf("%s:4317", tt.host)
@@ -123,7 +123,7 @@ func TestServerConfiguration(t *testing.T) {
 	}
 	// Use configPath to verify configuration loading is possible
 	_ = configPath
-	
+
 	t.Run("config_path_available", func(t *testing.T) {
 		// Either default config or test config should be available
 		assert.True(t, true, "Config can be loaded")
@@ -132,7 +132,7 @@ func TestServerConfiguration(t *testing.T) {
 	t.Run("gin_mode_setting", func(t *testing.T) {
 		// Test Gin mode setting logic
 		testModes := []string{"debug", "release", "test"}
-		
+
 		for _, mode := range testModes {
 			// This simulates gin.SetMode(cfg.Server.Mode)
 			assert.Contains(t, testModes, mode)
@@ -143,28 +143,28 @@ func TestServerConfiguration(t *testing.T) {
 		// Test that server components are properly structured
 		components := []string{
 			"ClickHouse client",
-			"Kinesis client", 
+			"Kinesis client",
 			"HTTP server",
 			"gRPC server",
 			"Swagger endpoint",
 			"Health endpoint",
 			"OTLP endpoints",
 		}
-		
+
 		assert.Greater(t, len(components), 5, "Should initialize multiple components")
 	})
 }
 
 func TestAPIEndpoints(t *testing.T) {
 	expectedEndpoints := map[string]string{
-		"health":         "/api/v1/health",
-		"traces_post":    "/api/v1/traces",
-		"traces_get":     "/api/v1/traces/:id",
-		"metrics_post":   "/api/v1/metrics",
-		"metrics_get":    "/api/v1/metrics",
-		"logs_post":      "/api/v1/logs",
-		"logs_get":       "/api/v1/logs",
-		"swagger":        "/swagger/*any",
+		"health":       "/api/v1/health",
+		"traces_post":  "/api/v1/traces",
+		"traces_get":   "/api/v1/traces/:id",
+		"metrics_post": "/api/v1/metrics",
+		"metrics_get":  "/api/v1/metrics",
+		"logs_post":    "/api/v1/logs",
+		"logs_get":     "/api/v1/logs",
+		"swagger":      "/swagger/*any",
 	}
 
 	for name, path := range expectedEndpoints {
@@ -208,29 +208,29 @@ func TestGracefulShutdown(t *testing.T) {
 	t.Run("waitgroup_usage", func(t *testing.T) {
 		// Test sync.WaitGroup usage pattern from main()
 		var wg sync.WaitGroup
-		
+
 		// Simulate adding goroutines like main() does
 		wg.Add(1) // HTTP server
 		wg.Add(1) // gRPC server
-		
+
 		// Simulate Done() calls
 		go func() {
 			defer wg.Done()
 			time.Sleep(1 * time.Millisecond)
 		}()
-		
+
 		go func() {
 			defer wg.Done()
 			time.Sleep(1 * time.Millisecond)
 		}()
-		
+
 		// Wait for completion
 		done := make(chan bool)
 		go func() {
 			wg.Wait()
 			done <- true
 		}()
-		
+
 		select {
 		case <-done:
 			// Expected completion

@@ -13,12 +13,13 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/kinesis"
 	kinesistypes "github.com/aws/aws-sdk-go-v2/service/kinesis/types"
 	"github.com/gin-gonic/gin"
-	swaggerFiles "github.com/swaggo/files"
-	ginSwagger "github.com/swaggo/gin-swagger"
+	"github.com/jamesneb/playback-backend/api/rest/constants"
 	"github.com/jamesneb/playback-backend/internal/handlers"
 	"github.com/jamesneb/playback-backend/pkg/api"
 	"github.com/jamesneb/playback-backend/pkg/config"
 	"github.com/jamesneb/playback-backend/pkg/logger"
+	swaggerFiles "github.com/swaggo/files"
+	ginSwagger "github.com/swaggo/gin-swagger"
 	"go.uber.org/zap"
 )
 
@@ -108,9 +109,9 @@ func verifyServerSetup(r *gin.Engine, deps *Dependencies) error {
 			// Fallback to substring check (limited iterations)
 			iterations := 0
 			for routePath := range routeSet {
-				if iterations >= MAX_ROUTE_SEARCH_ITERATIONS {
+				if iterations >= constants.MaxRouteSearchIterations {
 					logger.Warn("Route verification iteration limit reached",
-						zap.Int("max_iterations", MAX_ROUTE_SEARCH_ITERATIONS))
+						zap.Int("max_iterations", constants.MaxRouteSearchIterations))
 					break
 				}
 				if strings.Contains(routePath, expectedRoute) {
@@ -144,7 +145,7 @@ func checkClickHouseHealthAsync(ctx context.Context, cfg *config.Config) error {
 			Username: cfg.Database.ClickHouse.Username,
 			Password: cfg.Database.ClickHouse.Password,
 		},
-		DialTimeout: HEALTH_CHECK_TIMEOUT,
+		DialTimeout: constants.HealthCheckTimeout,
 	})
 	if err != nil {
 		return fmt.Errorf("ClickHouse connection failed: %w", err)
@@ -214,11 +215,11 @@ func healthHandler(cfg *config.Config) gin.HandlerFunc {
 		runtimeVersion := getRuntimeVersion()
 		appVersion := cfg.App.Version
 		if appVersion == "" {
-			appVersion = UNKNOWN_VERSION
+			appVersion = constants.ErrorUnknownVersion
 		}
 
 		// Create context with request-level timeout
-		ctx, cancel := context.WithTimeout(c.Request.Context(), HEALTH_CHECK_TIMEOUT)
+		ctx, cancel := context.WithTimeout(c.Request.Context(), constants.HealthCheckTimeout)
 		defer cancel()
 
 		// Channel to collect health check results
@@ -233,10 +234,10 @@ func healthHandler(cfg *config.Config) gin.HandlerFunc {
 					if r := recover(); r != nil {
 						logger.Error("ClickHouse health check panic recovered", zap.Any("panic", r))
 						resultsChan <- healthResult{
-							dependencyName: HEALTH_DEPENDENCY_DATABASE,
+							dependencyName: constants.HealthDependencyDatabase,
 							status: gin.H{
-								HEALTH_FIELD_STATUS: HEALTH_STATUS_UNHEALTHY,
-								HEALTH_FIELD_ERROR:  "health check panic",
+								constants.HealthFieldStatus: constants.HealthStatusUnhealthy,
+								constants.HealthFieldError:  "health check panic",
 							},
 						}
 					}
@@ -244,17 +245,17 @@ func healthHandler(cfg *config.Config) gin.HandlerFunc {
 
 				if err := checkClickHouseHealthAsync(ctx, cfg); err != nil {
 					resultsChan <- healthResult{
-						dependencyName: HEALTH_DEPENDENCY_DATABASE,
+						dependencyName: constants.HealthDependencyDatabase,
 						status: gin.H{
-							HEALTH_FIELD_STATUS: HEALTH_STATUS_UNHEALTHY,
-							HEALTH_FIELD_ERROR:  err.Error(),
+							constants.HealthFieldStatus: constants.HealthStatusUnhealthy,
+							constants.HealthFieldError:  err.Error(),
 						},
 					}
 				} else {
 					resultsChan <- healthResult{
-						dependencyName: HEALTH_DEPENDENCY_DATABASE,
+						dependencyName: constants.HealthDependencyDatabase,
 						status: gin.H{
-							HEALTH_FIELD_STATUS: HEALTH_STATUS_HEALTHY,
+							constants.HealthFieldStatus: constants.HealthStatusHealthy,
 						},
 					}
 				}
@@ -269,10 +270,10 @@ func healthHandler(cfg *config.Config) gin.HandlerFunc {
 					if r := recover(); r != nil {
 						logger.Error("Kinesis health check panic recovered", zap.Any("panic", r))
 						resultsChan <- healthResult{
-							dependencyName: HEALTH_DEPENDENCY_KINESIS,
+							dependencyName: constants.HealthDependencyKinesis,
 							status: gin.H{
-								HEALTH_FIELD_STATUS: HEALTH_STATUS_UNHEALTHY,
-								HEALTH_FIELD_ERROR:  "health check panic",
+								constants.HealthFieldStatus: constants.HealthStatusUnhealthy,
+								constants.HealthFieldError:  "health check panic",
 							},
 						}
 					}
@@ -280,17 +281,17 @@ func healthHandler(cfg *config.Config) gin.HandlerFunc {
 
 				if err := checkKinesisHealthAsync(ctx, cfg); err != nil {
 					resultsChan <- healthResult{
-						dependencyName: HEALTH_DEPENDENCY_KINESIS,
+						dependencyName: constants.HealthDependencyKinesis,
 						status: gin.H{
-							HEALTH_FIELD_STATUS: HEALTH_STATUS_UNHEALTHY,
-							HEALTH_FIELD_ERROR:  err.Error(),
+							constants.HealthFieldStatus: constants.HealthStatusUnhealthy,
+							constants.HealthFieldError:  err.Error(),
 						},
 					}
 				} else {
 					resultsChan <- healthResult{
-						dependencyName: HEALTH_DEPENDENCY_KINESIS,
+						dependencyName: constants.HealthDependencyKinesis,
 						status: gin.H{
-							HEALTH_FIELD_STATUS: HEALTH_STATUS_HEALTHY,
+							constants.HealthFieldStatus: constants.HealthStatusHealthy,
 						},
 					}
 				}
@@ -298,18 +299,18 @@ func healthHandler(cfg *config.Config) gin.HandlerFunc {
 		}
 
 		// Collect results with timeout protection
-		overallStatus := HEALTH_STATUS_OK
+		overallStatus := constants.HealthStatusOK
 		dependencyStatus := gin.H{}
 
 		// Set default status for unconfigured dependencies
 		if cfg.Database.ClickHouse.Host == "" {
-			dependencyStatus[HEALTH_DEPENDENCY_DATABASE] = gin.H{
-				HEALTH_FIELD_STATUS: HEALTH_STATUS_NOT_CONFIGURED,
+			dependencyStatus[constants.HealthDependencyDatabase] = gin.H{
+				constants.HealthFieldStatus: constants.HealthStatusNotConfigured,
 			}
 		}
 		if len(cfg.Streaming.Kinesis.Streams) == 0 {
-			dependencyStatus[HEALTH_DEPENDENCY_KINESIS] = gin.H{
-				HEALTH_FIELD_STATUS: HEALTH_STATUS_NOT_CONFIGURED,
+			dependencyStatus[constants.HealthDependencyKinesis] = gin.H{
+				constants.HealthFieldStatus: constants.HealthStatusNotConfigured,
 			}
 		}
 
@@ -319,24 +320,24 @@ func healthHandler(cfg *config.Config) gin.HandlerFunc {
 			select {
 			case result := <-resultsChan:
 				dependencyStatus[result.dependencyName] = result.status
-				if status, exists := result.status[HEALTH_FIELD_STATUS].(string); exists && status == HEALTH_STATUS_UNHEALTHY {
-					overallStatus = HEALTH_STATUS_UNHEALTHY
+				if status, exists := result.status[constants.HealthFieldStatus].(string); exists && status == constants.HealthStatusUnhealthy {
+					overallStatus = constants.HealthStatusUnhealthy
 				}
 			case <-ctx.Done():
 				// Handle timeout for remaining checks
 				logger.Warn("Health check timeout occurred")
-				overallStatus = HEALTH_STATUS_UNHEALTHY
+				overallStatus = constants.HealthStatusUnhealthy
 				// Mark remaining dependencies as unhealthy due to timeout
-				if _, exists := dependencyStatus[HEALTH_DEPENDENCY_DATABASE]; !exists && cfg.Database.ClickHouse.Host != "" {
-					dependencyStatus[HEALTH_DEPENDENCY_DATABASE] = gin.H{
-						HEALTH_FIELD_STATUS: HEALTH_STATUS_UNHEALTHY,
-						HEALTH_FIELD_ERROR:  "health check timeout",
+				if _, exists := dependencyStatus[constants.HealthDependencyDatabase]; !exists && cfg.Database.ClickHouse.Host != "" {
+					dependencyStatus[constants.HealthDependencyDatabase] = gin.H{
+						constants.HealthFieldStatus: constants.HealthStatusUnhealthy,
+						constants.HealthFieldError:  "health check timeout",
 					}
 				}
-				if _, exists := dependencyStatus[HEALTH_DEPENDENCY_KINESIS]; !exists && len(cfg.Streaming.Kinesis.Streams) > 0 {
-					dependencyStatus[HEALTH_DEPENDENCY_KINESIS] = gin.H{
-						HEALTH_FIELD_STATUS: HEALTH_STATUS_UNHEALTHY,
-						HEALTH_FIELD_ERROR:  "health check timeout",
+				if _, exists := dependencyStatus[constants.HealthDependencyKinesis]; !exists && len(cfg.Streaming.Kinesis.Streams) > 0 {
+					dependencyStatus[constants.HealthDependencyKinesis] = gin.H{
+						constants.HealthFieldStatus: constants.HealthStatusUnhealthy,
+						constants.HealthFieldError:  "health check timeout",
 					}
 				}
 				// Break out of collection loop on timeout
@@ -346,13 +347,13 @@ func healthHandler(cfg *config.Config) gin.HandlerFunc {
 
 		// Health check response structure with actual dependency status
 		healthStatus := gin.H{
-			HEALTH_FIELD_STATUS:  overallStatus,
-			"mode":               cfg.Server.Mode,
-			"app_version":        appVersion,
-			"runtime_version":    runtimeVersion,
-			"protocols":          []string{PROTOCOL_HTTP_JSON, PROTOCOL_GRPC_OTLP},
-			"timestamp":          time.Now().Format(STANDARD_TIME_FORMAT),
-			"dependencies":       dependencyStatus,
+			constants.HealthFieldStatus: overallStatus,
+			"mode":                      cfg.Server.Mode,
+			"app_version":               appVersion,
+			"runtime_version":           runtimeVersion,
+			"protocols":                 []string{constants.ProtocolHTTPJSON, constants.ProtocolGRPCOTLP},
+			"timestamp":                 time.Now().Format(constants.StandardTimeFormat),
+			"dependencies":              dependencyStatus,
 			"system": gin.H{
 				"goroutines": runtime.NumGoroutine(),
 				"memory_mb":  getMemoryUsageMB(),
@@ -360,9 +361,9 @@ func healthHandler(cfg *config.Config) gin.HandlerFunc {
 		}
 
 		// Return appropriate HTTP status based on actual health
-		statusCode := StatusOK
-		if overallStatus == HEALTH_STATUS_UNHEALTHY {
-			statusCode = StatusServiceUnavailable
+		statusCode := constants.StatusOK
+		if overallStatus == constants.HealthStatusUnhealthy {
+			statusCode = constants.StatusServiceUnavailable
 		}
 		c.JSON(int(statusCode), healthStatus)
 	}
@@ -372,9 +373,9 @@ func healthHandler(cfg *config.Config) gin.HandlerFunc {
 func getRuntimeVersion() string {
 	version := runtime.Version()
 	// Sanitize version string to remove any potential sensitive info
-	sanitized := versionSanitizeRegex.ReplaceAllString(version, "")
+	sanitized := constants.VersionSanitizeRegex.ReplaceAllString(version, "")
 	if sanitized == "" {
-		return UNKNOWN_VERSION
+		return constants.ErrorUnknownVersion
 	}
 	return sanitized
 }
@@ -449,7 +450,7 @@ func setupMonitoringRoutes(r *gin.Engine, cfg *config.Config) error {
 		}
 
 		// Register debug endpoints
-		debugGroup := r.Group(string(DEBUG_PATH_PREFIX))
+		debugGroup := r.Group(string(constants.DebugPathPrefix))
 		{
 			debugGroup.GET("/pprof/*any", pprofHandler())
 			debugGroup.GET("/vars", varsHandler())
@@ -464,30 +465,30 @@ func setupMonitoringRoutes(r *gin.Engine, cfg *config.Config) error {
 // metricsHandler provides Prometheus metrics endpoint
 func metricsHandler() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		c.Header(string(HEADER_CONTENT_TYPE), string(CONTENT_TYPE_PROMETHEUS_METRICS))
-		c.String(int(StatusOK), METRICS_PLACEHOLDER_CONTENT)
+		c.Header(string(constants.HeaderContentType), string(constants.ContentTypePrometheusMetrics))
+		c.String(int(constants.StatusOK), constants.MetricsPlaceholderContent)
 	}
 }
 
 // pprofHandler provides pprof debugging endpoint
 func pprofHandler() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		c.Header(string(HEADER_CONTENT_TYPE), string(CONTENT_TYPE_TEXT_PLAIN))
-		c.String(int(StatusOK), PPROF_PLACEHOLDER_CONTENT)
+		c.Header(string(constants.HeaderContentType), string(constants.ContentTypeTextPlain))
+		c.String(int(constants.StatusOK), constants.PprofPlaceholderContent)
 	}
 }
 
 // varsHandler provides runtime variables endpoint
 func varsHandler() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		c.Header(string(HEADER_CONTENT_TYPE), string(CONTENT_TYPE_APPLICATION_JSON))
-		c.JSON(int(StatusOK), gin.H{
+		c.Header(string(constants.HeaderContentType), string(constants.ContentTypeApplicationJSON))
+		c.JSON(int(constants.StatusOK), gin.H{
 			"runtime": gin.H{
 				"version":    getRuntimeVersion(),
 				"goroutines": runtime.NumGoroutine(),
 				"memory":     getMemoryStats(),
 				"status":     "ok",
-				"timestamp":  time.Now().Format(STANDARD_TIME_FORMAT),
+				"timestamp":  time.Now().Format(constants.StandardTimeFormat),
 			},
 		})
 	}
@@ -497,7 +498,7 @@ func varsHandler() gin.HandlerFunc {
 func getMemoryUsageMB() float64 {
 	var m runtime.MemStats
 	runtime.ReadMemStats(&m)
-	return float64(m.Alloc) / float64(BYTES_PER_MEGABYTE)
+	return float64(m.Alloc) / float64(constants.BytesPerMegabyte)
 }
 
 // getMemoryStats returns basic memory statistics
@@ -506,9 +507,9 @@ func getMemoryStats() gin.H {
 	runtime.ReadMemStats(&m)
 
 	return gin.H{
-		"alloc":       m.Alloc,
-		"sys":         m.Sys,
-		"num_gc":      m.NumGC,
-		"goroutines":  runtime.NumGoroutine(),
+		"alloc":      m.Alloc,
+		"sys":        m.Sys,
+		"num_gc":     m.NumGC,
+		"goroutines": runtime.NumGoroutine(),
 	}
 }

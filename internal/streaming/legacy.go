@@ -13,11 +13,11 @@ import (
 // LegacyTelemetryEvent represents the old JSON-based telemetry event structure
 // This is ONLY used for HTTP REST API compatibility
 type LegacyTelemetryEvent struct {
-	Type        string                   `json:"type"`         // "traces", "metrics", "logs"
-	ServiceName string                   `json:"service_name"` // for partitioning
-	TraceID     string                   `json:"trace_id,omitempty"`
-	Data        json.RawMessage          `json:"data"`         // Raw JSON data from HTTP API
-	Metadata    LegacyTelemetryMetadata  `json:"metadata"`
+	Type        string                  `json:"type"`         // "traces", "metrics", "logs"
+	ServiceName string                  `json:"service_name"` // for partitioning
+	TraceID     string                  `json:"trace_id,omitempty"`
+	Data        json.RawMessage         `json:"data"` // Raw JSON data from HTTP API
+	Metadata    LegacyTelemetryMetadata `json:"metadata"`
 }
 
 // LegacyTelemetryMetadata contains metadata for JSON-based events

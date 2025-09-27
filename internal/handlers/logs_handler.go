@@ -13,7 +13,7 @@ import (
 	"go.uber.org/zap"
 )
 
-type LogsHandler struct{
+type LogsHandler struct {
 	kinesisClient *streaming.KinesisClient
 }
 
@@ -65,7 +65,7 @@ func (h *LogsHandler) CreateLogs(c *gin.Context) {
 	)
 
 	// Publish to Kinesis
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 10*time.Second)
 	defer cancel()
 
 	err := h.kinesisClient.PublishLogs(

@@ -25,10 +25,10 @@ func TestLogsHandler_CreateLogs(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	tests := []struct {
-		name           string
-		requestBody    interface{}
-		contentType    string
-		expectedStatus int
+		name             string
+		requestBody      interface{}
+		contentType      string
+		expectedStatus   int
 		validateResponse func(*testing.T, *httptest.ResponseRecorder)
 	}{
 		{
@@ -53,11 +53,11 @@ func TestLogsHandler_CreateLogs(t *testing.T) {
 								},
 								"logRecords": []interface{}{
 									map[string]interface{}{
-										"traceId":      "dGVzdC10cmFjZS1pZA==",
-										"spanId":       "dGVzdC1zcGFuLWlk",
-										"timeUnixNano": "1640995200000000000",
+										"traceId":        "dGVzdC10cmFjZS1pZA==",
+										"spanId":         "dGVzdC1zcGFuLWlk",
+										"timeUnixNano":   "1640995200000000000",
 										"severityNumber": 9,
-										"severityText": "INFO",
+										"severityText":   "INFO",
 										"body": map[string]interface{}{
 											"stringValue": "Test log message",
 										},
@@ -467,12 +467,12 @@ func TestLogDataStructures(t *testing.T) {
 						},
 						LogRecords: []LogRecord{
 							{
-								TimeUnixNano:     1640995200000000000,
-								SeverityNumber:   9,
-								SeverityText:     "INFO",
-								TraceID:          "test-trace",
-								SpanID:           "test-span",
-								Body:             LogRecordBody{StringValue: stringPtr("Test log message")},
+								TimeUnixNano:   1640995200000000000,
+								SeverityNumber: 9,
+								SeverityText:   "INFO",
+								TraceID:        "test-trace",
+								SpanID:         "test-span",
+								Body:           LogRecordBody{StringValue: stringPtr("Test log message")},
 								Attributes: []Attribute{
 									{
 										Key: "endpoint",
@@ -534,11 +534,11 @@ func TestLogsHandler_Integration(t *testing.T) {
 						},
 						"logRecords": []interface{}{
 							map[string]interface{}{
-								"traceId":           "integration-trace-123",
-								"spanId":            "integration-span-456",
-								"timeUnixNano":      "1640995200000000000",
-								"severityNumber":    9,
-								"severityText":      "INFO",
+								"traceId":        "integration-trace-123",
+								"spanId":         "integration-span-456",
+								"timeUnixNano":   "1640995200000000000",
+								"severityNumber": 9,
+								"severityText":   "INFO",
 								"body": map[string]interface{}{
 									"stringValue": "Integration test log message",
 								},
@@ -552,11 +552,11 @@ func TestLogsHandler_Integration(t *testing.T) {
 								},
 							},
 							map[string]interface{}{
-								"traceId":           "integration-trace-123",
-								"spanId":            "integration-span-789",
-								"timeUnixNano":      "1640995201000000000",
-								"severityNumber":    13,
-								"severityText":      "ERROR",
+								"traceId":        "integration-trace-123",
+								"spanId":         "integration-span-789",
+								"timeUnixNano":   "1640995201000000000",
+								"severityNumber": 13,
+								"severityText":   "ERROR",
 								"body": map[string]interface{}{
 									"stringValue": "Integration test error message",
 								},
@@ -595,9 +595,9 @@ func TestLogsHandler_Integration(t *testing.T) {
 // Benchmark test for logs handler performance
 func BenchmarkLogsHandler_CreateLogs(b *testing.B) {
 	gin.SetMode(gin.TestMode)
-	
+
 	handler := NewLogsHandler(&streaming.KinesisClient{})
-	
+
 	logsData := map[string]interface{}{
 		"resourceLogs": []interface{}{
 			map[string]interface{}{
@@ -625,15 +625,15 @@ func BenchmarkLogsHandler_CreateLogs(b *testing.B) {
 			},
 		},
 	}
-	
+
 	body, _ := json.Marshal(logsData)
-	
+
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		req := httptest.NewRequest(http.MethodPost, "/logs", bytes.NewBuffer(body))
 		req.Header.Set("Content-Type", "application/json")
 		w := httptest.NewRecorder()
-		
+
 		router := gin.New()
 		router.POST("/logs", handler.CreateLogs)
 		router.ServeHTTP(w, req)

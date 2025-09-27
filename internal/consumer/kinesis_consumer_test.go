@@ -34,9 +34,9 @@ func TestNewKinesisConsumer(t *testing.T) {
 		{
 			name: "empty streams configuration",
 			config: &ConsumerConfig{
-				Region:      "us-east-1",
-				EndpointURL: "http://localhost:4566",
-				Streams:     map[string]string{}, // No streams
+				Region:       "us-east-1",
+				EndpointURL:  "http://localhost:4566",
+				Streams:      map[string]string{}, // No streams
 				PollInterval: time.Second,
 			},
 			clickhouse:  nil,
@@ -46,7 +46,7 @@ func TestNewKinesisConsumer(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			consumer, err := NewKinesisConsumer(tt.config, tt.clickhouse)
+			consumer, err := NewKinesisConsumer(context.Background(), tt.config, tt.clickhouse)
 
 			if tt.expectError {
 				assert.Error(t, err)
@@ -115,7 +115,7 @@ func TestKinesisConsumer_StreamTypeHandling(t *testing.T) {
 	consumer := &KinesisConsumer{
 		streams: map[string]string{
 			"traces":  "test-traces",
-			"metrics": "test-metrics", 
+			"metrics": "test-metrics",
 			"logs":    "test-logs",
 		},
 	}
@@ -124,7 +124,7 @@ func TestKinesisConsumer_StreamTypeHandling(t *testing.T) {
 	assert.Equal(t, "test-traces", consumer.streams["traces"])
 	assert.Equal(t, "test-metrics", consumer.streams["metrics"])
 	assert.Equal(t, "test-logs", consumer.streams["logs"])
-	
+
 	// Test unknown stream type
 	_, exists := consumer.streams["unknown"]
 	assert.False(t, exists)
@@ -142,7 +142,7 @@ func BenchmarkNewKinesisConsumer(b *testing.B) {
 	}
 
 	for i := 0; i < b.N; i++ {
-		consumer, err := NewKinesisConsumer(config, nil)
+		consumer, err := NewKinesisConsumer(context.Background(), config, nil)
 		if err != nil {
 			// Expected in test environment
 			continue

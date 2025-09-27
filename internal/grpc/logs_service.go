@@ -44,7 +44,7 @@ func (s *LogsService) Export(ctx context.Context, req *logscollectorpb.ExportLog
 	// Minimal processing: Convert OTLP protobuf to raw JSON for ClickHouse processing
 	for _, resourceLog := range req.ResourceLogs {
 		// Use native protobuf - no JSON conversion needed
-		
+
 		event := &streaming.LogsTelemetryEvent{
 			BaseTelemetryEvent: streaming.BaseTelemetryEvent{
 				Type:        streaming.TelemetryTypeLogs,
@@ -65,7 +65,7 @@ func (s *LogsService) Export(ctx context.Context, req *logscollectorpb.ExportLog
 		}
 	}
 
-	logger.Info("Successfully processed gRPC logs export", 
+	logger.Info("Successfully processed gRPC logs export",
 		zap.Int("log_records_processed", countLogRecords(req.ResourceLogs)))
 
 	return &logscollectorpb.ExportLogsServiceResponse{
@@ -101,4 +101,3 @@ func countLogRecords(resourceLogs []*logspb.ResourceLogs) int {
 	}
 	return count
 }
-

@@ -62,7 +62,7 @@ func (m *MockRow) Scan(dest ...interface{}) error {
 	if m.index >= len(m.values) {
 		return errors.New("no more values")
 	}
-	
+
 	for i, d := range dest {
 		if i+m.index < len(m.values) {
 			switch v := d.(type) {
@@ -79,10 +79,10 @@ func (m *MockRow) Scan(dest ...interface{}) error {
 
 func TestNewClickHouseClient(t *testing.T) {
 	tests := []struct {
-		name           string
-		config         *ClickHouseConfig
-		expectedError  bool
-		setupMock      func(*MockClickHouseConn)
+		name          string
+		config        *ClickHouseConfig
+		expectedError bool
+		setupMock     func(*MockClickHouseConn)
 	}{
 		{
 			name: "successful connection",
@@ -131,10 +131,10 @@ func TestParseLogsData(t *testing.T) {
 	client := &ClickHouseClient{}
 
 	tests := []struct {
-		name          string
-		inputData     interface{}
-		expectedLogs  int
-		expectedError bool
+		name            string
+		inputData       interface{}
+		expectedLogs    int
+		expectedError   bool
 		expectedService string
 	}{
 		{
@@ -164,15 +164,15 @@ func TestParseLogsData(t *testing.T) {
 			expectedService: "test-service",
 		},
 		{
-			name: "invalid JSON data",
-			inputData: json.RawMessage(`{"invalid": json}`),
-			expectedLogs: 0,
+			name:          "invalid JSON data",
+			inputData:     json.RawMessage(`{"invalid": json}`),
+			expectedLogs:  0,
 			expectedError: true,
 		},
 		{
-			name: "wrong data type",
-			inputData: "not json.RawMessage",
-			expectedLogs: 0,
+			name:          "wrong data type",
+			inputData:     "not json.RawMessage",
+			expectedLogs:  0,
 			expectedError: true,
 		},
 		{
@@ -219,11 +219,11 @@ func TestParseLogsData(t *testing.T) {
 
 			if tt.expectedLogs > 0 {
 				assert.Equal(t, tt.expectedService, logs[0].ServiceName)
-				
+
 				// Verify timestamp parsing
 				assert.False(t, logs[0].Timestamp.IsZero())
 				assert.False(t, logs[0].ObservedTimestamp.IsZero())
-				
+
 				// Verify severity parsing
 				if tt.name == "valid OTLP logs data" {
 					assert.Equal(t, uint8(9), logs[0].SeverityNumber)
@@ -371,16 +371,16 @@ func TestParseMetricsData(t *testing.T) {
 			expectedTypes:   []string{"counter", "gauge"},
 		},
 		{
-			name: "invalid JSON",
-			inputData: json.RawMessage(`{"invalid": json}`),
+			name:            "invalid JSON",
+			inputData:       json.RawMessage(`{"invalid": json}`),
 			expectedMetrics: 0,
-			expectedError: true,
+			expectedError:   true,
 		},
 		{
-			name: "wrong data type",
-			inputData: "not json.RawMessage",
+			name:            "wrong data type",
+			inputData:       "not json.RawMessage",
 			expectedMetrics: 0,
-			expectedError: true,
+			expectedError:   true,
 		},
 	}
 
@@ -398,7 +398,7 @@ func TestParseMetricsData(t *testing.T) {
 
 			if tt.expectedMetrics > 0 {
 				assert.Equal(t, tt.expectedService, metrics[0].ServiceName)
-				
+
 				// Verify timestamp parsing
 				for _, metric := range metrics {
 					assert.False(t, metric.Timestamp.IsZero())
@@ -434,11 +434,11 @@ func TestParseMetricsData(t *testing.T) {
 
 func TestInsertLog(t *testing.T) {
 	tests := []struct {
-		name           string
-		event          streaming.TelemetryEvent
-		parseError     bool
-		batchError     bool
-		expectedError  bool
+		name          string
+		event         streaming.TelemetryEvent
+		parseError    bool
+		batchError    bool
+		expectedError bool
 	}{
 		{
 			name: "successful log insertion",
@@ -472,10 +472,10 @@ func TestInsertLog(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			// Note: This would require mocking the ClickHouse connection
 			// The actual implementation would look like:
-			
+
 			// mockConn := &MockClickHouseConn{}
 			// client := &ClickHouseClient{conn: mockConn}
-			
+
 			// if !tt.parseError {
 			//     mockBatch := &MockBatch{}
 			//     mockConn.On("PrepareBatch", mock.Anything, mock.AnythingOfType("string")).Return(mockBatch, nil)
@@ -486,15 +486,15 @@ func TestInsertLog(t *testing.T) {
 			//         mockBatch.On("Send").Return(nil)
 			//     }
 			// }
-			
+
 			// err := client.InsertLog(context.Background(), tt.event)
-			
+
 			// if tt.expectedError {
 			//     assert.Error(t, err)
 			// } else {
 			//     assert.NoError(t, err)
 			// }
-			
+
 			// mockConn.AssertExpectations(t)
 		})
 	}

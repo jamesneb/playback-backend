@@ -49,7 +49,7 @@ func NewClickHouseClient(cfg *ClickHouseConfig) (*ClickHouseClient, error) {
 		ConnMaxLifetime:  30 * time.Minute,
 		ConnOpenStrategy: clickhouse.ConnOpenInOrder,
 		// Additional connection safety settings
-		ReadTimeout:      30 * time.Second,
+		ReadTimeout: 30 * time.Second,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to open ClickHouse connection: %w", err)
@@ -82,7 +82,7 @@ func NewClickHouseClient(cfg *ClickHouseConfig) (*ClickHouseClient, error) {
 		}
 		return nil, fmt.Errorf("failed to check spans_raw table: %w", err)
 	}
-	
+
 	err = conn.QueryRow(context.Background(), "SELECT count() FROM system.tables WHERE database = ? AND name = 'spans_final'", cfg.Database).Scan(&finalTableCount)
 	if err != nil {
 		if closeErr := conn.Close(); closeErr != nil {
@@ -145,20 +145,20 @@ func (ch *ClickHouseClient) InsertTraceProtobuf(ctx context.Context, event *stre
 	for _, scopeSpan := range event.ResourceSpans.ScopeSpans {
 		for _, span := range scopeSpan.Spans {
 			spanData := map[string]interface{}{
-				"service_name":          serviceName,
-				"service_version":       serviceVersion,
-				"trace_id":              fmt.Sprintf("%x", span.TraceId),
-				"span_id":               fmt.Sprintf("%x", span.SpanId),
-				"parent_span_id":        fmt.Sprintf("%x", span.ParentSpanId),
-				"name":                  span.Name,
-				"kind":                  int32(span.Kind),
-				"start_time_unix_nano":  span.StartTimeUnixNano,
-				"end_time_unix_nano":    span.EndTimeUnixNano,
-				"status_code":           int32(span.Status.GetCode()),
-				"status_message":        span.Status.GetMessage(),
-				"ingested_at":           event.Metadata.IngestedAt,
-				"source_ip":             event.Metadata.SourceIP,
-				"format_type":           "native",
+				"service_name":         serviceName,
+				"service_version":      serviceVersion,
+				"trace_id":             fmt.Sprintf("%x", span.TraceId),
+				"span_id":              fmt.Sprintf("%x", span.SpanId),
+				"parent_span_id":       fmt.Sprintf("%x", span.ParentSpanId),
+				"name":                 span.Name,
+				"kind":                 int32(span.Kind),
+				"start_time_unix_nano": span.StartTimeUnixNano,
+				"end_time_unix_nano":   span.EndTimeUnixNano,
+				"status_code":          int32(span.Status.GetCode()),
+				"status_message":       span.Status.GetMessage(),
+				"ingested_at":          event.Metadata.IngestedAt,
+				"source_ip":            event.Metadata.SourceIP,
+				"format_type":          "native",
 			}
 			spans = append(spans, spanData)
 		}
@@ -216,7 +216,7 @@ func (ch *ClickHouseClient) InsertTrace(ctx context.Context, event streaming.Tel
 	logger.Debug("Inserting raw trace data",
 		zap.String("trace_id", logging.SanitizeTraceID(event.GetTraceID())),
 		zap.String("service_name", logging.SanitizeServiceName(event.GetServiceName())))
-	
+
 	// Get serialized data from event (JSON)
 	serializedData, err := event.GetSerializedData()
 	if err != nil {
@@ -303,7 +303,7 @@ func (ch *ClickHouseClient) InsertMetric(ctx context.Context, event streaming.Te
 		return fmt.Errorf("failed to send metrics batch: %w", err)
 	}
 
-	logger.Info("Inserted metrics into ClickHouse", 
+	logger.Info("Inserted metrics into ClickHouse",
 		zap.String("service", event.GetServiceName()),
 		zap.Int("metrics", len(metricsData)))
 
@@ -369,7 +369,7 @@ func (ch *ClickHouseClient) InsertLogProtobuf(ctx context.Context, event *stream
 		return fmt.Errorf("failed to send logs protobuf batch: %w", err)
 	}
 
-	logger.Info("Inserted protobuf logs into ClickHouse", 
+	logger.Info("Inserted protobuf logs into ClickHouse",
 		zap.String("service", event.GetServiceName()),
 		zap.Int("protobuf_data_length", len(protobufData)))
 
@@ -425,7 +425,7 @@ func (ch *ClickHouseClient) InsertLog(ctx context.Context, event streaming.Telem
 		return fmt.Errorf("failed to send logs batch: %w", err)
 	}
 
-	logger.Info("Inserted logs into ClickHouse", 
+	logger.Info("Inserted logs into ClickHouse",
 		zap.String("service", event.GetServiceName()),
 		zap.Int("logs", len(logsData)))
 
@@ -493,9 +493,9 @@ type OTLPScopeMetric struct {
 }
 
 type OTLPMetric struct {
-	Name        string `json:"name"`
-	Description string `json:"description"`
-	Unit        string `json:"unit"`
+	Name        string         `json:"name"`
+	Description string         `json:"description"`
+	Unit        string         `json:"unit"`
 	Sum         *OTLPSum       `json:"sum,omitempty"`
 	Gauge       *OTLPGauge     `json:"gauge,omitempty"`
 	Histogram   *OTLPHistogram `json:"histogram,omitempty"`
@@ -504,7 +504,7 @@ type OTLPMetric struct {
 type OTLPSum struct {
 	DataPoints             []OTLPDataPoint `json:"dataPoints"`
 	AggregationTemporality string          `json:"aggregationTemporality,omitempty"`
-	IsMonotonic           bool            `json:"isMonotonic,omitempty"`
+	IsMonotonic            bool            `json:"isMonotonic,omitempty"`
 }
 
 type OTLPGauge struct {
@@ -790,7 +790,7 @@ func (ch *ClickHouseClient) parseLogsData(data interface{}) ([]LogData, error) {
 	serviceName := "unknown"
 	serviceVersion := ""
 	resourceAttrs := make(map[string]string)
-	
+
 	for _, attr := range resourceLog.Resource.Attributes {
 		switch attr.Key {
 		case "service.name":
@@ -807,13 +807,13 @@ func (ch *ClickHouseClient) parseLogsData(data interface{}) ([]LogData, error) {
 			// Parse timestamps
 			timestamp := time.Now()
 			observedTimestamp := time.Now()
-			
+
 			if logRecord.TimeUnixNano != "" {
 				if nanos, err := strconv.ParseInt(logRecord.TimeUnixNano, 10, 64); err == nil {
 					timestamp = time.Unix(0, nanos)
 				}
 			}
-			
+
 			if logRecord.ObservedTimeUnixNano != "" {
 				if nanos, err := strconv.ParseInt(logRecord.ObservedTimeUnixNano, 10, 64); err == nil {
 					observedTimestamp = time.Unix(0, nanos)
@@ -836,7 +836,7 @@ func (ch *ClickHouseClient) parseLogsData(data interface{}) ([]LogData, error) {
 				spanID = fmt.Sprintf("%x", logRecord.SpanId)
 			}
 
-			// Handle severity number conversion from interface{} 
+			// Handle severity number conversion from interface{}
 			var severityNumber uint8 = 9 // Default to INFO level
 			if logRecord.SeverityNumber != nil {
 				switch v := logRecord.SeverityNumber.(type) {

@@ -8,9 +8,9 @@ import (
 	"github.com/jamesneb/playback-backend/internal/interfaces"
 	"github.com/jamesneb/playback-backend/internal/streaming"
 	"github.com/stretchr/testify/assert"
-	tracecollectorpb "go.opentelemetry.io/proto/otlp/collector/trace/v1"
-	metricscollectorpb "go.opentelemetry.io/proto/otlp/collector/metrics/v1"
 	logscollectorpb "go.opentelemetry.io/proto/otlp/collector/logs/v1"
+	metricscollectorpb "go.opentelemetry.io/proto/otlp/collector/metrics/v1"
+	tracecollectorpb "go.opentelemetry.io/proto/otlp/collector/trace/v1"
 	"google.golang.org/grpc/peer"
 )
 
@@ -56,9 +56,9 @@ func TestServiceConfiguration(t *testing.T) {
 
 func TestExtractClientIP(t *testing.T) {
 	tests := []struct {
-		name           string
-		setupContext   func() context.Context
-		expectedIP     string
+		name         string
+		setupContext func() context.Context
+		expectedIP   string
 	}{
 		{
 			name: "IPv4 TCP address",
@@ -170,18 +170,18 @@ func TestServiceExportMethods(t *testing.T) {
 func TestServiceDependencies(t *testing.T) {
 	// Test different service dependency configurations
 	tests := []struct {
-		name string
-		kinesisHandler *streaming.KinesisHandler
+		name              string
+		kinesisHandler    *streaming.KinesisHandler
 		clickhouseHandler streaming.Handler
 	}{
 		{
-			name: "nil handlers",
-			kinesisHandler: nil,
+			name:              "nil handlers",
+			kinesisHandler:    nil,
 			clickhouseHandler: nil,
 		},
 		{
-			name: "kinesis handler only",
-			kinesisHandler: &streaming.KinesisHandler{},
+			name:              "kinesis handler only",
+			kinesisHandler:    &streaming.KinesisHandler{},
 			clickhouseHandler: nil,
 		},
 	}
@@ -207,7 +207,7 @@ func BenchmarkServiceCreation(b *testing.B) {
 	}
 }
 
-// Benchmark test for client IP extraction  
+// Benchmark test for client IP extraction
 func BenchmarkExtractClientIP(b *testing.B) {
 	tcpAddr, _ := net.ResolveTCPAddr("tcp", "192.168.1.100:12345")
 	p := &peer.Peer{

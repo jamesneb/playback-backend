@@ -7,42 +7,42 @@ import (
 	logspb "go.opentelemetry.io/proto/otlp/logs/v1"
 	metricspb "go.opentelemetry.io/proto/otlp/metrics/v1"
 	tracepb "go.opentelemetry.io/proto/otlp/trace/v1"
-	"google.golang.org/protobuf/proto"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
 )
 
 // Type aliases for better readability and type safety
 type (
-	MessageSize  int64
+	MessageSize int64
 )
 
 // Size constants
 const (
-	MaxProtobufTraceSize   MessageSize = 4 * 1024 * 1024  // 4MB max for trace data (reduced from 8MB)
-	MaxProtobufMetricsSize MessageSize = 2 * 1024 * 1024  // 2MB max for metrics data (reduced from 4MB)
-	MaxProtobufLogsSize    MessageSize = 1 * 1024 * 1024  // 1MB max for logs data (reduced from 2MB)
-	MaxProtobufSpansCount  int         = 5000             // Max spans per request (reduced from 10000)
-	MaxProtobufScopeCount  int         = 50               // Max scopes per resource (reduced from 100)
+	MaxProtobufTraceSize   MessageSize = 4 * 1024 * 1024 // 4MB max for trace data (reduced from 8MB)
+	MaxProtobufMetricsSize MessageSize = 2 * 1024 * 1024 // 2MB max for metrics data (reduced from 4MB)
+	MaxProtobufLogsSize    MessageSize = 1 * 1024 * 1024 // 1MB max for logs data (reduced from 2MB)
+	MaxProtobufSpansCount  int         = 5000            // Max spans per request (reduced from 10000)
+	MaxProtobufScopeCount  int         = 50              // Max scopes per resource (reduced from 100)
 
 	// Memory pressure thresholds
 	MemoryPressureThresholdBytes = 512 * 1024 * 1024 // 512MB heap threshold
-	MaxConcurrentRequests        = 100                // Max concurrent protobuf validations
+	MaxConcurrentRequests        = 100               // Max concurrent protobuf validations
 )
 
 // Error constants
 const (
-	ErrProtobufSizeTooLarge   = "protobuf message size exceeds limit"
-	ErrProtobufInvalidData    = "protobuf message contains invalid data"
-	ErrProtobufSpanCount      = "too many spans in trace request"
-	ErrProtobufScopeCount     = "too many scopes in resource"
-	ErrProtobufMarshalFailed  = "failed to marshal protobuf data"
-	ErrMemoryPressure         = "system under memory pressure, rejecting request"
-	ErrTooManyRequests        = "too many concurrent requests"
+	ErrProtobufSizeTooLarge  = "protobuf message size exceeds limit"
+	ErrProtobufInvalidData   = "protobuf message contains invalid data"
+	ErrProtobufSpanCount     = "too many spans in trace request"
+	ErrProtobufScopeCount    = "too many scopes in resource"
+	ErrProtobufMarshalFailed = "failed to marshal protobuf data"
+	ErrMemoryPressure        = "system under memory pressure, rejecting request"
+	ErrTooManyRequests       = "too many concurrent requests"
 )
 
 // ProtobufValidator provides validation for OTLP protobuf messages with memory monitoring
-type ProtobufValidator struct{
+type ProtobufValidator struct {
 	concurrentRequests int64 // Atomic counter for concurrent requests
 }
 

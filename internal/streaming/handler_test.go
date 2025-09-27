@@ -23,8 +23,8 @@ type MockUnknownTelemetryEvent struct {
 }
 
 func (m *MockUnknownTelemetryEvent) GetType() TelemetryEventType { return m.EventType }
-func (m *MockUnknownTelemetryEvent) GetServiceName() string { return m.ServiceName }
-func (m *MockUnknownTelemetryEvent) GetTraceID() string { return "" }
+func (m *MockUnknownTelemetryEvent) GetServiceName() string      { return m.ServiceName }
+func (m *MockUnknownTelemetryEvent) GetTraceID() string          { return "" }
 func (m *MockUnknownTelemetryEvent) GetMetadata() TelemetryMetadata {
 	return TelemetryMetadata{IngestedAt: time.Now()}
 }
@@ -220,7 +220,7 @@ func TestKinesisHandlerWithRealClient(t *testing.T) {
 		// Test that handler respects context
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel() // Cancel immediately
-		
+
 		event := &TraceTelemetryEvent{
 			BaseTelemetryEvent: BaseTelemetryEvent{
 				Type:        TelemetryTypeTraces,

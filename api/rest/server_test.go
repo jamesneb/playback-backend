@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
+	"github.com/jamesneb/playback-backend/api/rest/constants"
 	"github.com/jamesneb/playback-backend/internal/interfaces"
 	"github.com/jamesneb/playback-backend/internal/storage"
 	"github.com/jamesneb/playback-backend/internal/streaming"
@@ -23,7 +24,7 @@ func TestValidateDependencies(t *testing.T) {
 			name:        "nil_dependencies",
 			deps:        nil,
 			expectError: true,
-			errorMsg:    ERROR_DEPENDENCIES_NIL,
+			errorMsg:    constants.ErrorDependenciesNil,
 		},
 		{
 			name: "nil_config",
@@ -32,7 +33,7 @@ func TestValidateDependencies(t *testing.T) {
 				Endpoints: &api.EndpointCollection{},
 			},
 			expectError: true,
-			errorMsg:    ERROR_CONFIG_NIL,
+			errorMsg:    constants.ErrorConfigNil,
 		},
 		{
 			name: "nil_endpoints",
@@ -43,7 +44,7 @@ func TestValidateDependencies(t *testing.T) {
 				Endpoints: nil,
 			},
 			expectError: true,
-			errorMsg:    ERROR_ENDPOINTS_NIL,
+			errorMsg:    constants.ErrorEndpointsNil,
 		},
 		{
 			name: "invalid_server_mode",
@@ -220,7 +221,7 @@ func TestTimeoutMiddleware(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	// Test that the middleware function doesn't panic when called
-	middleware := timeoutMiddleware(REQUEST_TIMEOUT)
+	middleware := timeoutMiddleware(constants.RequestTimeout)
 	assert.NotNil(t, middleware)
 
 	// Test with zero timeout

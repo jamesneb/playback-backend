@@ -46,12 +46,12 @@ const (
 
 // Error Messages
 const (
-	ErrInvalidContentType     = "Content-Type must be application/json"
-	ErrPayloadTooLarge       = "Request size exceeds maximum allowed size"
-	ErrInvalidOTLPStructure  = "Data does not conform to OTLP trace format"
-	ErrInvalidTraceData      = "Invalid OTLP trace data"
-	ErrRateLimitExceeded     = "Too many requests for this tenant"
-	ErrTelemetryUnavailable  = "Telemetry pipeline unavailable"
-	ErrProcessingFailed      = "Failed to process trace data"
-	ErrInternalServer        = "Internal server error"
+	ErrInvalidContentType   = "Content-Type must be application/json"
+	ErrPayloadTooLarge      = "Request size exceeds maximum allowed size"
+	ErrInvalidOTLPStructure = "Data does not conform to OTLP trace format"
+	ErrInvalidTraceData     = "Invalid OTLP trace data"
+	ErrRateLimitExceeded    = "Too many requests for this tenant"
+	ErrTelemetryUnavailable = "Telemetry pipeline unavailable"
+	ErrProcessingFailed     = "Failed to process trace data"
+	ErrInternalServer       = "Internal server error"
 )

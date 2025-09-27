@@ -19,40 +19,40 @@ import (
 type DeadLetterQueue struct {
 	sqsClient *sqs.Client
 	queueURL  string
-	
+
 	// Local buffer for when SQS itself fails
 	localBuffer     []*FailedEvent
 	localBufferSize int
 	mutex           sync.RWMutex
-	
+
 	// Retry settings
-	maxRetries       int
-	retryBaseDelay   time.Duration
-	retryMaxDelay    time.Duration
-	retryMultiplier  float64
+	maxRetries      int
+	retryBaseDelay  time.Duration
+	retryMaxDelay   time.Duration
+	retryMultiplier float64
 }
 
 // FailedEvent represents an event that failed to process
 type FailedEvent struct {
-	Event            streaming.TelemetryEvent `json:"event"`
-	OriginalError    string                   `json:"original_error"`
-	FailureTime      time.Time                `json:"failure_time"`
-	RetryCount       int                      `json:"retry_count"`
-	LastRetryTime    time.Time                `json:"last_retry_time,omitempty"`
-	TenantID         string                   `json:"tenant_id"`
-	FailureReason    string                   `json:"failure_reason"`
-	SourceEndpoint   string                   `json:"source_endpoint"` // grpc or http
-	Metadata         map[string]interface{}   `json:"metadata,omitempty"`
+	Event          streaming.TelemetryEvent `json:"event"`
+	OriginalError  string                   `json:"original_error"`
+	FailureTime    time.Time                `json:"failure_time"`
+	RetryCount     int                      `json:"retry_count"`
+	LastRetryTime  time.Time                `json:"last_retry_time,omitempty"`
+	TenantID       string                   `json:"tenant_id"`
+	FailureReason  string                   `json:"failure_reason"`
+	SourceEndpoint string                   `json:"source_endpoint"` // grpc or http
+	Metadata       map[string]interface{}   `json:"metadata,omitempty"`
 }
 
 // DLQConfig holds configuration for the dead letter queue
 type DLQConfig struct {
-	QueueURL         string
-	LocalBufferSize  int
-	MaxRetries       int
-	RetryBaseDelay   time.Duration
-	RetryMaxDelay    time.Duration
-	RetryMultiplier  float64
+	QueueURL        string
+	LocalBufferSize int
+	MaxRetries      int
+	RetryBaseDelay  time.Duration
+	RetryMaxDelay   time.Duration
+	RetryMultiplier float64
 }
 
 // NewDeadLetterQueue creates a new dead letter queue manager
@@ -88,9 +88,9 @@ func NewDeadLetterQueue(awsConfig aws.Config, config DLQConfig) *DeadLetterQueue
 }
 
 // SendToDLQ sends a failed event to the dead letter queue
-func (dlq *DeadLetterQueue) SendToDLQ(ctx context.Context, event streaming.TelemetryEvent, 
+func (dlq *DeadLetterQueue) SendToDLQ(ctx context.Context, event streaming.TelemetryEvent,
 	originalError error, tenantID, sourceEndpoint, reason string) error {
-	
+
 	failedEvent := &FailedEvent{
 		Event:          event,
 		OriginalError:  originalError.Error(),
@@ -111,7 +111,7 @@ func (dlq *DeadLetterQueue) SendToDLQ(ctx context.Context, event streaming.Telem
 		logger.Warn("Failed to send to SQS DLQ, using local buffer",
 			zap.Error(err),
 			zap.String("tenant", tenantID))
-		
+
 		// Fallback to local buffer
 		return dlq.addToLocalBuffer(failedEvent)
 	}
@@ -128,7 +128,7 @@ func (dlq *DeadLetterQueue) SendToDLQ(ctx context.Context, event streaming.Telem
 func (dlq *DeadLetterQueue) ProcessRetries(ctx context.Context, processor func(streaming.TelemetryEvent) error) error {
 	// Process local buffer first
 	dlq.processLocalBuffer(ctx, processor)
-	
+
 	// Then process SQS messages
 	return dlq.processSQSMessages(ctx, processor)
 }
@@ -210,9 +210,9 @@ func (dlq *DeadLetterQueue) processLocalBuffer(ctx context.Context, processor fu
 
 func (dlq *DeadLetterQueue) processSQSMessages(ctx context.Context, processor func(streaming.TelemetryEvent) error) error {
 	input := &sqs.ReceiveMessageInput{
-		QueueUrl:            &dlq.queueURL,
-		MaxNumberOfMessages: 10,
-		WaitTimeSeconds:     20, // Long polling
+		QueueUrl:              &dlq.queueURL,
+		MaxNumberOfMessages:   10,
+		WaitTimeSeconds:       20, // Long polling
 		MessageAttributeNames: []string{"All"},
 	}
 
@@ -260,7 +260,7 @@ func (dlq *DeadLetterQueue) processMessage(ctx context.Context, message types.Me
 		if failedEvent.RetryCount < dlq.maxRetries {
 			failedEvent.RetryCount++
 			failedEvent.LastRetryTime = time.Now()
-			
+
 			// Send back to queue with exponential backoff
 			if sendErr := dlq.sendToSQS(ctx, &failedEvent); sendErr != nil {
 				logger.Error("Failed to re-queue failed event", zap.Error(sendErr))
@@ -272,7 +272,7 @@ func (dlq *DeadLetterQueue) processMessage(ctx context.Context, message types.Me
 				zap.Int("retry_count", failedEvent.RetryCount),
 				zap.String("original_error", failedEvent.OriginalError))
 		}
-		
+
 		// Delete the message from queue
 		dlq.deleteMessage(ctx, message.ReceiptHandle)
 		return err
@@ -280,7 +280,7 @@ func (dlq *DeadLetterQueue) processMessage(ctx context.Context, message types.Me
 
 	// Success - delete the message
 	dlq.deleteMessage(ctx, message.ReceiptHandle)
-	
+
 	logger.Info("Successfully retried event from DLQ",
 		zap.String("tenant", failedEvent.TenantID),
 		zap.Int("retry_count", failedEvent.RetryCount))
@@ -309,13 +309,13 @@ func (dlq *DeadLetterQueue) deleteMessage(ctx context.Context, receiptHandle *st
 }
 
 func (dlq *DeadLetterQueue) calculateRetryDelay(retryCount int) time.Duration {
-	delay := time.Duration(float64(dlq.retryBaseDelay) * 
+	delay := time.Duration(float64(dlq.retryBaseDelay) *
 		pow(dlq.retryMultiplier, float64(retryCount)))
-	
+
 	if delay > dlq.retryMaxDelay {
 		delay = dlq.retryMaxDelay
 	}
-	
+
 	return delay
 }
 
@@ -360,7 +360,7 @@ func (dlq *DeadLetterQueue) GetStats(ctx context.Context) (*DLQStats, error) {
 			logger.Warn("Failed to parse SQS visible messages count", zap.Error(err), zap.String("value", approxMsgs))
 		}
 	}
-	
+
 	if approxNotVisible, ok := attrs.Attributes[string(types.QueueAttributeNameApproximateNumberOfMessagesNotVisible)]; ok {
 		if _, err := fmt.Sscanf(approxNotVisible, "%d", &stats.SQSInFlightMessages); err != nil {
 			// Log the error but don't fail since this is just for stats

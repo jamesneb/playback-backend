@@ -14,37 +14,37 @@ import (
 )
 
 var (
-	ErrBufferFull     = errors.New("kinesis buffer is full")
-	ErrBufferClosed   = errors.New("kinesis buffer is closed")
+	ErrBufferFull      = errors.New("kinesis buffer is full")
+	ErrBufferClosed    = errors.New("kinesis buffer is closed")
 	ErrTenantThrottled = errors.New("tenant is being throttled")
 )
 
 // KinesisBuffer provides resilient buffering and batching for Kinesis
 type KinesisBuffer struct {
-	kinesisClient    *streaming.KinesisClient
-	rateLimiter      *TenantRateLimiter
-	circuitBreaker   *CircuitBreaker
-	deadLetterQueue  *DeadLetterQueue
-	
+	kinesisClient   *streaming.KinesisClient
+	rateLimiter     *TenantRateLimiter
+	circuitBreaker  *CircuitBreaker
+	deadLetterQueue *DeadLetterQueue
+
 	// Buffer settings
-	maxBatchSize     int
-	maxBatchWait     time.Duration
-	maxBufferSize    int
-	maxTenantBuffer  int
-	flushInterval    time.Duration
-	
+	maxBatchSize    int
+	maxBatchWait    time.Duration
+	maxBufferSize   int
+	maxTenantBuffer int
+	flushInterval   time.Duration
+
 	// Per-tenant buffers
-	tenantBuffers    map[string]*TenantBuffer
-	bufferMutex      sync.RWMutex
-	
+	tenantBuffers map[string]*TenantBuffer
+	bufferMutex   sync.RWMutex
+
 	// Global state
-	closed           int32           // Use atomic operations (0=open, 1=closed)
-	closeChan        chan struct{}
-	closeOnce        sync.Once       // Ensure channel is closed only once
-	wg               sync.WaitGroup
-	
+	closed    int32 // Use atomic operations (0=open, 1=closed)
+	closeChan chan struct{}
+	closeOnce sync.Once // Ensure channel is closed only once
+	wg        sync.WaitGroup
+
 	// Health monitoring
-	healthMetrics    *BufferHealthMetrics
+	healthMetrics *BufferHealthMetrics
 }
 
 // TenantBuffer holds buffered events for a specific tenant
@@ -155,7 +155,7 @@ func (kb *KinesisBuffer) BufferEvent(ctx context.Context, event streaming.Teleme
 				kb.healthMetrics.incrementDropped()
 				return fmt.Errorf("buffer full and flush failed: %w", flushErr)
 			}
-			
+
 			// Retry adding after flush
 			if retryErr := buffer.addEvent(event); retryErr != nil {
 				kb.healthMetrics.incrementDropped()
@@ -207,10 +207,10 @@ func (kb *KinesisBuffer) getTenantBuffer(tenantID string) *TenantBuffer {
 	}
 
 	buffer = &TenantBuffer{
-		tenantID:    tenantID,
-		events:      make([]streaming.TelemetryEvent, 0, kb.maxBatchSize),
-		lastFlush:   time.Now(),
-		maxSize:     kb.maxTenantBuffer, // Use configured per-tenant limit
+		tenantID:  tenantID,
+		events:    make([]streaming.TelemetryEvent, 0, kb.maxBatchSize),
+		lastFlush: time.Now(),
+		maxSize:   kb.maxTenantBuffer, // Use configured per-tenant limit
 	}
 
 	kb.tenantBuffers[tenantID] = buffer
@@ -286,11 +286,11 @@ func (kb *KinesisBuffer) flushAll(ctx context.Context) {
 		wg.Add(1)
 		go func(tID string) {
 			defer wg.Done()
-			
+
 			kb.bufferMutex.RLock()
 			buffer := kb.tenantBuffers[tID]
 			kb.bufferMutex.RUnlock()
-			
+
 			if buffer != nil {
 				if err := kb.flushTenantBuffer(ctx, tID, buffer); err != nil {
 					logger.Error("Failed to flush tenant buffer",
@@ -321,7 +321,7 @@ func (kb *KinesisBuffer) flushTenantBuffer(ctx context.Context, tenantID string,
 		}
 
 		batch := events[i:end]
-		
+
 		if err := kb.processBatch(ctx, batch, tenantID); err != nil {
 			// Send failed events to DLQ
 			for _, event := range batch {
@@ -380,7 +380,7 @@ func (kb *KinesisBuffer) processBatch(ctx context.Context, events []streaming.Te
 			go func() {
 				defer wg.Done()
 				for _, event := range traceEvents {
-					if err := kb.kinesisClient.PublishTraceProtobuf(ctx, event.ResourceSpans, 
+					if err := kb.kinesisClient.PublishTraceProtobuf(ctx, event.ResourceSpans,
 						event.ServiceName, event.TraceID, event.Metadata.SourceIP); err != nil {
 						errorsMutex.Lock()
 						errors = append(errors, fmt.Errorf("failed to publish trace: %w", err))

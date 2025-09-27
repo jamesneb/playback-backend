@@ -26,12 +26,12 @@ var (
 
 // CircuitBreaker implements a circuit breaker pattern with metrics
 type CircuitBreaker struct {
-	name                string
-	maxRequests         uint32
-	interval            time.Duration
-	timeout             time.Duration
-	readyToTrip         func(counts Counts) bool
-	onStateChange       func(name string, from, to CircuitBreakerState)
+	name          string
+	maxRequests   uint32
+	interval      time.Duration
+	timeout       time.Duration
+	readyToTrip   func(counts Counts) bool
+	onStateChange func(name string, from, to CircuitBreakerState)
 
 	mutex      sync.Mutex
 	state      CircuitBreakerState
@@ -40,14 +40,14 @@ type CircuitBreaker struct {
 	expiry     time.Time
 
 	// Metrics (atomic counters for thread-safe metrics collection)
-	totalRequestsCount    int64 // Total requests processed
-	totalSuccessCount     int64 // Total successful requests
-	totalFailureCount     int64 // Total failed requests
-	totalRejectedCount    int64 // Total requests rejected due to open circuit
-	lastStateChangeTime   int64 // Unix timestamp of last state change
-	timeSpentClosed       int64 // Total time spent in closed state (nanoseconds)
-	timeSpentOpen         int64 // Total time spent in open state (nanoseconds)
-	timeSpentHalfOpen     int64 // Total time spent in half-open state (nanoseconds)
+	totalRequestsCount  int64 // Total requests processed
+	totalSuccessCount   int64 // Total successful requests
+	totalFailureCount   int64 // Total failed requests
+	totalRejectedCount  int64 // Total requests rejected due to open circuit
+	lastStateChangeTime int64 // Unix timestamp of last state change
+	timeSpentClosed     int64 // Total time spent in closed state (nanoseconds)
+	timeSpentOpen       int64 // Total time spent in open state (nanoseconds)
+	timeSpentHalfOpen   int64 // Total time spent in half-open state (nanoseconds)
 }
 
 // Counts holds the numbers of requests and their successes/failures
@@ -61,12 +61,12 @@ type Counts struct {
 
 // Settings for circuit breaker configuration
 type Settings struct {
-	Name                string
-	MaxRequests         uint32        // Max requests allowed to pass through when half-open
-	Interval            time.Duration // Cyclic period in closed state for clearing counts
-	Timeout             time.Duration // Period of open state
-	ReadyToTrip         func(counts Counts) bool
-	OnStateChange       func(name string, from, to CircuitBreakerState)
+	Name          string
+	MaxRequests   uint32        // Max requests allowed to pass through when half-open
+	Interval      time.Duration // Cyclic period in closed state for clearing counts
+	Timeout       time.Duration // Period of open state
+	ReadyToTrip   func(counts Counts) bool
+	OnStateChange func(name string, from, to CircuitBreakerState)
 }
 
 // NewCircuitBreaker creates a new circuit breaker
@@ -305,21 +305,21 @@ func (cb *CircuitBreaker) Counts() Counts {
 
 // CircuitBreakerMetrics holds comprehensive metrics for the circuit breaker
 type CircuitBreakerMetrics struct {
-	Name                 string                `json:"name"`
-	State                CircuitBreakerState   `json:"state"`
-	StateString          string                `json:"state_string"`
-	TotalRequests        int64                 `json:"total_requests"`
-	TotalSuccesses       int64                 `json:"total_successes"`
-	TotalFailures        int64                 `json:"total_failures"`
-	TotalRejected        int64                 `json:"total_rejected"`
-	SuccessRate          float64               `json:"success_rate"`
-	FailureRate          float64               `json:"failure_rate"`
-	RejectionRate        float64               `json:"rejection_rate"`
-	TimeSpentClosed      time.Duration         `json:"time_spent_closed_ns"`
-	TimeSpentOpen        time.Duration         `json:"time_spent_open_ns"`
-	TimeSpentHalfOpen    time.Duration         `json:"time_spent_half_open_ns"`
-	LastStateChange      time.Time             `json:"last_state_change"`
-	CurrentCounts        Counts                `json:"current_counts"`
+	Name              string              `json:"name"`
+	State             CircuitBreakerState `json:"state"`
+	StateString       string              `json:"state_string"`
+	TotalRequests     int64               `json:"total_requests"`
+	TotalSuccesses    int64               `json:"total_successes"`
+	TotalFailures     int64               `json:"total_failures"`
+	TotalRejected     int64               `json:"total_rejected"`
+	SuccessRate       float64             `json:"success_rate"`
+	FailureRate       float64             `json:"failure_rate"`
+	RejectionRate     float64             `json:"rejection_rate"`
+	TimeSpentClosed   time.Duration       `json:"time_spent_closed_ns"`
+	TimeSpentOpen     time.Duration       `json:"time_spent_open_ns"`
+	TimeSpentHalfOpen time.Duration       `json:"time_spent_half_open_ns"`
+	LastStateChange   time.Time           `json:"last_state_change"`
+	CurrentCounts     Counts              `json:"current_counts"`
 }
 
 // Metrics returns comprehensive metrics for the circuit breaker
@@ -348,21 +348,21 @@ func (cb *CircuitBreaker) Metrics() CircuitBreakerMetrics {
 	}
 
 	return CircuitBreakerMetrics{
-		Name:                 cb.name,
-		State:                currentState,
-		StateString:          cb.stateString(currentState),
-		TotalRequests:        totalRequests,
-		TotalSuccesses:       totalSuccesses,
-		TotalFailures:        totalFailures,
-		TotalRejected:        totalRejected,
-		SuccessRate:          successRate,
-		FailureRate:          failureRate,
-		RejectionRate:        rejectionRate,
-		TimeSpentClosed:      time.Duration(timeSpentClosed),
-		TimeSpentOpen:        time.Duration(timeSpentOpen),
-		TimeSpentHalfOpen:    time.Duration(timeSpentHalfOpen),
-		LastStateChange:      time.Unix(0, lastStateChangeTime),
-		CurrentCounts:        currentCounts,
+		Name:              cb.name,
+		State:             currentState,
+		StateString:       cb.stateString(currentState),
+		TotalRequests:     totalRequests,
+		TotalSuccesses:    totalSuccesses,
+		TotalFailures:     totalFailures,
+		TotalRejected:     totalRejected,
+		SuccessRate:       successRate,
+		FailureRate:       failureRate,
+		RejectionRate:     rejectionRate,
+		TimeSpentClosed:   time.Duration(timeSpentClosed),
+		TimeSpentOpen:     time.Duration(timeSpentOpen),
+		TimeSpentHalfOpen: time.Duration(timeSpentHalfOpen),
+		LastStateChange:   time.Unix(0, lastStateChangeTime),
+		CurrentCounts:     currentCounts,
 	}
 }
 

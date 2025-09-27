@@ -64,15 +64,15 @@ func NewTenantRateLimiter(defaultRate rate.Limit, defaultBurst int) *TenantRateL
 func (trl *TenantRateLimiter) SetTenantConfig(tenantID string, config TenantConfig) {
 	trl.mutex.Lock()
 	defer trl.mutex.Unlock()
-	
+
 	trl.tenantConfigs[tenantID] = config
-	
+
 	// Update existing limiter if it exists
 	if limiter, exists := trl.limiters[tenantID]; exists {
 		limiter.SetLimit(config.Rate)
 		limiter.SetBurst(config.Burst)
 	}
-	
+
 	logger.Info("Updated tenant rate limit config",
 		zap.String("tenant", tenantID),
 		zap.Float64("rate", float64(config.Rate)),
@@ -83,14 +83,14 @@ func (trl *TenantRateLimiter) SetTenantConfig(tenantID string, config TenantConf
 func (trl *TenantRateLimiter) Allow(tenantID string) bool {
 	limiter := trl.getLimiter(tenantID)
 	allowed := limiter.Allow()
-	
+
 	if !allowed {
 		logger.Warn("Rate limit exceeded",
 			zap.String("tenant", tenantID),
 			zap.Float64("rate", float64(limiter.Limit())),
 			zap.Int("burst", limiter.Burst()))
 	}
-	
+
 	return allowed
 }
 
@@ -115,15 +115,15 @@ func (trl *TenantRateLimiter) Reserve(tenantID string) *rate.Reservation {
 func (trl *TenantRateLimiter) getLimiter(tenantID string) *rate.Limiter {
 	trl.mutex.Lock()
 	defer trl.mutex.Unlock()
-	
+
 	// Update last used time
 	trl.lastUsed[tenantID] = time.Now()
-	
+
 	// Get existing limiter
 	if limiter, exists := trl.limiters[tenantID]; exists {
 		return limiter
 	}
-	
+
 	// Create new limiter
 	config, hasCustomConfig := trl.tenantConfigs[tenantID]
 	if !hasCustomConfig {
@@ -132,15 +132,15 @@ func (trl *TenantRateLimiter) getLimiter(tenantID string) *rate.Limiter {
 			Burst: trl.defaultBurst,
 		}
 	}
-	
+
 	limiter := rate.NewLimiter(config.Rate, config.Burst)
 	trl.limiters[tenantID] = limiter
-	
+
 	logger.Debug("Created new rate limiter for tenant",
 		zap.String("tenant", tenantID),
 		zap.Float64("rate", float64(config.Rate)),
 		zap.Int("burst", config.Burst))
-	
+
 	return limiter
 }
 
@@ -176,27 +176,27 @@ func (trl *TenantRateLimiter) cleanup() {
 func (trl *TenantRateLimiter) GetStats() map[string]TenantStats {
 	trl.mutex.RLock()
 	defer trl.mutex.RUnlock()
-	
+
 	stats := make(map[string]TenantStats)
 	now := time.Now()
-	
+
 	for tenantID, limiter := range trl.limiters {
 		lastUsed := trl.lastUsed[tenantID]
 		config, hasCustom := trl.tenantConfigs[tenantID]
 		if !hasCustom {
 			config = TenantConfig{Rate: trl.defaultRate, Burst: trl.defaultBurst}
 		}
-		
+
 		stats[tenantID] = TenantStats{
-			Rate:           float64(config.Rate),
-			Burst:          config.Burst,
-			Tokens:         limiter.Tokens(),
-			LastUsed:       lastUsed,
-			IdleTime:       now.Sub(lastUsed),
+			Rate:            float64(config.Rate),
+			Burst:           config.Burst,
+			Tokens:          limiter.Tokens(),
+			LastUsed:        lastUsed,
+			IdleTime:        now.Sub(lastUsed),
 			HasCustomConfig: hasCustom,
 		}
 	}
-	
+
 	return stats
 }
 
@@ -218,7 +218,7 @@ func (trl *TenantRateLimiter) Close() error {
 
 // GlobalRateLimiter provides system-wide rate limiting
 type GlobalRateLimiter struct {
-	limiter     *rate.Limiter
+	limiter *rate.Limiter
 
 	// Circuit breaker integration
 	circuitBreaker *CircuitBreaker
@@ -227,7 +227,7 @@ type GlobalRateLimiter struct {
 // NewGlobalRateLimiter creates a system-wide rate limiter
 func NewGlobalRateLimiter(rps rate.Limit, burst int) *GlobalRateLimiter {
 	limiter := rate.NewLimiter(rps, burst)
-	
+
 	// Create circuit breaker for system overload protection
 	cb := NewCircuitBreaker(Settings{
 		Name:        "global-rate-limiter",
@@ -244,7 +244,7 @@ func NewGlobalRateLimiter(rps rate.Limit, burst int) *GlobalRateLimiter {
 			return counts.Requests >= 10 && failureRate > 0.5
 		},
 	})
-	
+
 	return &GlobalRateLimiter{
 		limiter:        limiter,
 		circuitBreaker: cb,
@@ -257,7 +257,7 @@ func (grl *GlobalRateLimiter) Allow() bool {
 	if grl.circuitBreaker.State() == StateOpen {
 		return false
 	}
-	
+
 	return grl.limiter.Allow()
 }
 
@@ -266,17 +266,17 @@ func (grl *GlobalRateLimiter) Execute(fn func() error) error {
 	if !grl.Allow() {
 		return fmt.Errorf("global rate limit exceeded")
 	}
-	
+
 	return grl.circuitBreaker.Call(fn)
 }
 
 // AdaptiveRateLimiter adjusts rates based on system health
 type AdaptiveRateLimiter struct {
 	baseLimiter *TenantRateLimiter
-	
+
 	// Health metrics
 	healthChecker HealthChecker
-	
+
 	// Adaptive settings
 	minRateMultiplier float64
 	maxRateMultiplier float64
@@ -293,28 +293,28 @@ func NewAdaptiveRateLimiter(baseLimiter *TenantRateLimiter, healthChecker Health
 	return &AdaptiveRateLimiter{
 		baseLimiter:       baseLimiter,
 		healthChecker:     healthChecker,
-		minRateMultiplier: 0.1,  // Reduce to 10% when unhealthy
-		maxRateMultiplier: 2.0,  // Increase to 200% when very healthy
-		adjustmentFactor:  0.1,  // How quickly to adjust
+		minRateMultiplier: 0.1, // Reduce to 10% when unhealthy
+		maxRateMultiplier: 2.0, // Increase to 200% when very healthy
+		adjustmentFactor:  0.1, // How quickly to adjust
 	}
 }
 
 // Allow checks if request is allowed with adaptive rate limiting
 func (arl *AdaptiveRateLimiter) Allow(tenantID string) bool {
 	healthScore := arl.healthChecker.GetHealthScore()
-	
+
 	// Adjust the effective rate based on health (for future use)
-	_ = arl.minRateMultiplier + 
+	_ = arl.minRateMultiplier +
 		(arl.maxRateMultiplier-arl.minRateMultiplier)*healthScore
-	
+
 	// For simplicity, we'll use a probabilistic approach
 	// In practice, you'd want to adjust the actual rate limiter
 	baseAllowed := arl.baseLimiter.Allow(tenantID)
-	
+
 	if !baseAllowed {
 		return false
 	}
-	
+
 	// Additional throttling based on health
 	if healthScore < 0.5 {
 		// When unhealthy, randomly reject additional requests
@@ -323,6 +323,6 @@ func (arl *AdaptiveRateLimiter) Allow(tenantID string) bool {
 			return false
 		}
 	}
-	
+
 	return true
 }

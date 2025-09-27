@@ -13,10 +13,10 @@ import (
 func BenchmarkNewAPIHandlers(b *testing.B) {
 	// Create mock dependencies
 	deps := &Dependencies{
-		Config:        &config.Config{},
-		KinesisClient: &streaming.KinesisClient{}, // Mock client
+		Config:               &config.Config{},
+		KinesisClient:        &streaming.KinesisClient{}, // Mock client
 		ResilienceComponents: &interfaces.ResilienceComponents{},
-		Endpoints:     api.NewEndpointCollection(""),
+		Endpoints:            api.NewEndpointCollection(""),
 	}
 
 	b.ResetTimer()
@@ -34,10 +34,10 @@ func BenchmarkNewAPIHandlers(b *testing.B) {
 // BenchmarkNewAPIHandlersParallel benchmarks handler creation under concurrent load
 func BenchmarkNewAPIHandlersParallel(b *testing.B) {
 	deps := &Dependencies{
-		Config:        &config.Config{},
-		KinesisClient: &streaming.KinesisClient{},
+		Config:               &config.Config{},
+		KinesisClient:        &streaming.KinesisClient{},
 		ResilienceComponents: &interfaces.ResilienceComponents{},
-		Endpoints:     api.NewEndpointCollection(""),
+		Endpoints:            api.NewEndpointCollection(""),
 	}
 
 	b.ResetTimer()
@@ -62,10 +62,10 @@ func BenchmarkDependencyValidation(b *testing.B) {
 		{
 			name: "valid_deps",
 			deps: &Dependencies{
-				Config:        &config.Config{Server: config.ServerConfig{Mode: "release"}},
-				KinesisClient: &streaming.KinesisClient{},
+				Config:               &config.Config{Server: config.ServerConfig{Mode: "release"}},
+				KinesisClient:        &streaming.KinesisClient{},
 				ResilienceComponents: &interfaces.ResilienceComponents{},
-				Endpoints:     api.NewEndpointCollection(""),
+				Endpoints:            api.NewEndpointCollection(""),
 			},
 		},
 		{

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/jamesneb/playback-backend/api/rest/constants"
 	"github.com/jamesneb/playback-backend/pkg/config"
 	"github.com/jamesneb/playback-backend/pkg/logger"
 	"go.uber.org/zap"
@@ -30,7 +31,7 @@ func NewServer(deps *Dependencies) (*gin.Engine, error) {
 	// Create HTTP server
 	r := gin.New()
 	if r == nil {
-		return nil, errors.New(ERROR_GIN_SERVER_CREATION)
+		return nil, errors.New(constants.ErrorGinServerCreation)
 	}
 
 	// Add default middleware
@@ -62,13 +63,13 @@ func NewServer(deps *Dependencies) (*gin.Engine, error) {
 
 func validateDependencies(deps *Dependencies) error {
 	if deps == nil {
-		return errors.New(ERROR_DEPENDENCIES_NIL);
+		return errors.New(constants.ErrorDependenciesNil)
 	}
 	if deps.Config == nil {
-		return errors.New(ERROR_CONFIG_NIL);
+		return errors.New(constants.ErrorConfigNil)
 	}
 	if deps.Endpoints == nil {
-		return errors.New(ERROR_ENDPOINTS_NIL);
+		return errors.New(constants.ErrorEndpointsNil)
 	}
 
 	// validate gin server mode
@@ -98,14 +99,14 @@ func applyConfig(cfg *config.Config) error {
 // setupMiddleware configures standard middleware
 func setupMiddleware(r *gin.Engine, cfg *config.Config) error {
 	if cfg == nil {
-		return errors.New(ERROR_CONFIG_MIDDLEWARE_NIL)
+		return errors.New(constants.ErrorConfigMiddlewareNil)
 	}
 	if cfg.API.EnableCORS && len(cfg.API.CORS.AllowedOrigins) == 0 {
-		logger.Warn(CORS_NO_ORIGINS_WARNING)
+		logger.Warn(constants.CORSNoOriginsWarning)
 	}
 
 	// Request timeout middleware
-	r.Use(timeoutMiddleware(REQUEST_TIMEOUT))
+	r.Use(timeoutMiddleware(constants.RequestTimeout))
 
 	// Security headers middleware
 	r.Use(securityHeadersMiddleware(cfg))
@@ -119,12 +120,12 @@ func setupMiddleware(r *gin.Engine, cfg *config.Config) error {
 	// Logging and recovery middleware
 	r.Use(gin.LoggerWithConfig(gin.LoggerConfig{
 		Formatter: customLogFormatter,
-		SkipPaths: []string{string(HEALTH_ENDPOINT_PATH), string(METRICS_ENDPOINT_PATH)},
+		SkipPaths: []string{string(constants.HealthEndpointPath), string(constants.MetricsEndpointPath)},
 	}))
 	r.Use(gin.RecoveryWithWriter(gin.DefaultWriter, customRecoveryHandler))
 
 	// Request size limit
-	r.MaxMultipartMemory = MAX_MULTIPART_MEMORY
+	r.MaxMultipartMemory = constants.MaxMultipartMemory
 
 	// CORS middleware
 	if cfg.API.EnableCORS {
@@ -139,7 +140,7 @@ func setupMiddleware(r *gin.Engine, cfg *config.Config) error {
 		zap.Bool("cors_enabled", cfg.API.EnableCORS),
 		zap.Bool("compression_enabled", true),
 		zap.Bool("security_headers_enabled", true),
-		zap.Duration("request_timeout", REQUEST_TIMEOUT))
+		zap.Duration("request_timeout", constants.RequestTimeout))
 	return nil
 }
 
@@ -171,7 +172,7 @@ func setupTrustedProxies(r *gin.Engine, cfg *config.Config) error {
 	proxies := cfg.Server.TrustedProxies
 
 	for _, proxy := range proxies {
-		if net.ParseIP(proxy) == nil && proxy != LOCAL_HOST {
+		if net.ParseIP(proxy) == nil && proxy != constants.LocalHost {
 			// Try parsing as CIDR
 			if _, _, err := net.ParseCIDR(proxy); err != nil {
 				return fmt.Errorf("invalid trusted proxy address: %s", proxy)
@@ -179,7 +180,7 @@ func setupTrustedProxies(r *gin.Engine, cfg *config.Config) error {
 		}
 	}
 
-	if err := r.SetTrustedProxies(proxies); err !=  nil {
+	if err := r.SetTrustedProxies(proxies); err != nil {
 		return fmt.Errorf("failed to set trusted proxies %v: %w", proxies, err)
 	}
 
@@ -187,4 +188,3 @@ func setupTrustedProxies(r *gin.Engine, cfg *config.Config) error {
 
 	return nil
 }
-

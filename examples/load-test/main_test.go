@@ -84,8 +84,8 @@ func TestRunLoadTest_ShortDuration(t *testing.T) {
 
 	config := LoadTestConfig{
 		OrderServiceURL: server.URL,
-		RequestsPerSec:  5,  // 5 requests per second
-		DurationSec:     1,  // 1 second duration
+		RequestsPerSec:  5, // 5 requests per second
+		DurationSec:     1, // 1 second duration
 		MaxConcurrent:   10,
 	}
 
@@ -138,10 +138,10 @@ func TestRunLoadTest_ConcurrencyLimit(t *testing.T) {
 		if activeRequests > maxConcurrent {
 			maxConcurrent = activeRequests
 		}
-		
+
 		time.Sleep(100 * time.Millisecond) // Hold the request for some time
 		w.WriteHeader(http.StatusCreated)
-		
+
 		activeRequests--
 	}))
 	defer server.Close()
@@ -150,7 +150,7 @@ func TestRunLoadTest_ConcurrencyLimit(t *testing.T) {
 		OrderServiceURL: server.URL,
 		RequestsPerSec:  20, // High request rate
 		DurationSec:     1,
-		MaxConcurrent:   3,  // Low concurrency limit
+		MaxConcurrent:   3, // Low concurrency limit
 	}
 
 	result := runLoadTest(config)

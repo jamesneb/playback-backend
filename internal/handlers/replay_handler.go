@@ -2,7 +2,6 @@ package handlers
 
 import (
 	"bytes"
-	"context"
 	"fmt"
 	"io"
 	"net/http"
@@ -47,23 +46,23 @@ type DownloadRequest struct {
 // @Success 200 {array} ReplayFile
 // @Router /replays/list [get]
 func (h *ReplayHandler) ListReplays(c *gin.Context) {
-	ctx := context.Background()
-	
-	logger.Info("Starting to list replay files", 
+	ctx := c.Request.Context()
+
+	logger.Info("Starting to list replay files",
 		zap.String("bucket", h.bucketName),
 		zap.String("prefix", "tenants/default/replay-deltas/"))
-	
+
 	// List objects in the replays bucket - try without prefix first for debugging
 	input := &s3.ListObjectsV2Input{
 		Bucket: aws.String(h.bucketName),
 		// Prefix: aws.String("tenants/default/replay-deltas/"),
 	}
-	
-	logger.Info("Making S3 ListObjectsV2 call", 
+
+	logger.Info("Making S3 ListObjectsV2 call",
 		zap.String("bucket", *input.Bucket))
-	
+
 	listOutput, err := h.s3Client.ListObjectsV2(ctx, input)
-	
+
 	if err != nil {
 		logger.Error("Failed to list S3 objects", zap.Error(err))
 		c.JSON(http.StatusInternalServerError, gin.H{
@@ -71,11 +70,11 @@ func (h *ReplayHandler) ListReplays(c *gin.Context) {
 		})
 		return
 	}
-	
-	logger.Info("S3 ListObjectsV2 succeeded", 
+
+	logger.Info("S3 ListObjectsV2 succeeded",
 		zap.Int("object_count", len(listOutput.Contents)),
 		zap.Bool("is_truncated", listOutput.IsTruncated != nil && *listOutput.IsTruncated))
-	
+
 	files := make([]ReplayFile, 0)
 	for _, obj := range listOutput.Contents {
 		// Extract job ID from key (e.g., "tenants/default/replay-deltas/abc123/timestamp.arrow" -> "abc123")
@@ -93,26 +92,25 @@ func (h *ReplayHandler) ListReplays(c *gin.Context) {
 				}
 			}
 		}
-		
+
 		file := ReplayFile{
-			Key:          aws.ToString(obj.Key),
-			Size:         aws.ToInt64(obj.Size),
-			JobID:        jobID,
+			Key:   aws.ToString(obj.Key),
+			Size:  aws.ToInt64(obj.Size),
+			JobID: jobID,
 		}
-		
+
 		if obj.LastModified != nil {
 			file.LastModified = obj.LastModified.Format("2006-01-02T15:04:05Z")
 		}
-		
+
 		files = append(files, file)
 	}
-	
+
 	// Add cache-busting headers
 	c.Header("Cache-Control", "no-cache, no-store, must-revalidate")
 	c.Header("Pragma", "no-cache")
 	c.Header("Expires", "0")
-	
-	
+
 	logger.Info("Listed replay files", zap.Int("count", len(files)))
 	c.JSON(http.StatusOK, files)
 }
@@ -134,15 +132,15 @@ func (h *ReplayHandler) DownloadReplay(c *gin.Context) {
 		})
 		return
 	}
-	
-	ctx := context.Background()
-	
+
+	ctx := c.Request.Context()
+
 	// Get object from S3
 	getOutput, err := h.s3Client.GetObject(ctx, &s3.GetObjectInput{
 		Bucket: aws.String(h.bucketName),
 		Key:    aws.String(req.Key),
 	})
-	
+
 	if err != nil {
 		logger.Error("Failed to get S3 object", zap.Error(err), zap.String("key", req.Key))
 		c.JSON(http.StatusNotFound, gin.H{
@@ -155,7 +153,7 @@ func (h *ReplayHandler) DownloadReplay(c *gin.Context) {
 			logger.Error("Failed to close S3 response body", zap.Error(err))
 		}
 	}()
-	
+
 	// Read the file content
 	var buf bytes.Buffer
 	_, err = io.Copy(&buf, getOutput.Body)
@@ -166,7 +164,7 @@ func (h *ReplayHandler) DownloadReplay(c *gin.Context) {
 		})
 		return
 	}
-	
+
 	// Set headers for binary download with cache-busting
 	c.Header("Content-Type", "application/octet-stream")
 	c.Header("Content-Disposition", "attachment; filename="+req.Key)
@@ -174,12 +172,11 @@ func (h *ReplayHandler) DownloadReplay(c *gin.Context) {
 	c.Header("Pragma", "no-cache")
 	c.Header("Expires", "0")
 	c.Header("ETag", fmt.Sprintf("\"%d\"", time.Now().UnixNano()))
-	
-	logger.Info("Downloaded replay file", 
-		zap.String("key", req.Key), 
+
+	logger.Info("Downloaded replay file",
+		zap.String("key", req.Key),
 		zap.Int("size", buf.Len()))
-	
+
 	// Return the binary data
 	c.Data(http.StatusOK, "application/octet-stream", buf.Bytes())
 }
-

@@ -23,7 +23,7 @@ import (
 func init() {
 	// Set up minimal observability for testing
 	gin.SetMode(gin.TestMode)
-	
+
 	// Initialize logger for tests (this was missing and causing nil pointer panics)
 	config := zap.NewDevelopmentConfig()
 	config.Level.SetLevel(zap.ErrorLevel) // Reduce noise in tests
@@ -32,17 +32,17 @@ func init() {
 	if err != nil {
 		panic(err)
 	}
-	
+
 	// Initialize basic tracer and meter for tests
 	tracer = otel.Tracer("test-order-service-working")
 	meter = otel.Meter("test-order-service-working")
-	
+
 	// Initialize OpenTelemetry logger for tests (this was also missing)
 	otelLogger = global.GetLoggerProvider().Logger("test-order-service-working")
-	
+
 	// Initialize HTTP client for tests
 	httpClient = &http.Client{Timeout: 10 * time.Second}
-	
+
 	// Create mock metrics
 	orderCounter, _ = meter.Int64Counter("orders_total_test")
 	orderDuration, _ = meter.Float64Histogram("order_duration_seconds_test")
@@ -53,18 +53,18 @@ func init() {
 
 func TestCreateEnhancedResource(t *testing.T) {
 	res := createEnhancedResource()
-	
+
 	assert.NotNil(t, res)
 	assert.IsType(t, &resource.Resource{}, res)
-	
+
 	// Test that the resource contains expected attributes
 	attrs := res.Attributes()
-	
+
 	// Check service attributes
 	serviceName := ""
 	serviceVersion := ""
 	serviceNamespace := ""
-	
+
 	for _, attr := range attrs {
 		switch attr.Key {
 		case "service.name":
@@ -75,7 +75,7 @@ func TestCreateEnhancedResource(t *testing.T) {
 			serviceNamespace = attr.Value.AsString()
 		}
 	}
-	
+
 	assert.Equal(t, "order-service", serviceName)
 	assert.Equal(t, "1.0.0", serviceVersion)
 	assert.Equal(t, "ecommerce", serviceNamespace)
@@ -85,25 +85,25 @@ func TestGetEnvironment(t *testing.T) {
 	// Test default environment
 	originalEnv := os.Getenv("ENVIRONMENT")
 	originalNodeEnv := os.Getenv("NODE_ENV")
-	
+
 	// Clear environment variables
 	os.Unsetenv("ENVIRONMENT")
 	os.Unsetenv("NODE_ENV")
-	
+
 	env := getEnvironment()
 	assert.Equal(t, "development", env)
-	
+
 	// Test ENVIRONMENT variable
 	os.Setenv("ENVIRONMENT", "production")
 	env = getEnvironment()
 	assert.Equal(t, "production", env)
-	
+
 	// Test NODE_ENV variable
 	os.Unsetenv("ENVIRONMENT")
 	os.Setenv("NODE_ENV", "staging")
 	env = getEnvironment()
 	assert.Equal(t, "staging", env)
-	
+
 	// Restore original values
 	if originalEnv != "" {
 		os.Setenv("ENVIRONMENT", originalEnv)
@@ -120,35 +120,35 @@ func TestGetDeploymentType(t *testing.T) {
 		"ECS_CONTAINER_METADATA_URI_V4",
 		"KUBERNETES_SERVICE_HOST",
 	}
-	
+
 	originalValues := make(map[string]string)
 	for _, env := range envVars {
 		originalValues[env] = os.Getenv(env)
 		os.Unsetenv(env)
 	}
-	
+
 	// Test default (local)
 	deploymentType := getDeploymentType()
 	assert.Equal(t, "local", deploymentType)
-	
+
 	// Test AWS Lambda
 	os.Setenv("AWS_EXECUTION_ENV", "AWS_Lambda_go1.x")
 	deploymentType = getDeploymentType()
 	assert.Equal(t, "aws_lambda", deploymentType)
 	os.Unsetenv("AWS_EXECUTION_ENV")
-	
+
 	// Test AWS ECS
 	os.Setenv("ECS_CONTAINER_METADATA_URI_V4", "http://169.254.170.2/v4/metadata")
 	deploymentType = getDeploymentType()
 	assert.Equal(t, "aws_ecs", deploymentType)
 	os.Unsetenv("ECS_CONTAINER_METADATA_URI_V4")
-	
+
 	// Test Kubernetes
 	os.Setenv("KUBERNETES_SERVICE_HOST", "10.96.0.1")
 	deploymentType = getDeploymentType()
 	assert.Equal(t, "kubernetes", deploymentType)
 	os.Unsetenv("KUBERNETES_SERVICE_HOST")
-	
+
 	// Restore original values
 	for env, value := range originalValues {
 		if value != "" {
@@ -165,41 +165,41 @@ func TestDetectCloudProvider(t *testing.T) {
 		"GOOGLE_CLOUD_PROJECT",
 		"AZURE_CLIENT_ID",
 	}
-	
+
 	originalValues := make(map[string]string)
 	for _, env := range cloudEnvVars {
 		originalValues[env] = os.Getenv(env)
 		os.Unsetenv(env)
 	}
-	
+
 	// Test default (unknown)
 	provider := detectCloudProvider()
 	assert.Equal(t, "unknown", provider)
-	
+
 	// Test AWS
 	os.Setenv("AWS_REGION", "us-east-1")
 	provider = detectCloudProvider()
 	assert.Equal(t, "aws", provider)
 	os.Unsetenv("AWS_REGION")
-	
+
 	// Test AWS with default region
 	os.Setenv("AWS_DEFAULT_REGION", "us-west-2")
 	provider = detectCloudProvider()
 	assert.Equal(t, "aws", provider)
 	os.Unsetenv("AWS_DEFAULT_REGION")
-	
+
 	// Test GCP
 	os.Setenv("GOOGLE_CLOUD_PROJECT", "my-project")
 	provider = detectCloudProvider()
 	assert.Equal(t, "gcp", provider)
 	os.Unsetenv("GOOGLE_CLOUD_PROJECT")
-	
+
 	// Test Azure
 	os.Setenv("AZURE_CLIENT_ID", "client-id-123")
 	provider = detectCloudProvider()
 	assert.Equal(t, "azure", provider)
 	os.Unsetenv("AZURE_CLIENT_ID")
-	
+
 	// Restore original values
 	for env, value := range originalValues {
 		if value != "" {
@@ -212,13 +212,13 @@ func TestDetectContainerRuntime(t *testing.T) {
 	// Test default (unknown)
 	runtime := detectContainerRuntime()
 	assert.True(t, runtime == "unknown" || runtime == "docker", "Should detect unknown or docker if .dockerenv exists")
-	
+
 	// Test with container environment variable
 	originalContainer := os.Getenv("container")
 	os.Setenv("container", "podman")
 	runtime = detectContainerRuntime()
 	assert.Equal(t, "podman", runtime)
-	
+
 	// Restore original value
 	if originalContainer != "" {
 		os.Setenv("container", originalContainer)
@@ -230,13 +230,13 @@ func TestDetectContainerRuntime(t *testing.T) {
 func setupTestRouterWorking() *gin.Engine {
 	r := gin.New()
 	r.Use(gin.Recovery())
-	
+
 	r.POST("/orders", createOrder)
 	r.GET("/orders/:id", getOrder)
 	r.GET("/health", func(c *gin.Context) {
 		c.JSON(200, gin.H{"status": "ok", "service": "order-service"})
 	})
-	
+
 	return r
 }
 
@@ -450,12 +450,12 @@ func TestCreateOrder_WithTracing_Working(t *testing.T) {
 	}
 
 	jsonData, _ := json.Marshal(order)
-	
+
 	// Create request with enhanced tracing context
 	req, _ := http.NewRequest("POST", "/orders", bytes.NewBuffer(jsonData))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("User-Agent", "TestClient/1.0")
-	
+
 	// Add trace context
 	ctx := trace.ContextWithSpan(req.Context(), trace.SpanFromContext(context.Background()))
 	req = req.WithContext(ctx)
@@ -498,7 +498,7 @@ func TestOrderProcessing_Integration_Working(t *testing.T) {
 		if w.Code == 201 || w.Code == 400 {
 			processedCount++
 		}
-		
+
 		// Ensure we get valid responses with enhanced processing
 		assert.True(t, w.Code == 201 || w.Code == 400, "Enhanced order %d should return valid status", i)
 	}
@@ -549,12 +549,12 @@ func BenchmarkEnvironmentDetection(b *testing.B) {
 func TestRuntimeDetection(t *testing.T) {
 	res := createEnhancedResource()
 	attrs := res.Attributes()
-	
+
 	// Check that runtime information is included
 	foundRuntimeName := false
 	foundRuntimeVersion := false
 	foundArch := false
-	
+
 	for _, attr := range attrs {
 		switch attr.Key {
 		case "process.runtime.name":
@@ -568,7 +568,7 @@ func TestRuntimeDetection(t *testing.T) {
 			foundArch = true
 		}
 	}
-	
+
 	assert.True(t, foundRuntimeName, "Should include runtime name")
 	assert.True(t, foundRuntimeVersion, "Should include runtime version")
 	assert.True(t, foundArch, "Should include host architecture")

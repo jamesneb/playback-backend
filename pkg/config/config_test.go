@@ -108,7 +108,7 @@ streaming:
 				assert.Equal(t, "env_password", cfg.Database.ClickHouse.Password)
 				assert.Equal(t, "eu-west-1", cfg.Streaming.Kinesis.Region)
 				assert.Equal(t, "debug", cfg.Logging.Level)
-				
+
 				// Verify non-overridden values remain
 				assert.Equal(t, "localhost", cfg.Server.Host)
 				assert.Equal(t, "telemetry", cfg.Database.ClickHouse.Database)
@@ -180,7 +180,7 @@ streaming:
 			} else {
 				assert.NoError(t, err)
 				assert.NotNil(t, config)
-				
+
 				if tt.validateFunc != nil {
 					tt.validateFunc(t, config)
 				}
@@ -238,13 +238,13 @@ func TestGetDefaultConfigPath(t *testing.T) {
 			}()
 
 			path := getDefaultConfigPath()
-			
+
 			if tt.expectError {
 				assert.Empty(t, path)
 			} else {
 				assert.NotEmpty(t, path)
 				assert.Contains(t, path, ".yaml")
-				
+
 				if tt.envVar != "" {
 					assert.Contains(t, path, tt.envVar)
 				}
@@ -332,10 +332,10 @@ func TestApplyEnvOverrides(t *testing.T) {
 				},
 			},
 			envVars: map[string]string{
-				"AWS_DEFAULT_REGION":     "eu-west-1",
-				"AWS_ACCESS_KEY_ID":      "new-key",
-				"AWS_SECRET_ACCESS_KEY":  "new-secret",
-				"AWS_ENDPOINT_URL":       "http://localhost:4566",
+				"AWS_DEFAULT_REGION":    "eu-west-1",
+				"AWS_ACCESS_KEY_ID":     "new-key",
+				"AWS_SECRET_ACCESS_KEY": "new-secret",
+				"AWS_ENDPOINT_URL":      "http://localhost:4566",
 			},
 			validateFunc: func(t *testing.T, cfg *Config) {
 				assert.Equal(t, "eu-west-1", cfg.Streaming.Kinesis.Region)

@@ -23,10 +23,10 @@ type Migration struct {
 }
 
 type MigrationRunner struct {
-	db          *sql.DB
-	dbName      string
+	db             *sql.DB
+	dbName         string
 	migrationsPath string
-	envPath     string
+	envPath        string
 }
 
 func NewMigrationRunner(dsn, dbName, migrationsPath, envPath string) (*MigrationRunner, error) {
@@ -40,10 +40,10 @@ func NewMigrationRunner(dsn, dbName, migrationsPath, envPath string) (*Migration
 	}
 
 	return &MigrationRunner{
-		db:          db,
-		dbName:      dbName,
+		db:             db,
+		dbName:         dbName,
 		migrationsPath: migrationsPath,
-		envPath:     envPath,
+		envPath:        envPath,
 	}, nil
 }
 
@@ -157,7 +157,7 @@ func (mr *MigrationRunner) ApplyEnvironmentConfig() error {
 
 	// Replace ${DB} placeholder with actual database name
 	envSQL := strings.ReplaceAll(string(content), "${DB}", mr.dbName)
-	
+
 	// Split by semicolon and execute each statement
 	statements := strings.Split(envSQL, ";")
 	for _, stmt := range statements {
@@ -180,16 +180,16 @@ func (mr *MigrationRunner) ApplyEnvironmentConfig() error {
 func (mr *MigrationRunner) ApplyMigration(migration Migration) error {
 	// Replace ${DB} placeholder with actual database name
 	sql := strings.ReplaceAll(migration.Content, "${DB}", mr.dbName)
-	
+
 	// Split by semicolon and execute each statement
 	statements := strings.Split(sql, ";")
-	
+
 	// Begin transaction-like behavior (ClickHouse is autocommit, so we track manually)
 	log.Printf("Applying migration %04d_%s", migration.Version, migration.Name)
-	
+
 	for _, stmt := range statements {
 		stmt = strings.TrimSpace(stmt)
-		
+
 		// Remove comment lines but keep the actual SQL
 		var sqlLines []string
 		for _, line := range strings.Split(stmt, "\n") {
@@ -198,9 +198,9 @@ func (mr *MigrationRunner) ApplyMigration(migration Migration) error {
 				sqlLines = append(sqlLines, line)
 			}
 		}
-		
+
 		cleanSQL := strings.TrimSpace(strings.Join(sqlLines, "\n"))
-		
+
 		if cleanSQL == "" {
 			continue
 		}
@@ -215,7 +215,7 @@ func (mr *MigrationRunner) ApplyMigration(migration Migration) error {
 		"INSERT INTO %s.schema_migrations (version, name) VALUES (?, ?)",
 		mr.dbName,
 	)
-	
+
 	if _, err := mr.db.Exec(recordQuery, migration.Version, migration.Name); err != nil {
 		return fmt.Errorf("failed to record migration %d: %w", migration.Version, err)
 	}
@@ -338,4 +338,3 @@ func getEnv(key, defaultValue string) string {
 	}
 	return defaultValue
 }
-

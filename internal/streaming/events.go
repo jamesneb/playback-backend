@@ -170,8 +170,8 @@ type ProtobufTelemetryEvent struct {
 	Type        string            `protobuf:"bytes,1,opt,name=type" json:"type"`
 	ServiceName string            `protobuf:"bytes,2,opt,name=service_name" json:"service_name"`
 	TraceID     string            `protobuf:"bytes,3,opt,name=trace_id" json:"trace_id,omitempty"`
-	Data        []byte            `protobuf:"bytes,4,opt,name=data" json:"data"`         // Raw OTLP protobuf bytes
-	Format      string            `protobuf:"bytes,5,opt,name=format" json:"format"`     // "protobuf" identifier
+	Data        []byte            `protobuf:"bytes,4,opt,name=data" json:"data"`     // Raw OTLP protobuf bytes
+	Format      string            `protobuf:"bytes,5,opt,name=format" json:"format"` // "protobuf" identifier
 	Metadata    TelemetryMetadata `protobuf:"bytes,6,opt,name=metadata" json:"metadata"`
 }
 

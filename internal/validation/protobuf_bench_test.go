@@ -45,9 +45,9 @@ func BenchmarkTraceValidation(b *testing.B) {
 					{
 						Spans: []*tracepb.Span{
 							{
-								TraceId: []byte("test-trace-id-12"),
-								SpanId:  []byte("test-span"),
-								Name:    "test-span",
+								TraceId:           []byte("test-trace-id-12"),
+								SpanId:            []byte("test-span"),
+								Name:              "test-span",
 								StartTimeUnixNano: uint64(time.Now().UnixNano()),
 								EndTimeUnixNano:   uint64(time.Now().UnixNano()),
 							},
@@ -78,9 +78,9 @@ func BenchmarkTraceValidationParallel(b *testing.B) {
 					{
 						Spans: []*tracepb.Span{
 							{
-								TraceId: []byte("test-trace-id-12"),
-								SpanId:  []byte("test-span"),
-								Name:    "test-span",
+								TraceId:           []byte("test-trace-id-12"),
+								SpanId:            []byte("test-span"),
+								Name:              "test-span",
 								StartTimeUnixNano: uint64(time.Now().UnixNano()),
 								EndTimeUnixNano:   uint64(time.Now().UnixNano()),
 							},
@@ -169,9 +169,9 @@ func BenchmarkProtobufSizeCalculation(b *testing.B) {
 					{
 						Spans: []*tracepb.Span{
 							{
-								TraceId: []byte("test-trace-id-12"),
-								SpanId:  []byte("test-span"),
-								Name:    "test-span",
+								TraceId:           []byte("test-trace-id-12"),
+								SpanId:            []byte("test-span"),
+								Name:              "test-span",
 								StartTimeUnixNano: uint64(time.Now().UnixNano()),
 								EndTimeUnixNano:   uint64(time.Now().UnixNano()),
 							},
@@ -202,9 +202,9 @@ func BenchmarkValidateProtobufSize(b *testing.B) {
 					{
 						Spans: []*tracepb.Span{
 							{
-								TraceId: []byte("test-trace-id-12"),
-								SpanId:  []byte("test-span"),
-								Name:    "test-span",
+								TraceId:           []byte("test-trace-id-12"),
+								SpanId:            []byte("test-span"),
+								Name:              "test-span",
 								StartTimeUnixNano: uint64(time.Now().UnixNano()),
 								EndTimeUnixNano:   uint64(time.Now().UnixNano()),
 							},

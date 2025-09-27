@@ -15,34 +15,34 @@ import (
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/log/global"
-	"go.opentelemetry.io/otel/exporters/stdout/stdoutlog"
-	"go.opentelemetry.io/otel/exporters/stdout/stdouttrace"
-	"go.opentelemetry.io/otel/exporters/stdout/stdoutmetric"
 	"go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploggrpc"
 	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
+	"go.opentelemetry.io/otel/exporters/stdout/stdoutlog"
+	"go.opentelemetry.io/otel/exporters/stdout/stdoutmetric"
+	"go.opentelemetry.io/otel/exporters/stdout/stdouttrace"
 	otellog "go.opentelemetry.io/otel/log"
+	"go.opentelemetry.io/otel/log/global"
 	"go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/propagation"
-	"go.opentelemetry.io/otel/sdk/resource"
 	sdklog "go.opentelemetry.io/otel/sdk/log"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
+	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
-	"os"
-	"runtime"
 	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
+	"os"
+	"runtime"
 )
 
 type Order struct {
-	ID       string  `json:"id"`
-	UserID   string  `json:"user_id"`
-	Items    []Item  `json:"items"`
-	Total    float64 `json:"total"`
-	Status   string  `json:"status"`
-	Created  string  `json:"created"`
+	ID      string  `json:"id"`
+	UserID  string  `json:"user_id"`
+	Items   []Item  `json:"items"`
+	Total   float64 `json:"total"`
+	Status  string  `json:"status"`
+	Created string  `json:"created"`
 }
 
 type Item struct {
@@ -74,18 +74,18 @@ type InventoryResponse struct {
 }
 
 var (
-	tracer trace.Tracer
-	meter  metric.Meter
-	logger *zap.Logger
+	tracer     trace.Tracer
+	meter      metric.Meter
+	logger     *zap.Logger
 	otelLogger otellog.Logger
 	httpClient *http.Client
-	
+
 	// Metrics
-	orderCounter       metric.Int64Counter
-	orderDuration      metric.Float64Histogram
-	inventoryCounter   metric.Int64Counter
-	paymentCounter     metric.Int64Counter
-	errorCounter       metric.Int64Counter
+	orderCounter     metric.Int64Counter
+	orderDuration    metric.Float64Histogram
+	inventoryCounter metric.Int64Counter
+	paymentCounter   metric.Int64Counter
+	errorCounter     metric.Int64Counter
 )
 
 func createEnhancedResource() *resource.Resource {
@@ -102,7 +102,7 @@ func createEnhancedResource() *resource.Resource {
 			attribute.String("service.namespace", "ecommerce"),
 			attribute.String("service.instance.id", fmt.Sprintf("instance-%d", time.Now().UnixNano())),
 
-			// Deployment information  
+			// Deployment information
 			attribute.String("deployment.environment", getEnvironment()),
 			attribute.String("deployment.type", getDeploymentType()),
 
@@ -127,7 +127,7 @@ func createEnhancedResource() *resource.Resource {
 	if err != nil {
 		log.Fatal("Failed to create resource:", err)
 	}
-	
+
 	return res
 }
 
@@ -183,7 +183,7 @@ func detectContainerRuntime() string {
 func initObservability() {
 	// Initialize all three pillars
 	initTracing()
-	initMetrics() 
+	initMetrics()
 	initLogging()
 	initHTTPClient()
 }
@@ -211,9 +211,9 @@ func initTracing() {
 
 	// Create trace provider with both exporters and shorter batch timeout
 	tp := sdktrace.NewTracerProvider(
-		sdktrace.WithBatcher(otlpExporter, 
-			sdktrace.WithBatchTimeout(1*time.Second),  // Flush every 1 second
-			sdktrace.WithMaxExportBatchSize(10),       // Smaller batch size
+		sdktrace.WithBatcher(otlpExporter,
+			sdktrace.WithBatchTimeout(1*time.Second), // Flush every 1 second
+			sdktrace.WithMaxExportBatchSize(10),      // Smaller batch size
 		),
 		sdktrace.WithBatcher(stdoutExporter),
 		sdktrace.WithResource(res),
@@ -309,16 +309,16 @@ func initLogging() {
 		sdklog.WithProcessor(sdklog.NewSimpleProcessor(stdoutExporter)),
 		sdklog.WithResource(res),
 	)
-	
+
 	// Set the global logger provider
 	global.SetLoggerProvider(loggerProvider)
-	
+
 	// Initialize OTel logger
 	otelLogger = global.GetLoggerProvider().Logger("order-service")
 
 	// Test log emission on startup
 	log.Printf("OTLP log exporter initialized - endpoint: playback-backend:4317")
-	
+
 	// Test OTLP log emission
 	var startupLogRecord otellog.Record
 	startupLogRecord.SetTimestamp(time.Now())
@@ -333,10 +333,10 @@ func initLogging() {
 	otelLogger.Emit(context.Background(), startupLogRecord)
 	log.Printf("Emitted startup OTLP log record")
 
-	// Create structured logger  
+	// Create structured logger
 	config := zap.NewProductionConfig()
 	config.Level = zap.NewAtomicLevelAt(zapcore.InfoLevel)
-	
+
 	logger, err = config.Build(
 		zap.AddCaller(),
 		zap.AddStacktrace(zapcore.ErrorLevel),
@@ -359,7 +359,7 @@ func main() {
 
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.New()
-	
+
 	// Add OpenTelemetry middleware
 	r.Use(otelgin.Middleware("order-service"))
 	r.Use(gin.Logger())
@@ -380,13 +380,13 @@ func createOrder(c *gin.Context) {
 	start := time.Now()
 	ctx := c.Request.Context()
 	span := trace.SpanFromContext(ctx)
-	
-	logger.Info("Order creation started", 
+
+	logger.Info("Order creation started",
 		zap.String("endpoint", "/orders"),
 		zap.String("method", "POST"),
 		zap.String("event.type", "order.started"),
 	)
-	
+
 	// Direct OTLP log emission
 	var logRecord otellog.Record
 	logRecord.SetTimestamp(start)
@@ -400,21 +400,21 @@ func createOrder(c *gin.Context) {
 		otellog.String("event.type", "order.started"),
 	)
 	otelLogger.Emit(ctx, logRecord)
-	
+
 	var order Order
 	if err := c.ShouldBindJSON(&order); err != nil {
 		span.RecordError(err)
-		logger.Error("Invalid order request", 
+		logger.Error("Invalid order request",
 			zap.Error(err),
 			zap.String("user_agent", c.GetHeader("User-Agent")),
 		)
-		
+
 		// Record error metric
 		errorCounter.Add(ctx, 1, metric.WithAttributes(
 			attribute.String("error_type", "validation"),
 			attribute.String("endpoint", "/orders"),
 		))
-		
+
 		c.JSON(400, gin.H{"error": err.Error()})
 		return
 	}
@@ -431,7 +431,7 @@ func createOrder(c *gin.Context) {
 		attribute.Float64("order.total", order.Total),
 	)
 
-	logger.Info("Processing order", 
+	logger.Info("Processing order",
 		zap.String("order_id", order.ID),
 		zap.String("user_id", order.UserID),
 		zap.Int("item_count", len(order.Items)),
@@ -443,13 +443,13 @@ func createOrder(c *gin.Context) {
 		if !checkInventory(ctx, item.ProductID, item.Quantity) {
 			span.SetAttributes(attribute.String("order.failure_reason", "insufficient_inventory"))
 			order.Status = "failed"
-			
-			logger.Warn("Order failed - insufficient inventory", 
+
+			logger.Warn("Order failed - insufficient inventory",
 				zap.String("order_id", order.ID),
 				zap.String("product_id", item.ProductID),
 				zap.Int("requested_quantity", item.Quantity),
 			)
-			
+
 			// Record failure metrics
 			orderCounter.Add(ctx, 1, metric.WithAttributes(
 				attribute.String("status", "failed"),
@@ -458,7 +458,7 @@ func createOrder(c *gin.Context) {
 			errorCounter.Add(ctx, 1, metric.WithAttributes(
 				attribute.String("error_type", "inventory_insufficient"),
 			))
-			
+
 			c.JSON(400, gin.H{"error": "insufficient inventory", "product": item.ProductID})
 			return
 		}
@@ -468,12 +468,12 @@ func createOrder(c *gin.Context) {
 	if !processPayment(ctx, order.ID, order.Total, order.UserID) {
 		span.SetAttributes(attribute.String("order.failure_reason", "payment_failed"))
 		order.Status = "failed"
-		
-		logger.Error("Order failed - payment processing error", 
+
+		logger.Error("Order failed - payment processing error",
 			zap.String("order_id", order.ID),
 			zap.Float64("amount", order.Total),
 		)
-		
+
 		// Record failure metrics
 		orderCounter.Add(ctx, 1, metric.WithAttributes(
 			attribute.String("status", "failed"),
@@ -482,7 +482,7 @@ func createOrder(c *gin.Context) {
 		errorCounter.Add(ctx, 1, metric.WithAttributes(
 			attribute.String("error_type", "payment_failed"),
 		))
-		
+
 		c.JSON(400, gin.H{"error": "payment failed"})
 		return
 	}
@@ -493,7 +493,7 @@ func createOrder(c *gin.Context) {
 
 	order.Status = "confirmed"
 	span.SetAttributes(attribute.String("order.status", order.Status))
-	
+
 	// Record success metrics
 	duration := time.Since(start).Seconds()
 	orderCounter.Add(ctx, 1, metric.WithAttributes(
@@ -503,14 +503,14 @@ func createOrder(c *gin.Context) {
 		attribute.String("status", "success"),
 	))
 
-	logger.Info("Order completed successfully", 
+	logger.Info("Order completed successfully",
 		zap.String("order_id", order.ID),
 		zap.Duration("processing_time", time.Since(start)),
 		zap.String("status", order.Status),
 		zap.Float64("order_total", order.Total),
 		zap.String("event.type", "order.completed"),
 	)
-	
+
 	// Direct OTLP log completion record
 	now := time.Now()
 	var completionLogRecord otellog.Record
@@ -534,7 +534,7 @@ func createOrder(c *gin.Context) {
 func getOrder(c *gin.Context) {
 	ctx := c.Request.Context()
 	span := trace.SpanFromContext(ctx)
-	
+
 	orderID := c.Param("id")
 	span.SetAttributes(attribute.String("order.id", orderID))
 
@@ -565,7 +565,7 @@ func checkInventory(ctx context.Context, productID string, quantity int) bool {
 		attribute.Int("inventory.requested_quantity", quantity),
 	)
 
-	logger.Debug("Checking inventory", 
+	logger.Debug("Checking inventory",
 		zap.String("product_id", productID),
 		zap.Int("quantity", quantity),
 	)
@@ -575,7 +575,7 @@ func checkInventory(ctx context.Context, productID string, quantity int) bool {
 		"product_id": productID,
 		"quantity":   quantity,
 	}
-	
+
 	jsonData, err := json.Marshal(reqData)
 	if err != nil {
 		span.RecordError(err)
@@ -590,7 +590,7 @@ func checkInventory(ctx context.Context, productID string, quantity int) bool {
 		logger.Error("Failed to create inventory request", zap.Error(err))
 		return false
 	}
-	
+
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Service", "inventory-service")
 
@@ -606,7 +606,7 @@ func checkInventory(ctx context.Context, productID string, quantity int) bool {
 	// Mock response - 90% success rate
 	available := rand.Float32() < 0.9
 	currentStock := rand.Intn(100) + 10
-	
+
 	span.SetAttributes(
 		attribute.Bool("inventory.available", available),
 		attribute.Int("inventory.current_stock", currentStock),
@@ -622,13 +622,13 @@ func checkInventory(ctx context.Context, productID string, quantity int) bool {
 
 	if !available {
 		span.RecordError(fmt.Errorf("insufficient inventory for product %s", productID))
-		logger.Warn("Inventory check failed", 
+		logger.Warn("Inventory check failed",
 			zap.String("product_id", productID),
 			zap.Int("requested", quantity),
 			zap.Int("available", currentStock),
 		)
 	} else {
-		logger.Debug("Inventory check passed", 
+		logger.Debug("Inventory check passed",
 			zap.String("product_id", productID),
 			zap.Int("available_stock", currentStock),
 		)
@@ -647,7 +647,7 @@ func processPayment(ctx context.Context, orderID string, amount float64, userID 
 		attribute.String("payment.user_id", userID),
 	)
 
-	logger.Info("Processing payment", 
+	logger.Info("Processing payment",
 		zap.String("order_id", orderID),
 		zap.Float64("amount", amount),
 		zap.String("user_id", userID),
@@ -659,7 +659,7 @@ func processPayment(ctx context.Context, orderID string, amount float64, userID 
 		"amount":   amount,
 		"user_id":  userID,
 	}
-	
+
 	jsonData, err := json.Marshal(reqData)
 	if err != nil {
 		span.RecordError(err)
@@ -674,7 +674,7 @@ func processPayment(ctx context.Context, orderID string, amount float64, userID 
 		logger.Error("Failed to create payment request", zap.Error(err))
 		return false
 	}
-	
+
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Service", "payment-service")
 
@@ -689,7 +689,7 @@ func processPayment(ctx context.Context, orderID string, amount float64, userID 
 
 	// Mock response - 95% success rate
 	success := rand.Float32() < 0.95
-	
+
 	span.SetAttributes(
 		attribute.Int("http.status_code", resp.StatusCode),
 		attribute.String("http.url", req.URL.String()),
@@ -700,15 +700,15 @@ func processPayment(ctx context.Context, orderID string, amount float64, userID 
 		attribute.Bool("success", success),
 		attribute.String("user_id", userID),
 	))
-	
+
 	if success {
 		transactionID := fmt.Sprintf("txn_%d", time.Now().UnixNano())
 		span.SetAttributes(
 			attribute.String("payment.transaction_id", transactionID),
 			attribute.String("payment.status", "success"),
 		)
-		
-		logger.Info("Payment processed successfully", 
+
+		logger.Info("Payment processed successfully",
 			zap.String("order_id", orderID),
 			zap.String("transaction_id", transactionID),
 			zap.Float64("amount", amount),
@@ -716,8 +716,8 @@ func processPayment(ctx context.Context, orderID string, amount float64, userID 
 	} else {
 		span.RecordError(fmt.Errorf("payment failed for order %s", orderID))
 		span.SetAttributes(attribute.String("payment.status", "failed"))
-		
-		logger.Error("Payment processing failed", 
+
+		logger.Error("Payment processing failed",
 			zap.String("order_id", orderID),
 			zap.Float64("amount", amount),
 			zap.String("user_id", userID),

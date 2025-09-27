@@ -101,7 +101,6 @@ func TestAPIHandlers_FieldTypes(t *testing.T) {
 	assert.True(t, true, "All field types are compatible")
 }
 
-
 func TestDependenciesWithFullConfiguration(t *testing.T) {
 	// Test Dependencies with more complete configuration
 	cfg := &config.Config{

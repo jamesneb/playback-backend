@@ -18,19 +18,19 @@ func TestLoggerFunctions(t *testing.T) {
 	// Create an observer core to capture log entries
 	observedZapCore, observedLogs := observer.New(zap.InfoLevel)
 	observedLogger := zap.New(observedZapCore)
-	
+
 	// Temporarily replace the global logger for testing
 	originalLogger := Logger
 	Logger = observedLogger
 	defer func() { Logger = originalLogger }()
 
 	tests := []struct {
-		name           string
-		logFunc        func(string, ...zap.Field)
-		message        string
-		fields         []zap.Field
-		expectedLevel  zapcore.Level
-		expectedCount  int
+		name          string
+		logFunc       func(string, ...zap.Field)
+		message       string
+		fields        []zap.Field
+		expectedLevel zapcore.Level
+		expectedCount int
 	}{
 		{
 			name:          "info logging",
@@ -70,19 +70,19 @@ func TestLoggerFunctions(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			// Clear previous log entries
 			observedLogs.TakeAll()
-			
+
 			// Call the logging function
 			tt.logFunc(tt.message, tt.fields...)
-			
+
 			// Check the logged entries
 			entries := observedLogs.All()
 			assert.Len(t, entries, tt.expectedCount)
-			
+
 			if tt.expectedCount > 0 {
 				entry := entries[0]
 				assert.Equal(t, tt.expectedLevel, entry.Level)
 				assert.Equal(t, tt.message, entry.Message)
-				
+
 				// Verify fields were logged
 				if len(tt.fields) > 0 {
 					assert.True(t, len(entry.Context) > 0, "Expected context fields to be present")
@@ -96,7 +96,7 @@ func TestLoggerFields(t *testing.T) {
 	// Create an observer core to capture log entries
 	observedZapCore, observedLogs := observer.New(zap.InfoLevel)
 	observedLogger := zap.New(observedZapCore)
-	
+
 	// Temporarily replace the global logger for testing
 	originalLogger := Logger
 	Logger = observedLogger
@@ -148,11 +148,11 @@ func TestSyncFunction(t *testing.T) {
 func TestLoggerConfiguration(t *testing.T) {
 	// Test logger configuration by checking it's not nil and has expected properties
 	assert.NotNil(t, Logger)
-	
+
 	// Test that we can create log entries without panic
 	assert.NotPanics(t, func() {
 		Info("configuration test")
-		Error("error test") 
+		Error("error test")
 		Warn("warn test")
 		Debug("debug test")
 	})

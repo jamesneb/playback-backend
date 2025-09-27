@@ -15,17 +15,17 @@ import (
 	"github.com/jamesneb/playback-backend/internal/storage"
 	"github.com/jamesneb/playback-backend/internal/streaming"
 	"github.com/jamesneb/playback-backend/pkg/logger"
-	"go.uber.org/zap"
 	logspb "go.opentelemetry.io/proto/otlp/logs/v1"
 	metricspb "go.opentelemetry.io/proto/otlp/metrics/v1"
 	tracepb "go.opentelemetry.io/proto/otlp/trace/v1"
+	"go.uber.org/zap"
 	"google.golang.org/protobuf/proto"
 )
 
 type KinesisConsumer struct {
 	client      *kinesis.Client
 	clickhouse  *storage.ClickHouseClient
-	cfg         *ConsumerConfig  // Add config field
+	cfg         *ConsumerConfig // Add config field
 	streams     map[string]string
 	shardStates map[string]string // streamName -> shardIterator
 	stopChan    chan struct{}
@@ -42,7 +42,7 @@ type ConsumerConfig struct {
 	PollInterval    time.Duration
 }
 
-func NewKinesisConsumer(cfg *ConsumerConfig, clickhouse *storage.ClickHouseClient) (*KinesisConsumer, error) {
+func NewKinesisConsumer(ctx context.Context, cfg *ConsumerConfig, clickhouse *storage.ClickHouseClient) (*KinesisConsumer, error) {
 	// Load AWS configuration
 	var awsCfg aws.Config
 	var err error
@@ -50,7 +50,7 @@ func NewKinesisConsumer(cfg *ConsumerConfig, clickhouse *storage.ClickHouseClien
 	if cfg.EndpointURL != "" {
 		// LocalStack configuration
 		awsCfg, err = awsconfig.LoadDefaultConfig(
-			context.TODO(),
+			ctx,
 			awsconfig.WithRegion(cfg.Region),
 			awsconfig.WithCredentialsProvider(aws.CredentialsProviderFunc(func(ctx context.Context) (aws.Credentials, error) {
 				return aws.Credentials{
@@ -64,7 +64,7 @@ func NewKinesisConsumer(cfg *ConsumerConfig, clickhouse *storage.ClickHouseClien
 		}
 	} else {
 		// AWS configuration
-		awsCfg, err = awsconfig.LoadDefaultConfig(context.TODO(), awsconfig.WithRegion(cfg.Region))
+		awsCfg, err = awsconfig.LoadDefaultConfig(ctx, awsconfig.WithRegion(cfg.Region))
 		if err != nil {
 			return nil, fmt.Errorf("failed to load AWS config: %w", err)
 		}
@@ -80,7 +80,7 @@ func NewKinesisConsumer(cfg *ConsumerConfig, clickhouse *storage.ClickHouseClien
 	return &KinesisConsumer{
 		client:      client,
 		clickhouse:  clickhouse,
-		cfg:         cfg,  // Store config
+		cfg:         cfg, // Store config
 		streams:     cfg.Streams,
 		shardStates: make(map[string]string),
 		stopChan:    make(chan struct{}),
@@ -93,8 +93,8 @@ func (kc *KinesisConsumer) Start(ctx context.Context) error {
 	// Initialize shard iterators for all streams
 	for streamType, streamName := range kc.streams {
 		if err := kc.initializeShardIterator(ctx, streamType, streamName); err != nil {
-			logger.Error("Failed to initialize shard iterator", 
-				zap.String("stream", streamName), 
+			logger.Error("Failed to initialize shard iterator",
+				zap.String("stream", streamName),
 				zap.Error(err))
 			return err
 		}
@@ -133,7 +133,7 @@ func (kc *KinesisConsumer) initializeShardIterator(ctx context.Context, streamTy
 	}
 
 	shard := describeResp.StreamDescription.Shards[0]
-	
+
 	// Get shard iterator starting from TRIM_HORIZON (beginning of stream)
 	iteratorResp, err := kc.client.GetShardIterator(ctx, &kinesis.GetShardIteratorInput{
 		StreamName:        aws.String(streamName),
@@ -148,7 +148,7 @@ func (kc *KinesisConsumer) initializeShardIterator(ctx context.Context, streamTy
 	kc.shardStates[streamName] = *iteratorResp.ShardIterator
 	kc.mu.Unlock()
 
-	logger.Info("Initialized shard iterator", 
+	logger.Info("Initialized shard iterator",
 		zap.String("stream", streamName),
 		zap.String("shard", *shard.ShardId))
 
@@ -183,8 +183,8 @@ func (kc *KinesisConsumer) consumeStream(ctx context.Context, streamType, stream
 			return
 		case <-ticker.C:
 			if err := kc.pollStream(ctx, streamType, streamName); err != nil {
-				logger.Error("Error polling stream", 
-					zap.String("stream", streamName), 
+				logger.Error("Error polling stream",
+					zap.String("stream", streamName),
 					zap.Error(err))
 			}
 		}
@@ -217,13 +217,13 @@ func (kc *KinesisConsumer) pollStream(ctx context.Context, streamType, streamNam
 
 	// Process records in batches for better performance
 	if len(resp.Records) > 0 {
-		logger.Info("Processing records", 
-			zap.String("stream", streamName), 
+		logger.Info("Processing records",
+			zap.String("stream", streamName),
 			zap.Int("count", len(resp.Records)))
 
 		// Collect events for batch processing
 		events := make([]streaming.TelemetryEvent, 0, len(resp.Records))
-		
+
 		for _, record := range resp.Records {
 			// Determine format based on partition key prefix
 			partitionKey := ""
@@ -231,17 +231,17 @@ func (kc *KinesisConsumer) pollStream(ctx context.Context, streamType, streamNam
 				partitionKey = *record.PartitionKey
 			}
 			isProtobuf := record.PartitionKey != nil && strings.HasPrefix(*record.PartitionKey, "pb:")
-			
+
 			// Debug: Check if we have any protobuf records
 			if isProtobuf {
-				logger.Info("Found protobuf record!", 
+				logger.Info("Found protobuf record!",
 					zap.String("partition_key", partitionKey),
 					zap.String("stream", streamName))
 			}
-			
+
 			var event streaming.TelemetryEvent
 			var err error
-			
+
 			if isProtobuf {
 				// Parse raw OTLP protobuf data (gRPC path)
 				event, err = kc.parseRawProtobuf(record.Data, *record.PartitionKey, streamType)
@@ -249,27 +249,27 @@ func (kc *KinesisConsumer) pollStream(ctx context.Context, streamType, streamNam
 				// Parse legacy JSON data (HTTP path)
 				event, err = kc.parseJSONRecord(record.Data)
 			}
-			
+
 			if err != nil {
-				logger.Error("Failed to parse Kinesis record", 
+				logger.Error("Failed to parse Kinesis record",
 					zap.String("stream", streamName),
 					zap.String("sequenceNumber", *record.SequenceNumber),
 					zap.String("format", map[bool]string{true: "protobuf", false: "json"}[isProtobuf]),
 					zap.Error(err))
 				continue
 			}
-			
+
 			events = append(events, event)
 		}
 
 		// Batch insert into ClickHouse
 		if len(events) > 0 {
 			if err := kc.processBatch(ctx, streamType, events); err != nil {
-				logger.Error("Failed to process batch", 
+				logger.Error("Failed to process batch",
 					zap.String("stream", streamName),
 					zap.Int("batch_size", len(events)),
 					zap.Error(err))
-				
+
 				// Fallback: process individually
 				for _, event := range events {
 					if err := kc.processRecordDirect(ctx, streamType, event); err != nil {
@@ -284,7 +284,7 @@ func (kc *KinesisConsumer) pollStream(ctx context.Context, streamType, streamNam
 }
 
 func (kc *KinesisConsumer) processBatch(ctx context.Context, streamType string, events []streaming.TelemetryEvent) error {
-	logger.Debug("Processing batch", 
+	logger.Debug("Processing batch",
 		zap.String("stream_type", streamType),
 		zap.Int("batch_size", len(events)))
 
@@ -335,7 +335,7 @@ func (kc *KinesisConsumer) processBatch(ctx context.Context, streamType string, 
 		}
 	}
 
-	logger.Info("Successfully processed batch", 
+	logger.Info("Successfully processed batch",
 		zap.String("stream_type", streamType),
 		zap.Int("events_processed", len(events)))
 
@@ -345,7 +345,7 @@ func (kc *KinesisConsumer) processBatch(ctx context.Context, streamType string, 
 // processRecord method removed - replaced by dual-path parsing in batch processing
 
 func (kc *KinesisConsumer) processRecordDirect(ctx context.Context, streamType string, event streaming.TelemetryEvent) error {
-	logger.Debug("Processing Kinesis record", 
+	logger.Debug("Processing Kinesis record",
 		zap.String("stream_type", streamType),
 		zap.String("trace_id", event.GetTraceID()),
 		zap.String("service_name", event.GetServiceName()))
@@ -370,11 +370,11 @@ func (kc *KinesisConsumer) parseRawProtobuf(data []byte, partitionKey, streamTyp
 	if len(parts) < 3 {
 		return nil, fmt.Errorf("invalid protobuf partition key format")
 	}
-	
+
 	serviceName := parts[1]
 	traceID := parts[2]
 	// timestamp is parts[3] if present
-	
+
 	// Parse raw OTLP protobuf based on stream type
 	switch streamType {
 	case "traces":
@@ -382,54 +382,54 @@ func (kc *KinesisConsumer) parseRawProtobuf(data []byte, partitionKey, streamTyp
 		if err := proto.Unmarshal(data, &resourceSpans); err != nil {
 			return nil, fmt.Errorf("failed to unmarshal raw OTLP trace data: %w", err)
 		}
-		
+
 		return &streaming.TraceTelemetryEvent{
 			BaseTelemetryEvent: streaming.BaseTelemetryEvent{
 				Type:        streaming.TelemetryTypeTraces,
 				ServiceName: serviceName,
 				TraceID:     traceID,
-				Metadata:    streaming.TelemetryMetadata{
+				Metadata: streaming.TelemetryMetadata{
 					IngestedAt: time.Now(), // Consumer ingestion time
 				},
 			},
 			ResourceSpans: &resourceSpans, // Pure protobuf from gRPC!
 		}, nil
-		
+
 	case "metrics":
 		var resourceMetrics metricspb.ResourceMetrics
 		if err := proto.Unmarshal(data, &resourceMetrics); err != nil {
 			return nil, fmt.Errorf("failed to unmarshal raw OTLP metrics data: %w", err)
 		}
-		
+
 		return &streaming.MetricsTelemetryEvent{
 			BaseTelemetryEvent: streaming.BaseTelemetryEvent{
 				Type:        streaming.TelemetryTypeMetrics,
 				ServiceName: serviceName,
-				Metadata:    streaming.TelemetryMetadata{
+				Metadata: streaming.TelemetryMetadata{
 					IngestedAt: time.Now(), // Consumer ingestion time
 				},
 			},
 			ResourceMetrics: &resourceMetrics, // Pure protobuf from gRPC!
 		}, nil
-		
+
 	case "logs":
 		var resourceLogs logspb.ResourceLogs
 		if err := proto.Unmarshal(data, &resourceLogs); err != nil {
 			return nil, fmt.Errorf("failed to unmarshal raw OTLP logs data: %w", err)
 		}
-		
+
 		return &streaming.LogsTelemetryEvent{
 			BaseTelemetryEvent: streaming.BaseTelemetryEvent{
 				Type:        streaming.TelemetryTypeLogs,
 				ServiceName: serviceName,
 				TraceID:     traceID,
-				Metadata:    streaming.TelemetryMetadata{
+				Metadata: streaming.TelemetryMetadata{
 					IngestedAt: time.Now(), // Consumer ingestion time
 				},
 			},
 			ResourceLogs: &resourceLogs, // Pure protobuf from gRPC!
 		}, nil
-		
+
 	default:
 		return nil, fmt.Errorf("unknown stream type for protobuf: %s", streamType)
 	}
@@ -442,7 +442,7 @@ func (kc *KinesisConsumer) parseJSONRecord(data []byte) (streaming.TelemetryEven
 	if err := json.Unmarshal(data, &legacyEvent); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal legacy JSON: %w", err)
 	}
-	
+
 	// Convert legacy JSON event to type-safe event (for backward compatibility)
 	switch legacyEvent.Type {
 	case "traces":
@@ -451,7 +451,7 @@ func (kc *KinesisConsumer) parseJSONRecord(data []byte) (streaming.TelemetryEven
 				Type:        streaming.TelemetryTypeTraces,
 				ServiceName: legacyEvent.ServiceName,
 				TraceID:     legacyEvent.TraceID,
-				Metadata:    streaming.TelemetryMetadata{
+				Metadata: streaming.TelemetryMetadata{
 					IngestedAt: legacyEvent.Metadata.IngestedAt,
 					SourceIP:   legacyEvent.Metadata.SourceIP,
 				},
@@ -459,34 +459,34 @@ func (kc *KinesisConsumer) parseJSONRecord(data []byte) (streaming.TelemetryEven
 			// ResourceSpans is nil - this indicates legacy JSON data
 			// The GetSerializedData method will need to handle this case
 		}, nil
-		
+
 	case "metrics":
 		return &streaming.MetricsTelemetryEvent{
 			BaseTelemetryEvent: streaming.BaseTelemetryEvent{
 				Type:        streaming.TelemetryTypeMetrics,
 				ServiceName: legacyEvent.ServiceName,
-				Metadata:    streaming.TelemetryMetadata{
+				Metadata: streaming.TelemetryMetadata{
 					IngestedAt: legacyEvent.Metadata.IngestedAt,
 					SourceIP:   legacyEvent.Metadata.SourceIP,
 				},
 			},
 			// ResourceMetrics is nil - indicates legacy JSON data
 		}, nil
-		
+
 	case "logs":
 		return &streaming.LogsTelemetryEvent{
 			BaseTelemetryEvent: streaming.BaseTelemetryEvent{
 				Type:        streaming.TelemetryTypeLogs,
 				ServiceName: legacyEvent.ServiceName,
 				TraceID:     legacyEvent.TraceID,
-				Metadata:    streaming.TelemetryMetadata{
+				Metadata: streaming.TelemetryMetadata{
 					IngestedAt: legacyEvent.Metadata.IngestedAt,
 					SourceIP:   legacyEvent.Metadata.SourceIP,
 				},
 			},
 			// ResourceLogs is nil - indicates legacy JSON data
 		}, nil
-		
+
 	default:
 		return nil, fmt.Errorf("unknown legacy event type: %s", legacyEvent.Type)
 	}

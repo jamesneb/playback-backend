@@ -50,9 +50,9 @@ func NewServer(config *ServerConfig, services *ServiceCollection) (*Server, erro
 
 	// Chain multiple rate limiting interceptors
 	rateLimitingInterceptor := ChainGRPCInterceptors(
-		GRPCRateLimitingInterceptor(defaultConfig),   // Global rate limiting
-		MethodSpecificRateLimitingInterceptor(),      // Method-specific limits
-		SizeBasedGRPCRateLimitingInterceptor(),       // Size-based limits
+		GRPCRateLimitingInterceptor(defaultConfig), // Global rate limiting
+		MethodSpecificRateLimitingInterceptor(),    // Method-specific limits
+		SizeBasedGRPCRateLimitingInterceptor(),     // Size-based limits
 	)
 
 	// Create gRPC server with configured options including rate limiting

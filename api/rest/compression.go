@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"github.com/jamesneb/playback-backend/api/rest/constants"
 	"github.com/jamesneb/playback-backend/pkg/logger"
 	"go.uber.org/zap"
 )
@@ -14,14 +15,14 @@ import (
 func compressionMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		// Check if client supports gzip
-		if !strings.Contains(c.Request.Header.Get(string(HEADER_ACCEPT_ENCODING)), ENCODING_GZIP) {
+		if !strings.Contains(c.Request.Header.Get(string(constants.HeaderAcceptEncoding)), constants.EncodingGzip) {
 			c.Next()
 			return
 		}
 
 		// Skip compression for certain content types
-		contentType := c.Request.Header.Get(string(HEADER_CONTENT_TYPE))
-		if strings.Contains(contentType, CONTENT_TYPE_IMAGE_PREFIX) || strings.Contains(contentType, CONTENT_TYPE_VIDEO_PREFIX) {
+		contentType := c.Request.Header.Get(string(constants.HeaderContentType))
+		if strings.Contains(contentType, constants.ContentTypeImagePrefix) || strings.Contains(contentType, constants.ContentTypeVideoPrefix) {
 			c.Next()
 			return
 		}
@@ -29,15 +30,15 @@ func compressionMiddleware() gin.HandlerFunc {
 		// Wrap response writer with gzip writer
 		gzipWriter := &gzipResponseWriter{
 			ResponseWriter: c.Writer,
-			level:          DEFAULT_COMPRESSION_LEVEL,
-			minSize:        COMPRESSION_MIN_SIZE,
-			maxBufferSize:  MAX_COMPRESSION_BUFFER_SIZE,
+			level:          constants.DefaultCompressionLevel,
+			minSize:        constants.CompressionMinSize,
+			maxBufferSize:  constants.MaxCompressionBufferSize,
 			headerSet:      false,
 		}
 
 		originalWriter := c.Writer
 		c.Writer = gzipWriter
-		c.Header(string(HEADER_VARY), string(HEADER_ACCEPT_ENCODING))
+		c.Header(string(constants.HeaderVary), string(constants.HeaderAcceptEncoding))
 
 		defer func() {
 			if err := gzipWriter.finalize(); err != nil {
@@ -54,13 +55,13 @@ func compressionMiddleware() gin.HandlerFunc {
 // gzipResponseWriter wraps gin.ResponseWriter with gzip compression
 type gzipResponseWriter struct {
 	gin.ResponseWriter
-	gzipWriter    *gzip.Writer
-	level         int
-	minSize       int
-	maxBufferSize int
-	buffer        []byte
-	headerSet     bool
-	totalWritten  int
+	gzipWriter         *gzip.Writer
+	level              int
+	minSize            int
+	maxBufferSize      int
+	buffer             []byte
+	headerSet          bool
+	totalWritten       int
 	compressionEnabled bool
 }
 
@@ -128,7 +129,7 @@ func (w *gzipResponseWriter) initializeCompression() error {
 	}
 
 	// Set compression header
-	w.Header().Set(string(HEADER_CONTENT_ENCODING), ENCODING_GZIP)
+	w.Header().Set(string(constants.HeaderContentEncoding), constants.EncodingGzip)
 	w.headerSet = true
 	w.compressionEnabled = true
 

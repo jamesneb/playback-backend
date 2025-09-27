@@ -8,11 +8,11 @@ import (
 	"github.com/jamesneb/playback-backend/internal/storage"
 	"github.com/jamesneb/playback-backend/internal/streaming"
 	"github.com/stretchr/testify/assert"
+	commonpb "go.opentelemetry.io/proto/otlp/common/v1"
 	logspb "go.opentelemetry.io/proto/otlp/logs/v1"
 	metricspb "go.opentelemetry.io/proto/otlp/metrics/v1"
 	resourcepb "go.opentelemetry.io/proto/otlp/resource/v1"
 	tracepb "go.opentelemetry.io/proto/otlp/trace/v1"
-	commonpb "go.opentelemetry.io/proto/otlp/common/v1"
 )
 
 func TestNewClickHouseHandler(t *testing.T) {
@@ -68,10 +68,10 @@ func TestClickHouseHandler_HandleTelemetryEvent_TraceEvent(t *testing.T) {
 					},
 					Spans: []*tracepb.Span{
 						{
-							TraceId:      []byte("test-trace-id-bytes"),
-							SpanId:       []byte("test-span-id-bytes"),
-							Name:         "test-span",
-							Kind:         tracepb.Span_SPAN_KIND_INTERNAL,
+							TraceId:           []byte("test-trace-id-bytes"),
+							SpanId:            []byte("test-span-id-bytes"),
+							Name:              "test-span",
+							Kind:              tracepb.Span_SPAN_KIND_INTERNAL,
 							StartTimeUnixNano: uint64(time.Now().UnixNano()),
 							EndTimeUnixNano:   uint64(time.Now().UnixNano()),
 						},

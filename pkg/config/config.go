@@ -30,12 +30,12 @@ const (
 
 // Configuration path validation errors
 var (
-	ErrConfigPathEmpty         = fmt.Errorf("config path cannot be empty")
-	ErrConfigPathTooLong       = fmt.Errorf("config path exceeds maximum length (%d)", MaxConfigPathLength)
-	ErrConfigPathTraversal     = fmt.Errorf("config path contains directory traversal patterns")
-	ErrConfigPathInvalidExt    = fmt.Errorf("config file must have .yaml or .yml extension")
-	ErrConfigPathNotExists     = fmt.Errorf("config file does not exist")
-	ErrConfigPathNotRegular    = fmt.Errorf("config path does not point to a regular file")
+	ErrConfigPathEmpty      = fmt.Errorf("config path cannot be empty")
+	ErrConfigPathTooLong    = fmt.Errorf("config path exceeds maximum length (%d)", MaxConfigPathLength)
+	ErrConfigPathTraversal  = fmt.Errorf("config path contains directory traversal patterns")
+	ErrConfigPathInvalidExt = fmt.Errorf("config file must have .yaml or .yml extension")
+	ErrConfigPathNotExists  = fmt.Errorf("config file does not exist")
+	ErrConfigPathNotRegular = fmt.Errorf("config path does not point to a regular file")
 )
 
 type Config struct {
@@ -65,16 +65,16 @@ type AppConfig struct {
 }
 
 type ServerConfig struct {
-	Host            string        `yaml:"host"`
-	Port            int           `yaml:"port"`
-	GRPCPort        int           `yaml:"grpc_port"`
-	Mode            string        `yaml:"mode"`
-	TrustedProxies  []string      `yaml:"trusted_proxies"`
-	ReadTimeout     string        `yaml:"read_timeout"`
-	WriteTimeout    string        `yaml:"write_timeout"`
-	IdleTimeout     string        `yaml:"idle_timeout"`
-	ShutdownTimeout string        `yaml:"shutdown_timeout"`
-	MaxHeaderBytes  int           `yaml:"max_header_bytes"`
+	Host            string   `yaml:"host"`
+	Port            int      `yaml:"port"`
+	GRPCPort        int      `yaml:"grpc_port"`
+	Mode            string   `yaml:"mode"`
+	TrustedProxies  []string `yaml:"trusted_proxies"`
+	ReadTimeout     string   `yaml:"read_timeout"`
+	WriteTimeout    string   `yaml:"write_timeout"`
+	IdleTimeout     string   `yaml:"idle_timeout"`
+	ShutdownTimeout string   `yaml:"shutdown_timeout"`
+	MaxHeaderBytes  int      `yaml:"max_header_bytes"`
 	// Parsed durations for performance
 	ReadTimeoutDuration     time.Duration `yaml:"-"`
 	WriteTimeoutDuration    time.Duration `yaml:"-"`
@@ -83,21 +83,21 @@ type ServerConfig struct {
 }
 
 type LoggingConfig struct {
-	Level           string `yaml:"level"`
-	Format          string `yaml:"format"`
-	Output          string `yaml:"output"`
-	EnableCaller    bool   `yaml:"enable_caller"`
+	Level            string `yaml:"level"`
+	Format           string `yaml:"format"`
+	Output           string `yaml:"output"`
+	EnableCaller     bool   `yaml:"enable_caller"`
 	EnableStacktrace bool   `yaml:"enable_stacktrace"`
 }
 
 type APIConfig struct {
-	Version     string            `yaml:"version"`
-	Prefix      string            `yaml:"prefix"`
-	EnableCORS  bool              `yaml:"enable_cors"`
-	CORS        CORSConfig        `yaml:"cors"`
-	RateLimiting RateLimitConfig  `yaml:"rate_limiting"`
-	Timeout     string            `yaml:"timeout"`
-	MaxRequestSize string         `yaml:"max_request_size"`
+	Version        string          `yaml:"version"`
+	Prefix         string          `yaml:"prefix"`
+	EnableCORS     bool            `yaml:"enable_cors"`
+	CORS           CORSConfig      `yaml:"cors"`
+	RateLimiting   RateLimitConfig `yaml:"rate_limiting"`
+	Timeout        string          `yaml:"timeout"`
+	MaxRequestSize string          `yaml:"max_request_size"`
 }
 
 type CORSConfig struct {
@@ -160,7 +160,7 @@ type KinesisConfig struct {
 	FlushInterval   string            `yaml:"flush_interval"`
 	MaxRetries      int               `yaml:"max_retries"`
 	RetryDelay      string            `yaml:"retry_delay"`
-	PollInterval		int								`yaml:"poll_interval"`
+	PollInterval    int               `yaml:"poll_interval"`
 }
 
 type S3Config struct {
@@ -173,10 +173,10 @@ type S3Config struct {
 }
 
 type ResilienceConfig struct {
-	RateLimiter    RateLimiterConfig    `yaml:"rate_limiter"`
-	CircuitBreaker CircuitBreakerConfig `yaml:"circuit_breaker"`
-	DeadLetterQueue DLQConfig           `yaml:"dead_letter_queue"`
-	KinesisBuffer  BufferConfig        `yaml:"kinesis_buffer"`
+	RateLimiter     RateLimiterConfig    `yaml:"rate_limiter"`
+	CircuitBreaker  CircuitBreakerConfig `yaml:"circuit_breaker"`
+	DeadLetterQueue DLQConfig            `yaml:"dead_letter_queue"`
+	KinesisBuffer   BufferConfig         `yaml:"kinesis_buffer"`
 }
 
 type RateLimiterConfig struct {
@@ -194,19 +194,19 @@ type CircuitBreakerConfig struct {
 }
 
 type DLQConfig struct {
-	QueueURL         string `yaml:"queue_url"`         // Full SQS URL (takes precedence if provided)
-	AccountID        string `yaml:"account_id"`        // AWS Account ID (for backward compatibility)
-	QueueName        string `yaml:"queue_name"`        // Queue name (for backward compatibility)
+	QueueURL         string `yaml:"queue_url"`  // Full SQS URL (takes precedence if provided)
+	AccountID        string `yaml:"account_id"` // AWS Account ID (for backward compatibility)
+	QueueName        string `yaml:"queue_name"` // Queue name (for backward compatibility)
 	MaxRetries       int    `yaml:"max_retries"`
 	RetryBaseDelayMs int    `yaml:"retry_base_delay_ms"`
 	RetryMaxDelayMs  int    `yaml:"retry_max_delay_ms"`
 }
 
 type BufferConfig struct {
-	MaxBatchSize      int `yaml:"max_batch_size"`
-	MaxBatchWaitMs    int `yaml:"max_batch_wait_ms"`
-	FlushIntervalMs   int `yaml:"flush_interval_ms"`
-	MaxTenantBuffer   int `yaml:"max_tenant_buffer"`
+	MaxBatchSize    int `yaml:"max_batch_size"`
+	MaxBatchWaitMs  int `yaml:"max_batch_wait_ms"`
+	FlushIntervalMs int `yaml:"flush_interval_ms"`
+	MaxTenantBuffer int `yaml:"max_tenant_buffer"`
 }
 
 type ProcessingConfig struct {
@@ -233,9 +233,9 @@ type CacheConfig struct {
 }
 
 type RedisCacheConfig struct {
-	Enabled           bool   `yaml:"enabled"`
-	DefaultTTL        string `yaml:"default_ttl"`
-	MaxMemoryPolicy   string `yaml:"max_memory_policy"`
+	Enabled         bool   `yaml:"enabled"`
+	DefaultTTL      string `yaml:"default_ttl"`
+	MaxMemoryPolicy string `yaml:"max_memory_policy"`
 }
 
 type AppCacheConfig struct {
@@ -245,15 +245,15 @@ type AppCacheConfig struct {
 }
 
 type MonitoringConfig struct {
-	EnableMetrics      bool             `yaml:"enable_metrics"`
-	EnableProfiling    bool             `yaml:"enable_profiling"`
-	EnableTracing      bool             `yaml:"enable_tracing"`
-	MetricsEndpoint    string           `yaml:"metrics_endpoint"`
-	HealthEndpoint     string           `yaml:"health_endpoint"`
-	ReadyEndpoint      string           `yaml:"ready_endpoint"`
-	ProfilingEndpoint  string           `yaml:"profiling_endpoint"`
-	Jaeger             JaegerConfig     `yaml:"jaeger"`
-	Prometheus         PrometheusConfig `yaml:"prometheus"`
+	EnableMetrics     bool             `yaml:"enable_metrics"`
+	EnableProfiling   bool             `yaml:"enable_profiling"`
+	EnableTracing     bool             `yaml:"enable_tracing"`
+	MetricsEndpoint   string           `yaml:"metrics_endpoint"`
+	HealthEndpoint    string           `yaml:"health_endpoint"`
+	ReadyEndpoint     string           `yaml:"ready_endpoint"`
+	ProfilingEndpoint string           `yaml:"profiling_endpoint"`
+	Jaeger            JaegerConfig     `yaml:"jaeger"`
+	Prometheus        PrometheusConfig `yaml:"prometheus"`
 }
 
 type JaegerConfig struct {
@@ -268,10 +268,10 @@ type PrometheusConfig struct {
 }
 
 type SecurityConfig struct {
-	EnableAuth bool      `yaml:"enable_auth"`
-	JWT        JWTConfig `yaml:"jwt"`
+	EnableAuth bool       `yaml:"enable_auth"`
+	JWT        JWTConfig  `yaml:"jwt"`
 	CORS       CORSConfig `yaml:"cors"`
-	TLS        TLSConfig `yaml:"tls"`
+	TLS        TLSConfig  `yaml:"tls"`
 }
 
 type JWTConfig struct {
@@ -287,17 +287,17 @@ type TLSConfig struct {
 }
 
 type FeaturesConfig struct {
-	Replay             ReplayConfig     `yaml:"replay"`
-	SystemMap          SystemMapConfig  `yaml:"system_map"`
+	Replay             ReplayConfig      `yaml:"replay"`
+	SystemMap          SystemMapConfig   `yaml:"system_map"`
 	RealTimeProcessing ProcessingFeature `yaml:"real_time_processing"`
 	BatchProcessing    ProcessingFeature `yaml:"batch_processing"`
-	DataExport         DataExportConfig `yaml:"data_export"`
+	DataExport         DataExportConfig  `yaml:"data_export"`
 }
 
 type ReplayConfig struct {
-	Enabled               bool   `yaml:"enabled"`
-	MaxConcurrentReplays  int    `yaml:"max_concurrent_replays"`
-	ReplayTimeout         string `yaml:"replay_timeout"`
+	Enabled              bool   `yaml:"enabled"`
+	MaxConcurrentReplays int    `yaml:"max_concurrent_replays"`
+	ReplayTimeout        string `yaml:"replay_timeout"`
 }
 
 type SystemMapConfig struct {
@@ -329,12 +329,12 @@ type PerformanceConfig struct {
 }
 
 type DevelopmentConfig struct {
-	EnableDebugEndpoints   bool `yaml:"enable_debug_endpoints"`
-	EnableHotReload        bool `yaml:"enable_hot_reload"`
-	MockExternalServices   bool `yaml:"mock_external_services"`
-	SeedTestData           bool `yaml:"seed_test_data"`
-	EnableQueryLogging     bool `yaml:"enable_query_logging"`
-	EnableRequestLogging   bool `yaml:"enable_request_logging"`
+	EnableDebugEndpoints bool `yaml:"enable_debug_endpoints"`
+	EnableHotReload      bool `yaml:"enable_hot_reload"`
+	MockExternalServices bool `yaml:"mock_external_services"`
+	SeedTestData         bool `yaml:"seed_test_data"`
+	EnableQueryLogging   bool `yaml:"enable_query_logging"`
+	EnableRequestLogging bool `yaml:"enable_request_logging"`
 }
 
 type SwaggerConfig struct {
@@ -566,11 +566,11 @@ func validateNoTraversalPatterns(configPath string) error {
 
 	// Additional security: check for encoded traversal patterns
 	encodedTraversalPatterns := []string{
-		"%2e%2e",     // URL encoded ".."
-		"..%2f",      // Mixed encoding
-		"%2e%2e%2f",  // Full URL encoded "../"
-		"..\\",       // Windows-style traversal
-		"..\\/",      // Mixed separators
+		"%2e%2e",    // URL encoded ".."
+		"..%2f",     // Mixed encoding
+		"%2e%2e%2f", // Full URL encoded "../"
+		"..\\",      // Windows-style traversal
+		"..\\/",     // Mixed separators
 	}
 
 	lowerPath := strings.ToLower(configPath)

@@ -4,9 +4,9 @@ import (
 	"context"
 	"testing"
 
+	"github.com/jamesneb/playback-backend/internal/interfaces"
 	"github.com/jamesneb/playback-backend/internal/streaming"
 	"github.com/stretchr/testify/assert"
-	"github.com/jamesneb/playback-backend/internal/interfaces"
 	tracecollectorpb "go.opentelemetry.io/proto/otlp/collector/trace/v1"
 	commonpb "go.opentelemetry.io/proto/otlp/common/v1"
 	resourcepb "go.opentelemetry.io/proto/otlp/resource/v1"
@@ -508,7 +508,7 @@ func TestTraceService_SpanStatuses(t *testing.T) {
 // Benchmark test for trace service performance
 func BenchmarkTraceService_Export(b *testing.B) {
 	service := NewTraceService(nil, nil, &interfaces.ResilienceComponents{})
-	
+
 	request := &tracecollectorpb.ExportTraceServiceRequest{
 		ResourceSpans: []*tracepb.ResourceSpans{
 			{

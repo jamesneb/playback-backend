@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"github.com/jamesneb/playback-backend/api/rest/constants"
 	"github.com/jamesneb/playback-backend/pkg/config"
 	"github.com/jamesneb/playback-backend/pkg/logger"
 	"go.uber.org/zap"
@@ -29,14 +30,14 @@ func createCorsMiddleware(corsConfig config.CORSConfig) (gin.HandlerFunc, error)
 	}
 
 	// Pre-process origins for efficient matching
-	allowAllOrigins := len(corsConfig.AllowedOrigins) == 1 && corsConfig.AllowedOrigins[0] == CORS_WILDCARD_ORIGIN
+	allowAllOrigins := len(corsConfig.AllowedOrigins) == 1 && corsConfig.AllowedOrigins[0] == constants.CORSWildcardOrigin
 
 	// Create origin lookup structures for optimal performance
 	exactOrigins := make(map[string]bool)
 	var patternOrigins []originPattern
 
 	for _, origin := range corsConfig.AllowedOrigins {
-		if origin == CORS_WILDCARD_ORIGIN {
+		if origin == constants.CORSWildcardOrigin {
 			continue // handled by allowAllOrigins flag
 		}
 		if strings.Contains(origin, "*") || strings.Contains(origin, "?") || strings.Contains(origin, "[") {
@@ -57,7 +58,7 @@ func createCorsMiddleware(corsConfig config.CORSConfig) (gin.HandlerFunc, error)
 
 		// Handle origin matching
 		if allowAllOrigins {
-			c.Header(string(HEADER_ACCESS_CONTROL_ALLOW_ORIGIN), CORS_WILDCARD_ORIGIN)
+			c.Header(string(constants.HeaderAccessControlAllowOrigin), constants.CORSWildcardOrigin)
 		} else if requestOrigin != "" {
 			allowed := false
 
@@ -75,8 +76,8 @@ func createCorsMiddleware(corsConfig config.CORSConfig) (gin.HandlerFunc, error)
 			}
 
 			if allowed {
-				c.Header(string(HEADER_ACCESS_CONTROL_ALLOW_ORIGIN), requestOrigin)
-				c.Header(string(HEADER_ACCESS_CONTROL_ALLOW_CREDENTIALS), "true")
+				c.Header(string(constants.HeaderAccessControlAllowOrigin), requestOrigin)
+				c.Header(string(constants.HeaderAccessControlAllowCredentials), "true")
 			} else {
 				logger.Warn("CORS origin rejected",
 					zap.String("origin", requestOrigin),
@@ -86,18 +87,18 @@ func createCorsMiddleware(corsConfig config.CORSConfig) (gin.HandlerFunc, error)
 
 		// Pre-computed headers for performance
 		if methodsHeader != "" {
-			c.Header(string(HEADER_ACCESS_CONTROL_ALLOW_METHODS), methodsHeader)
+			c.Header(string(constants.HeaderAccessControlAllowMethods), methodsHeader)
 		}
 		if headersHeader != "" {
-			c.Header(string(HEADER_ACCESS_CONTROL_ALLOW_HEADERS), headersHeader)
+			c.Header(string(constants.HeaderAccessControlAllowHeaders), headersHeader)
 		}
 
 		// Additional CORS headers for robustness
-		c.Header(string(HEADER_ACCESS_CONTROL_MAX_AGE), CORS_MAX_AGE_SECONDS) // 24 hours preflight cache
+		c.Header(string(constants.HeaderAccessControlMaxAge), constants.CORSMaxAgeSeconds) // 24 hours preflight cache
 
 		// Handle preflight requests
-		if c.Request.Method == string(METHOD_OPTIONS) {
-			c.AbortWithStatus(int(StatusNoContent))
+		if c.Request.Method == string(constants.MethodOptions) {
+			c.AbortWithStatus(int(constants.StatusNoContent))
 			return
 		}
 

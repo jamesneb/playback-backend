@@ -19,9 +19,9 @@ func TestNewMetricsService(t *testing.T) {
 
 func TestMetricsService_Export_Basic(t *testing.T) {
 	tests := []struct {
-		name              string
-		request           *metricscollectorpb.ExportMetricsServiceRequest
-		expectedError     bool
+		name                string
+		request             *metricscollectorpb.ExportMetricsServiceRequest
+		expectedError       bool
 		expectedMetricCount int
 	}{
 		{
@@ -55,7 +55,7 @@ func TestMetricsService_Export_Basic(t *testing.T) {
 													},
 												},
 												AggregationTemporality: metricspb.AggregationTemporality_AGGREGATION_TEMPORALITY_CUMULATIVE,
-												IsMonotonic:           true,
+												IsMonotonic:            true,
 											},
 										},
 									},
@@ -65,7 +65,7 @@ func TestMetricsService_Export_Basic(t *testing.T) {
 					},
 				},
 			},
-			expectedError:      false,
+			expectedError:       false,
 			expectedMetricCount: 1,
 		},
 		{
@@ -114,9 +114,9 @@ func TestMetricsService_Export_Basic(t *testing.T) {
 											Histogram: &metricspb.Histogram{
 												DataPoints: []*metricspb.HistogramDataPoint{
 													{
-														Count:         100,
-														Sum:           func() *float64 { f := 250.0; return &f }(),
-														BucketCounts:  []uint64{10, 20, 30, 25, 15},
+														Count:          100,
+														Sum:            func() *float64 { f := 250.0; return &f }(),
+														BucketCounts:   []uint64{10, 20, 30, 25, 15},
 														ExplicitBounds: []float64{1, 2, 3, 4, 5},
 													},
 												},
@@ -129,7 +129,7 @@ func TestMetricsService_Export_Basic(t *testing.T) {
 					},
 				},
 			},
-			expectedError:      false,
+			expectedError:       false,
 			expectedMetricCount: 3,
 		},
 		{
@@ -137,7 +137,7 @@ func TestMetricsService_Export_Basic(t *testing.T) {
 			request: &metricscollectorpb.ExportMetricsServiceRequest{
 				ResourceMetrics: []*metricspb.ResourceMetrics{},
 			},
-			expectedError:      false,
+			expectedError:       false,
 			expectedMetricCount: 0,
 		},
 	}
@@ -329,10 +329,10 @@ func TestConvertResourceMetricToMap(t *testing.T) {
 	// Verify the structure
 	resultMap, ok := result.(map[string]interface{})
 	assert.True(t, ok, "Result should be a map")
-	
+
 	resourceMetrics, exists := resultMap["resourceMetrics"]
 	assert.True(t, exists, "Should contain resourceMetrics key")
-	
+
 	resourceMetricsSlice, ok := resourceMetrics.([]interface{})
 	assert.True(t, ok, "resourceMetrics should be a slice")
 	assert.Len(t, resourceMetricsSlice, 1, "Should contain one resource metric")
@@ -382,7 +382,7 @@ func TestMetricsService_Integration(t *testing.T) {
 											},
 										},
 										AggregationTemporality: metricspb.AggregationTemporality_AGGREGATION_TEMPORALITY_CUMULATIVE,
-										IsMonotonic:           true,
+										IsMonotonic:            true,
 									},
 								},
 							},
@@ -533,7 +533,7 @@ func TestMetricsService_MetricTypes(t *testing.T) {
 // Benchmark test for metrics service performance
 func BenchmarkMetricsService_Export(b *testing.B) {
 	service := NewMetricsService(nil, nil)
-	
+
 	request := &metricscollectorpb.ExportMetricsServiceRequest{
 		ResourceMetrics: []*metricspb.ResourceMetrics{
 			{

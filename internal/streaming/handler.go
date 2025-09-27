@@ -2,7 +2,10 @@ package streaming
 
 import (
 	"context"
-	"log"
+	"fmt"
+
+	"github.com/jamesneb/playback-backend/pkg/logger"
+	"go.uber.org/zap"
 )
 
 // Handler interface for telemetry data processing with type-safe events
@@ -32,10 +35,10 @@ func NewKinesisHandler(client *KinesisClient) *KinesisHandler {
 func (h *KinesisHandler) HandleLegacyTelemetryEvent(ctx context.Context, event *LegacyTelemetryEvent) error {
 	switch event.Type {
 	case "traces":
-		return h.client.PublishTrace(ctx, event.Data, event.ServiceName, event.TraceID, 
+		return h.client.PublishTrace(ctx, event.Data, event.ServiceName, event.TraceID,
 			event.Metadata.SourceIP, event.Metadata.UserAgent)
 	case "metrics":
-		return h.client.PublishMetrics(ctx, event.Data, event.ServiceName, 
+		return h.client.PublishMetrics(ctx, event.Data, event.ServiceName,
 			event.Metadata.SourceIP, event.Metadata.UserAgent)
 	case "logs":
 		return h.client.PublishLogs(ctx, event.Data, event.ServiceName, event.TraceID,
@@ -53,16 +56,16 @@ func (h *KinesisHandler) HandleTelemetryEvent(ctx context.Context, event Telemet
 
 	switch e := event.(type) {
 	case *TraceTelemetryEvent:
-		log.Printf("🔥 FOUND TraceTelemetryEvent - using protobuf path!")
+		logger.Debug("Using protobuf path for trace telemetry event")
 		return h.HandleTraceEvent(ctx, e)
 	case *MetricsTelemetryEvent:
-		log.Printf("🔥 FOUND MetricsTelemetryEvent - using protobuf path!")
+		logger.Debug("Using protobuf path for metrics telemetry event")
 		return h.HandleMetricsEvent(ctx, e)
 	case *LogsTelemetryEvent:
-		log.Printf("🔥 FOUND LogsTelemetryEvent - using protobuf path!")
+		logger.Debug("Using protobuf path for logs telemetry event")
 		return h.HandleLogsEvent(ctx, e)
 	default:
-		log.Printf("🔥 UNKNOWN event type: %T - using legacy path!", event)
+		logger.Warn("Unknown event type, using legacy path", zap.String("event_type", fmt.Sprintf("%T", event)))
 		return ErrUnsupportedEventType
 	}
 }
@@ -70,13 +73,13 @@ func (h *KinesisHandler) HandleTelemetryEvent(ctx context.Context, event Telemet
 // Implement TypedHandler interface
 func (h *KinesisHandler) HandleTraceEvent(ctx context.Context, event *TraceTelemetryEvent) error {
 	// Use native protobuf publishing for gRPC events (no JSON conversion!)
-	return h.client.PublishTraceProtobuf(ctx, event.ResourceSpans, event.ServiceName, event.TraceID, 
+	return h.client.PublishTraceProtobuf(ctx, event.ResourceSpans, event.ServiceName, event.TraceID,
 		event.Metadata.SourceIP)
 }
 
 func (h *KinesisHandler) HandleMetricsEvent(ctx context.Context, event *MetricsTelemetryEvent) error {
 	// Use native protobuf publishing for gRPC events (no JSON conversion!)
-	return h.client.PublishMetricsProtobuf(ctx, event.ResourceMetrics, event.ServiceName, 
+	return h.client.PublishMetricsProtobuf(ctx, event.ResourceMetrics, event.ServiceName,
 		event.Metadata.SourceIP)
 }
 

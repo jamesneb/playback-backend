@@ -2,7 +2,7 @@ package grpc
 
 import (
 	"context"
-	"log"
+	"fmt"
 	"time"
 
 	"github.com/jamesneb/playback-backend/internal/interfaces"
@@ -19,20 +19,20 @@ import (
 
 type TraceService struct {
 	tracecollectorpb.UnimplementedTraceServiceServer
-	streamHandler     streaming.Handler // Use interface to support mocks
-	clickhouseHandler streaming.Handler // Direct ClickHouse for real-time path
+	streamHandler     streaming.Handler             // Use interface to support mocks
+	clickhouseHandler streaming.Handler             // Direct ClickHouse for real-time path
 	validator         *validation.ProtobufValidator // Add protobuf validator
 
 	// Resilience components
-	kinesisBuffer     *resilience.KinesisBuffer
-	rateLimiter      *resilience.TenantRateLimiter
-	circuitBreaker   *resilience.CircuitBreaker
-	deadLetterQueue  *resilience.DeadLetterQueue
+	kinesisBuffer   *resilience.KinesisBuffer
+	rateLimiter     *resilience.TenantRateLimiter
+	circuitBreaker  *resilience.CircuitBreaker
+	deadLetterQueue *resilience.DeadLetterQueue
 }
 
 func NewTraceService(streamHandler streaming.Handler, clickhouseHandler streaming.Handler,
 	resilienceComponents *interfaces.ResilienceComponents) *TraceService {
-	log.Printf("🔥 TRACE SERVICE INIT: NewTraceService called - protobuf debugging enabled!")
+	logger.Info("Trace service initialized", zap.Bool("protobuf_debugging", true))
 
 	service := &TraceService{
 		streamHandler:     streamHandler,
@@ -51,9 +51,8 @@ func NewTraceService(streamHandler streaming.Handler, clickhouseHandler streamin
 	return service
 }
 
-
 func (s *TraceService) Export(ctx context.Context, req *tracecollectorpb.ExportTraceServiceRequest) (*tracecollectorpb.ExportTraceServiceResponse, error) {
-	log.Printf("🔥 GRPC EXPORT START: TraceService.Export called with %d resource spans", len(req.ResourceSpans))
+	logger.Info("gRPC trace export started", zap.Int("resource_spans_count", len(req.ResourceSpans)))
 	logger.Info("Received gRPC trace export request",
 		zap.Int("resource_spans", len(req.ResourceSpans)))
 
@@ -95,8 +94,7 @@ func (s *TraceService) Export(ctx context.Context, req *tracecollectorpb.ExportT
 			continue // Skip this span but process others
 		}
 
-		log.Printf("🔥 GRPC: Created TraceTelemetryEvent for service=%s, traceID=%s, type=%T",
-			event.ServiceName, event.TraceID, event)
+		logger.Debug("Created trace telemetry event", zap.String("service", event.ServiceName), zap.String("trace_id", event.TraceID), zap.String("event_type", fmt.Sprintf("%T", event)))
 
 		// Validate the event
 		if err := event.Validate(); err != nil {
@@ -108,16 +106,16 @@ func (s *TraceService) Export(ctx context.Context, req *tracecollectorpb.ExportT
 		if s.kinesisBuffer != nil {
 			if err := s.kinesisBuffer.BufferEvent(ctx, event, tenantID, "grpc"); err != nil {
 				// If buffering fails, this is a serious issue - fail the request
-				logger.Error("Failed to buffer trace event", 
+				logger.Error("Failed to buffer trace event",
 					zap.String("tenant", tenantID),
 					zap.Error(err))
 				return nil, status.Errorf(codes.Unavailable, "telemetry pipeline overloaded")
 			}
-			log.Printf("🔥 GRPC: Successfully buffered trace event for tenant=%s", tenantID)
+			logger.Debug("Trace event buffered successfully", zap.String("tenant_id", tenantID))
 		} else {
 			// Fallback to direct Kinesis (old behavior)
 			if s.streamHandler != nil {
-				log.Printf("🔥 GRPC: Fallback to direct Kinesis for %T", event)
+				logger.Info("Falling back to direct Kinesis publish", zap.String("event_type", fmt.Sprintf("%T", event)))
 				if err := s.streamHandler.HandleTelemetryEvent(ctx, event); err != nil {
 					logger.Error("Failed to send trace to Kinesis", zap.Error(err))
 					// Send to DLQ if available

@@ -16,13 +16,12 @@ import (
 
 // ConsumerApp manages the Kinesis consumer application lifecycle
 type ConsumerApp struct {
-	cfg              *config.Config
-	services         *ConsumerServices
-	kinesisConsumer  *consumer.KinesisConsumer
-	ctx              context.Context
-	cancel           context.CancelFunc
+	cfg             *config.Config
+	services        *ConsumerServices
+	kinesisConsumer *consumer.KinesisConsumer
+	ctx             context.Context
+	cancel          context.CancelFunc
 }
-
 
 // NewConsumerApp creates a new consumer application instance
 func NewConsumerApp(cfg *config.Config, services *ConsumerServices) *ConsumerApp {
@@ -38,7 +37,7 @@ func NewConsumerApp(cfg *config.Config, services *ConsumerServices) *ConsumerApp
 
 // Initialize sets up the Kinesis consumer with configuration
 func (app *ConsumerApp) Initialize() error {
-	kinesisConsumer, err := consumer.NewKinesisConsumer(&consumer.ConsumerConfig{
+	kinesisConsumer, err := consumer.NewKinesisConsumer(app.ctx, &consumer.ConsumerConfig{
 		Region:          app.cfg.Streaming.Kinesis.Region,
 		EndpointURL:     app.cfg.Streaming.Kinesis.EndpointURL,
 		AccessKeyID:     app.cfg.Streaming.Kinesis.AccessKeyID,
@@ -106,10 +105,10 @@ func (app *ConsumerApp) shutdown() {
 		}()
 
 		select {
-			case <-done:
-				logger.Info(MsgConsumerStoppedGraceful)
-			case <-ctx.Done():
-				logger.Warn(MsgConsumerShutdownTimeout)
+		case <-done:
+			logger.Info(MsgConsumerStoppedGraceful)
+		case <-ctx.Done():
+			logger.Warn(MsgConsumerShutdownTimeout)
 		}
 	}
 	if err := app.Close(); err != nil {

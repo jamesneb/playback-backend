@@ -25,11 +25,11 @@ var (
 // TraceHandler handles HTTP trace ingestion requests with comprehensive
 // validation, rate limiting, and resilience patterns.
 type TraceHandler struct {
-	kinesisClient   *streaming.KinesisClient
-	validator       *RequestValidator
+	kinesisClient *streaming.KinesisClient
+	validator     *RequestValidator
 	// Resilience components
 	kinesisBuffer   *resilience.KinesisBuffer
-	rateLimiter    *resilience.TenantRateLimiter
+	rateLimiter     *resilience.TenantRateLimiter
 	deadLetterQueue *resilience.DeadLetterQueue
 }
 
@@ -57,7 +57,6 @@ func NewTraceHandler(kinesisClient *streaming.KinesisClient, resilienceComponent
 
 	return handler
 }
-
 
 // CreateTrace creates a new trace
 // @Summary Create trace
@@ -193,7 +192,7 @@ func (h *TraceHandler) logIngestedTrace(c *gin.Context, metadata *traceMetadata,
 }
 
 func (h *TraceHandler) publishTraceToKinesis(c *gin.Context, otlpData json.RawMessage, metadata *traceMetadata) bool {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 10*time.Second)
 	defer cancel()
 
 	var err error
@@ -333,7 +332,6 @@ type ErrorResponse struct {
 	Error   string `json:"error" example:"Invalid request"`
 	Message string `json:"message" example:"Field validation failed"`
 }
-
 
 // respondWithValidationError sends a properly formatted validation error response
 // to the client with appropriate HTTP status codes based on the validation error type.

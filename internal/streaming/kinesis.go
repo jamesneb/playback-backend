@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"sync"
 	"time"
 
@@ -14,9 +13,11 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/kinesis/types"
 	"github.com/jamesneb/playback-backend/internal/validation"
 	"github.com/jamesneb/playback-backend/pkg/config"
+	"github.com/jamesneb/playback-backend/pkg/logger"
 	logspb "go.opentelemetry.io/proto/otlp/logs/v1"
 	metricspb "go.opentelemetry.io/proto/otlp/metrics/v1"
 	tracepb "go.opentelemetry.io/proto/otlp/trace/v1"
+	"go.uber.org/zap"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -41,9 +42,9 @@ const (
 // KinesisClient provides thread-safe, resource-managed Kinesis streaming functionality
 // with proper lifecycle management and memory leak prevention.
 type KinesisClient struct {
-	client      *kinesis.Client
-	streams     map[string]string // stream name mapping
-	validator   *validation.ProtobufValidator // Add protobuf validator
+	client    *kinesis.Client
+	streams   map[string]string             // stream name mapping
+	validator *validation.ProtobufValidator // Add protobuf validator
 
 	// Resource management
 	mu           sync.RWMutex
@@ -51,8 +52,8 @@ type KinesisClient struct {
 	shutdownOnce sync.Once
 
 	// Goroutine coordination
-	wg           sync.WaitGroup
-	shutdownCh   chan struct{}
+	wg         sync.WaitGroup
+	shutdownCh chan struct{}
 
 	// Batching support with bounded channels (prevents unbounded growth)
 	batchChannels map[string]chan LegacyTelemetryEvent
@@ -113,7 +114,7 @@ func NewKinesisClient(cfg *config.KinesisConfig) (*KinesisClient, error) {
 	if cfg.BatchSize > 0 && cfg.BatchSize <= MaxChannelBufferSize {
 		batchSize = cfg.BatchSize
 	} else if cfg.BatchSize > MaxChannelBufferSize {
-		log.Printf("Warning: Batch size %d exceeds maximum %d, using maximum", cfg.BatchSize, MaxChannelBufferSize)
+		logger.Warn("Batch size exceeds maximum, using maximum", zap.Int("requested_batch_size", cfg.BatchSize), zap.Int("max_batch_size", MaxChannelBufferSize))
 		batchSize = MaxChannelBufferSize
 	}
 
@@ -121,7 +122,7 @@ func NewKinesisClient(cfg *config.KinesisConfig) (*KinesisClient, error) {
 		if parsedInterval, err := time.ParseDuration(cfg.FlushInterval); err == nil {
 			flushInterval = parsedInterval
 		} else {
-			log.Printf("Warning: Invalid flush interval '%s', using default 5s", cfg.FlushInterval)
+			logger.Warn("Invalid flush interval, using default 5s", zap.String("invalid_interval", cfg.FlushInterval))
 		}
 	}
 
@@ -138,11 +139,11 @@ func NewKinesisClient(cfg *config.KinesisConfig) (*KinesisClient, error) {
 
 	// Verify streams exist
 	if err := kc.verifyStreams(context.Background()); err != nil {
-		log.Printf("Warning: Stream verification failed: %v", err)
+		logger.Warn("Stream verification failed", zap.Error(err))
 		// Continue anyway for development/LocalStack scenarios
 	}
 
-	log.Printf("Kinesis client initialized with streams: %v", streams)
+	logger.Info("Kinesis client initialized", zap.Any("streams", streams))
 	return kc, nil
 }
 
@@ -230,7 +231,6 @@ func (kc *KinesisClient) PublishLogs(ctx context.Context, logsData json.RawMessa
 	return kc.publishLegacyEvent(ctx, "logs", event, partitionKey)
 }
 
-
 // publishLegacyEvent handles legacy JSON events from HTTP REST API
 func (kc *KinesisClient) publishLegacyEvent(ctx context.Context, streamType string, event LegacyTelemetryEvent, partitionKey string) error {
 	streamName, exists := kc.streams[streamType]
@@ -262,8 +262,11 @@ func (kc *KinesisClient) publishLegacyEvent(ctx context.Context, streamType stri
 		return fmt.Errorf("failed to publish to Kinesis stream %s: %w", streamName, err)
 	}
 
-	log.Printf("Published %s event to stream %s, shard: %s, sequence: %s", 
-		streamType, streamName, *result.ShardId, *result.SequenceNumber)
+	logger.Debug("Published event to stream",
+		zap.String("stream_type", streamType),
+		zap.String("stream_name", streamName),
+		zap.String("shard_id", *result.ShardId),
+		zap.String("sequence_number", *result.SequenceNumber))
 
 	return nil
 }
@@ -280,7 +283,7 @@ func (kc *KinesisClient) PublishBatch(ctx context.Context, streamType string, ev
 	for i, event := range events {
 		data, err := json.Marshal(event)
 		if err != nil {
-			log.Printf("Failed to marshal event %d: %v", i, err)
+			logger.Error("Failed to marshal event", zap.Int("event_index", i), zap.Error(err))
 			continue
 		}
 
@@ -309,8 +312,10 @@ func (kc *KinesisClient) PublishBatch(ctx context.Context, streamType string, ev
 	}
 
 	// Log results
-	log.Printf("Batch published %d records to stream %s, failed: %d", 
-		len(records), streamName, *result.FailedRecordCount)
+	logger.Info("Batch published to stream",
+		zap.Int("total_records", len(records)),
+		zap.String("stream_name", streamName),
+		zap.Int32("failed_records", *result.FailedRecordCount))
 
 	return nil
 }
@@ -347,8 +352,11 @@ func (kc *KinesisClient) StartBatchProcessor(ctx context.Context) error {
 
 	kc.isRunning = true
 
-	log.Printf("Started Kinesis batch processors for %d streams (batch_size=%d, buffer_size=%d, flush_interval=%v)",
-		len(kc.streams), kc.batchSize, channelBufferSize, kc.flushInterval)
+	logger.Info("Started Kinesis batch processors",
+		zap.Int("stream_count", len(kc.streams)),
+		zap.Int("batch_size", kc.batchSize),
+		zap.Int("buffer_size", channelBufferSize),
+		zap.Duration("flush_interval", kc.flushInterval))
 
 	return nil
 }
@@ -359,13 +367,13 @@ func (kc *KinesisClient) PublishAsync(streamType string, event LegacyTelemetryEv
 	if !exists {
 		return fmt.Errorf("batch channel not initialized for stream type: %s", streamType)
 	}
-	
+
 	select {
 	case batchChannel <- event:
 		return nil
 	default:
 		// Channel full - fall back to direct publish
-		log.Printf("Batch channel full for %s, falling back to direct publish", streamType)
+		logger.Warn("Batch channel full, falling back to direct publish", zap.String("stream_type", streamType))
 		return kc.publishLegacyEvent(context.Background(), streamType, event, event.TraceID)
 	}
 }
@@ -377,7 +385,7 @@ func (kc *KinesisClient) processBatchWithRecovery(ctx context.Context, streamTyp
 
 	defer func() {
 		if r := recover(); r != nil {
-			log.Printf("CRITICAL: Batch processor for %s panicked and recovered: %v", streamType, r)
+			logger.Error("CRITICAL: Batch processor panicked and recovered", zap.String("stream_type", streamType), zap.Any("panic", r))
 			// Processor will terminate, but application continues
 		}
 	}()
@@ -398,12 +406,12 @@ func (kc *KinesisClient) processBatch(ctx context.Context, streamType string) {
 	kc.mu.RUnlock()
 
 	if batchChannel == nil {
-		log.Printf("ERROR: No batch channel found for stream type: %s", streamType)
+		logger.Error("No batch channel found for stream type", zap.String("stream_type", streamType))
 		return
 	}
 
-	log.Printf("Batch processor started for stream type: %s", streamType)
-	defer log.Printf("Batch processor terminated for stream type: %s", streamType)
+	logger.Info("Batch processor started", zap.String("stream_type", streamType))
+	defer logger.Info("Batch processor terminated", zap.String("stream_type", streamType))
 
 	for {
 		select {
@@ -453,7 +461,7 @@ func (kc *KinesisClient) flushBatch(ctx context.Context, streamType string, even
 
 	// Attempt batch publish first
 	if err := kc.PublishBatch(ctx, streamType, events); err != nil {
-		log.Printf("Batch publish failed for %s, attempting individual publishes: %v", streamType, err)
+		logger.Warn("Batch publish failed, attempting individual publishes", zap.String("stream_type", streamType), zap.Error(err))
 
 		// Fallback: try individual publishes for failed batch
 		var individualErrors []error
@@ -463,28 +471,30 @@ func (kc *KinesisClient) flushBatch(ctx context.Context, streamType string, even
 				partitionKey = event.ServiceName
 			}
 			if individualErr := kc.publishLegacyEvent(ctx, streamType, event, partitionKey); individualErr != nil {
-				log.Printf("Failed individual publish for %s: %v", streamType, individualErr)
+				logger.Error("Failed individual publish", zap.String("stream_type", streamType), zap.Error(individualErr))
 				individualErrors = append(individualErrors, individualErr)
 			}
 		}
 
 		// If some individual publishes succeeded, consider it partial success
 		if len(individualErrors) < len(events) {
-			log.Printf("Partial success: %d/%d events published individually for %s",
-				len(events)-len(individualErrors), len(events), streamType)
+			logger.Info("Partial success publishing events individually",
+				zap.Int("published_count", len(events)-len(individualErrors)),
+				zap.Int("total_events", len(events)),
+				zap.String("stream_type", streamType))
 			return nil // Partial success is acceptable
 		}
 
 		return fmt.Errorf("all individual publishes failed after batch failure")
 	}
 
-	log.Printf("Successfully flushed batch of %d events to %s", len(events), streamType)
+	logger.Info("Successfully flushed batch", zap.Int("event_count", len(events)), zap.String("stream_type", streamType))
 	return nil
 }
 
 // Native protobuf publishing methods for gRPC path (sends raw OTLP protobuf to Kinesis)
 func (kc *KinesisClient) PublishTraceProtobuf(ctx context.Context, resourceSpans *tracepb.ResourceSpans, serviceName, traceID, sourceIP string) error {
-	log.Printf("🔥 CALLING PublishTraceProtobuf for service=%s, traceID=%s", serviceName, traceID)
+	logger.Debug("Publishing trace protobuf", zap.String("service_name", serviceName), zap.String("trace_id", traceID))
 
 	// Validate protobuf size before marshaling
 	if err := kc.validator.ValidateProtobufSize(resourceSpans, validation.MaxProtobufTraceSize, "trace"); err != nil {
@@ -576,8 +586,11 @@ func (kc *KinesisClient) publishRawProtobuf(ctx context.Context, streamType stri
 		return fmt.Errorf("failed to publish raw protobuf to Kinesis stream %s: %w", streamName, err)
 	}
 
-	log.Printf("Published raw %s protobuf to stream %s, shard: %s, sequence: %s", 
-		streamType, streamName, *result.ShardId, *result.SequenceNumber)
+	logger.Debug("Published raw protobuf to stream",
+		zap.String("stream_type", streamType),
+		zap.String("stream_name", streamName),
+		zap.String("shard_id", *result.ShardId),
+		zap.String("sequence_number", *result.SequenceNumber))
 
 	return nil
 }
@@ -595,12 +608,12 @@ func (kc *KinesisClient) SerializeTraceData(resourceSpans *tracepb.ResourceSpans
 	if resourceSpans == nil {
 		return nil, ErrInvalidTraceData
 	}
-	
+
 	data, err := proto.Marshal(resourceSpans)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal trace data: %w", err)
 	}
-	
+
 	return data, nil
 }
 
@@ -609,12 +622,12 @@ func (kc *KinesisClient) SerializeMetricsData(resourceMetrics *metricspb.Resourc
 	if resourceMetrics == nil {
 		return nil, ErrInvalidMetricsData
 	}
-	
+
 	data, err := proto.Marshal(resourceMetrics)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal metrics data: %w", err)
 	}
-	
+
 	return data, nil
 }
 
@@ -623,12 +636,12 @@ func (kc *KinesisClient) SerializeLogsData(resourceLogs *logspb.ResourceLogs) ([
 	if resourceLogs == nil {
 		return nil, ErrInvalidLogsData
 	}
-	
+
 	data, err := proto.Marshal(resourceLogs)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal logs data: %w", err)
 	}
-	
+
 	return data, nil
 }
 
@@ -647,7 +660,7 @@ func (kc *KinesisClient) Close() error {
 	var shutdownError error
 
 	kc.shutdownOnce.Do(func() {
-		log.Printf("Initiating graceful shutdown of Kinesis client...")
+		logger.Info("Initiating graceful shutdown of Kinesis client")
 
 		kc.mu.Lock()
 		wasRunning := kc.isRunning
@@ -655,7 +668,7 @@ func (kc *KinesisClient) Close() error {
 		kc.mu.Unlock()
 
 		if !wasRunning {
-			log.Printf("Kinesis client was not running, nothing to shut down")
+			logger.Info("Kinesis client was not running, nothing to shut down")
 			// Still need to close shutdownCh for tests and cleanup consistency
 			if kc.shutdownCh != nil {
 				close(kc.shutdownCh)
@@ -675,9 +688,9 @@ func (kc *KinesisClient) Close() error {
 
 		select {
 		case <-shutdownComplete:
-			log.Printf("All batch processors shut down gracefully")
+			logger.Info("All batch processors shut down gracefully")
 		case <-time.After(ShutdownTimeout):
-			log.Printf("Warning: Shutdown timeout after %v, some processors may not have finished", ShutdownTimeout)
+			logger.Warn("Shutdown timeout, some processors may not have finished", zap.Duration("timeout", ShutdownTimeout))
 			shutdownError = fmt.Errorf("shutdown timeout exceeded")
 		}
 
@@ -691,7 +704,7 @@ func (kc *KinesisClient) Close() error {
 		}
 		kc.mu.Unlock()
 
-		log.Printf("Kinesis client shutdown completed")
+		logger.Info("Kinesis client shutdown completed")
 	})
 
 	return shutdownError
@@ -716,16 +729,16 @@ func calculateChannelBufferSize(batchSize int) int {
 // handleGracefulShutdown performs graceful shutdown operations for a single batch processor.
 func (kc *KinesisClient) handleGracefulShutdown(ctx context.Context, streamType string, eventBuffer []LegacyTelemetryEvent) {
 	if len(eventBuffer) > 0 {
-		log.Printf("Flushing %d remaining events for stream %s during shutdown", len(eventBuffer), streamType)
+		logger.Info("Flushing remaining events during shutdown", zap.Int("event_count", len(eventBuffer)), zap.String("stream_type", streamType))
 
 		// Create timeout context for final flush
 		flushCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 
 		if err := kc.flushBatch(flushCtx, streamType, eventBuffer); err != nil {
-			log.Printf("Failed to flush %d events for stream %s during shutdown: %v", len(eventBuffer), streamType, err)
+			logger.Error("Failed to flush events during shutdown", zap.Int("event_count", len(eventBuffer)), zap.String("stream_type", streamType), zap.Error(err))
 		} else {
-			log.Printf("Successfully flushed %d events for stream %s during shutdown", len(eventBuffer), streamType)
+			logger.Info("Successfully flushed events during shutdown", zap.Int("event_count", len(eventBuffer)), zap.String("stream_type", streamType))
 		}
 	}
 }
@@ -745,7 +758,7 @@ func (kc *KinesisClient) flushBatchSafely(ctx context.Context, streamType string
 		}
 
 		// Log error and potentially retry
-		log.Printf("Failed to flush batch for %s (attempt %d/%d): %v", streamType, attempt+1, MaxRetryAttempts, err)
+		logger.Warn("Failed to flush batch", zap.String("stream_type", streamType), zap.Int("attempt", attempt+1), zap.Int("max_attempts", MaxRetryAttempts), zap.Error(err))
 
 		if attempt < MaxRetryAttempts-1 {
 			// Exponential backoff before retry
@@ -760,6 +773,6 @@ func (kc *KinesisClient) flushBatchSafely(ctx context.Context, streamType string
 	}
 
 	// All retry attempts failed
-	log.Printf("ERROR: Failed to flush batch for %s after %d attempts", streamType, MaxRetryAttempts)
+	logger.Error("Failed to flush batch after all retry attempts", zap.String("stream_type", streamType), zap.Int("max_attempts", MaxRetryAttempts))
 	return 0
 }

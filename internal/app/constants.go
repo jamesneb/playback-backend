@@ -9,14 +9,14 @@ const (
 
 // Common error messages
 const (
-	ErrClickHouseInit         = "failed to initialize ClickHouse client: %w"
-	ErrKinesisClientInit      = "failed to initialize Kinesis client: %w"
-	ErrS3ClientInit          = "failed to initialize S3 client: %w"
-	ErrResilienceInit        = "failed to initialize resilience components: %w"
-	ErrClickHouseClose       = "ClickHouse close error: %w"
-	ErrKinesisClose          = "kinesis close error: %w"
-	ErrServiceClose          = "service close errors: %v"
-	ErrConsumerServiceClose  = "consumer service close errors: %v"
+	ErrClickHouseInit       = "failed to initialize ClickHouse client: %w"
+	ErrKinesisClientInit    = "failed to initialize Kinesis client: %w"
+	ErrS3ClientInit         = "failed to initialize S3 client: %w"
+	ErrResilienceInit       = "failed to initialize resilience components: %w"
+	ErrClickHouseClose      = "ClickHouse close error: %w"
+	ErrKinesisClose         = "kinesis close error: %w"
+	ErrServiceClose         = "service close errors: %v"
+	ErrConsumerServiceClose = "consumer service close errors: %v"
 )
 
 // Consumer-specific error messages
@@ -42,8 +42,8 @@ const (
 
 // Consumer-specific log messages
 const (
-	MsgStartingConsumerService  = "Starting Kinesis consumer service"
-	MsgConsumerStoppedSuccess   = "Kinesis consumer stopped successfully"
+	MsgStartingConsumerService = "Starting Kinesis consumer service"
+	MsgConsumerStoppedSuccess  = "Kinesis consumer stopped successfully"
 	MsgConsumerRunning         = "Kinesis consumer is running. Press Ctrl+C to stop."
 	MsgConsumerStoppedGraceful = "Consumer stopped gracefully"
 	MsgConsumerShutdownTimeout = "Consumer shutdown timed out"

@@ -17,15 +17,14 @@ import (
 	"go.uber.org/zap"
 )
 
-
 // Server manages both HTTP and gRPC servers
 type Server struct {
 	cfg      *config.Config
 	services *Services
 	httpSrv  *http.Server
 	grpcSrv  *grpcapi.Server
-	ctx 		 context.Context
-	cancel 	 context.CancelFunc
+	ctx      context.Context
+	cancel   context.CancelFunc
 }
 
 // NewServer creates a new server instance with all dependencies
@@ -34,8 +33,8 @@ func NewServer(cfg *config.Config, services *Services) *Server {
 	return &Server{
 		cfg:      cfg,
 		services: services,
-		ctx: ctx,
-		cancel: cancel,
+		ctx:      ctx,
+		cancel:   cancel,
 	}
 }
 
@@ -102,8 +101,8 @@ func (s *Server) startHTTPServer(wg *sync.WaitGroup) error {
 	}
 	// Create HTTP server
 	s.httpSrv = &http.Server{
-		Addr:    s.httpAddress(),
-		Handler: ginEngine,
+		Addr:           s.httpAddress(),
+		Handler:        ginEngine,
 		ReadTimeout:    s.cfg.Server.ReadTimeoutDuration,
 		WriteTimeout:   s.cfg.Server.WriteTimeoutDuration,
 		IdleTimeout:    s.cfg.Server.IdleTimeoutDuration,
@@ -209,4 +208,3 @@ func (s *Server) httpAddress() string {
 func (s *Server) grpcAddress() string {
 	return fmt.Sprintf("%s:%d", s.cfg.Server.Host, s.cfg.Server.GRPCPort)
 }
-

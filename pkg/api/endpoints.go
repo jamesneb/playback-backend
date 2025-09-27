@@ -187,10 +187,10 @@ func NewEndpointCollectionWithConfig(baseURL string, version string, prefix stri
 func (e *APIEndpoints) GetAllEndpoints() map[string]string {
 	return map[string]string{
 		// System
-		"health":           e.Health(),
-		"ready":            e.Ready(),
-		"metrics":          e.Metrics(),
-		
+		"health":  e.Health(),
+		"ready":   e.Ready(),
+		"metrics": e.Metrics(),
+
 		// OpenTelemetry
 		"traces":           e.Traces(),
 		"traces_create":    e.TracesCreate(),
@@ -199,19 +199,19 @@ func (e *APIEndpoints) GetAllEndpoints() map[string]string {
 		"metrics_create":   e.MetricsCreate(),
 		"logs":             e.Logs(),
 		"logs_create":      e.LogsCreate(),
-		
+
 		// Replays
 		"replays_list":     e.ReplaysList(),
 		"replays_download": e.ReplaysDownload(),
 		"replays_by_id":    e.ReplayByID(""),
-		
+
 		// Documentation
-		"swagger_ui":       e.SwaggerUI(),
-		"swagger_json":     e.SwaggerJSON(),
-		
+		"swagger_ui":   e.SwaggerUI(),
+		"swagger_json": e.SwaggerJSON(),
+
 		// Debug
-		"debug_pprof":      e.DebugPprof(),
-		"prometheus":       e.PrometheusMetrics(),
+		"debug_pprof": e.DebugPprof(),
+		"prometheus":  e.PrometheusMetrics(),
 	}
 }
 

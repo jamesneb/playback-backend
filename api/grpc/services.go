@@ -4,27 +4,27 @@ import (
 	"context"
 	"fmt"
 
-	logscollectorpb "go.opentelemetry.io/proto/otlp/collector/logs/v1"
-	metricscollectorpb "go.opentelemetry.io/proto/otlp/collector/metrics/v1"
-	tracecollectorpb "go.opentelemetry.io/proto/otlp/collector/trace/v1"
 	grpcservices "github.com/jamesneb/playback-backend/internal/grpc"
 	"github.com/jamesneb/playback-backend/internal/handlers/realtime"
 	"github.com/jamesneb/playback-backend/internal/interfaces"
 	"github.com/jamesneb/playback-backend/internal/storage"
 	"github.com/jamesneb/playback-backend/internal/streaming"
 	"github.com/jamesneb/playback-backend/pkg/config"
+	logscollectorpb "go.opentelemetry.io/proto/otlp/collector/logs/v1"
+	metricscollectorpb "go.opentelemetry.io/proto/otlp/collector/metrics/v1"
+	tracecollectorpb "go.opentelemetry.io/proto/otlp/collector/trace/v1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/reflection"
 )
 
 // ServiceDependencies holds all dependencies needed by gRPC services
 type ServiceDependencies struct {
-	Config                *config.Config
-	KinesisClient         *streaming.KinesisClient
-	ClickHouseClient      *storage.ClickHouseClient
-	ResilienceComponents  *interfaces.ResilienceComponents
-	StreamHandler					streaming.Handler // Interface
-	ClickhouseHandler			*realtime.ClickHouseHandler	// Interface
+	Config               *config.Config
+	KinesisClient        *streaming.KinesisClient
+	ClickHouseClient     *storage.ClickHouseClient
+	ResilienceComponents *interfaces.ResilienceComponents
+	StreamHandler        streaming.Handler           // Interface
+	ClickhouseHandler    *realtime.ClickHouseHandler // Interface
 }
 
 // ServiceCollection holds all initialized gRPC services
@@ -93,7 +93,6 @@ func NewServiceCollection(deps *ServiceDependencies) (*ServiceCollection, error)
 
 	var streamHandler streaming.Handler
 	var clickhouseHandler realtime.ClickHouseHandler
-
 
 	if deps.StreamHandler != nil {
 		streamHandler = deps.StreamHandler

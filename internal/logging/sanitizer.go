@@ -4,8 +4,8 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"net"
-	"strings"
 	"regexp"
+	"strings"
 )
 
 var (
@@ -107,17 +107,17 @@ func SanitizeDataSize(size int) string {
 	case size == 0:
 		return "empty"
 	case size < 1024:
-		return "small"      // < 1KB
+		return "small" // < 1KB
 	case size < 10*1024:
-		return "medium"     // 1KB - 10KB
+		return "medium" // 1KB - 10KB
 	case size < 100*1024:
-		return "large"      // 10KB - 100KB
+		return "large" // 10KB - 100KB
 	case size < 1024*1024:
-		return "xl"         // 100KB - 1MB
+		return "xl" // 100KB - 1MB
 	case size < 10*1024*1024:
-		return "xxl"        // 1MB - 10MB
+		return "xxl" // 1MB - 10MB
 	default:
-		return "huge"       // > 10MB
+		return "huge" // > 10MB
 	}
 }
 

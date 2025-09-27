@@ -25,10 +25,10 @@ func TestMetricsHandler_CreateMetrics(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	tests := []struct {
-		name           string
-		requestBody    interface{}
-		contentType    string
-		expectedStatus int
+		name             string
+		requestBody      interface{}
+		contentType      string
+		expectedStatus   int
 		validateResponse func(*testing.T, *httptest.ResponseRecorder)
 	}{
 		{
@@ -456,11 +456,11 @@ func TestMetricsHandler_Integration(t *testing.T) {
 								"histogram": map[string]interface{}{
 									"dataPoints": []interface{}{
 										map[string]interface{}{
-											"count":         100,
-											"sum":           23.5,
-											"bucketCounts":  []int{10, 20, 30, 25, 15},
+											"count":          100,
+											"sum":            23.5,
+											"bucketCounts":   []int{10, 20, 30, 25, 15},
 											"explicitBounds": []float64{0.1, 0.5, 1.0, 2.0, 5.0},
-											"timeUnixNano":  "1640995200000000000",
+											"timeUnixNano":   "1640995200000000000",
 										},
 									},
 									"aggregationTemporality": 2,
@@ -506,13 +506,12 @@ func int64Ptr(i int64) *int64 {
 	return &i
 }
 
-
 // Benchmark test for metrics handler performance
 func BenchmarkMetricsHandler_CreateMetrics(b *testing.B) {
 	gin.SetMode(gin.TestMode)
-	
+
 	handler := NewMetricsHandler(&streaming.KinesisClient{})
-	
+
 	metricsData := map[string]interface{}{
 		"resourceMetrics": []interface{}{
 			map[string]interface{}{
@@ -545,15 +544,15 @@ func BenchmarkMetricsHandler_CreateMetrics(b *testing.B) {
 			},
 		},
 	}
-	
+
 	body, _ := json.Marshal(metricsData)
-	
+
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		req := httptest.NewRequest(http.MethodPost, "/metrics", bytes.NewBuffer(body))
 		req.Header.Set("Content-Type", "application/json")
 		w := httptest.NewRecorder()
-		
+
 		router := gin.New()
 		router.POST("/metrics", handler.CreateMetrics)
 		router.ServeHTTP(w, req)

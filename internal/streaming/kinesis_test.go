@@ -46,13 +46,13 @@ func TestNewKinesisClient(t *testing.T) {
 		{
 			name: "valid localstack configuration",
 			config: &config.KinesisConfig{
-				Region:      "us-east-1",
-				EndpointURL: "http://localhost:4566", // LocalStack endpoint
-				AccessKeyID: "test",
+				Region:          "us-east-1",
+				EndpointURL:     "http://localhost:4566", // LocalStack endpoint
+				AccessKeyID:     "test",
 				SecretAccessKey: "test",
 				Streams: map[string]string{
 					"traces":  "test-traces-stream",
-					"metrics": "test-metrics-stream", 
+					"metrics": "test-metrics-stream",
 					"logs":    "test-logs-stream",
 				},
 				BatchSize:     100,
@@ -107,7 +107,7 @@ func TestNewKinesisClient(t *testing.T) {
 
 			// Test the configuration structure regardless of AWS connectivity
 			assert.NotNil(t, tt.config, "Config should not be nil")
-			
+
 			if tt.expectedError {
 				assert.Error(t, err, tt.description)
 				assert.Nil(t, client)
@@ -117,30 +117,30 @@ func TestNewKinesisClient(t *testing.T) {
 					// This is expected in CI environments without LocalStack/AWS
 					t.Logf("Client creation failed (expected in test env): %v", err)
 					// Verify it's an AWS connectivity error, not a code error
-					assert.True(t, 
+					assert.True(t,
 						containsAny(err.Error(), []string{"connection", "network", "endpoint", "credentials", "no such host"}),
 						"Should be a connectivity error, got: %v", err)
 					return
 				}
-				
+
 				// If client creation succeeded (LocalStack available)
 				assert.NotNil(t, client, "Client should not be nil when creation succeeds")
-				
+
 				// Test client properties
 				assert.NotNil(t, client.streams, "Streams map should be initialized")
 				assert.NotNil(t, client.batchChannels, "Batch channels should be initialized")
-				assert.NotNil(t, client.shutdownCh, "Shutdown channel should be initialized") 
+				assert.NotNil(t, client.shutdownCh, "Shutdown channel should be initialized")
 				assert.Greater(t, client.batchSize, 0, "Batch size should be positive")
 				assert.Greater(t, client.flushInterval, time.Duration(0), "Flush interval should be positive")
-				
+
 				// Test stream mapping
 				for streamType, streamName := range tt.config.Streams {
 					if streamName != "" {
-						assert.Equal(t, streamName, client.streams[streamType], 
+						assert.Equal(t, streamName, client.streams[streamType],
 							"Stream mapping should match config for %s", streamType)
 					}
 				}
-				
+
 				// Clean up
 				if err := client.Close(); err != nil {
 					t.Errorf("Failed to close client: %v", err)
@@ -153,8 +153,8 @@ func TestNewKinesisClient(t *testing.T) {
 // Helper function to check if error message contains any of the expected substrings
 func containsAny(text string, substrings []string) bool {
 	for _, substr := range substrings {
-		if len(text) > 0 && len(substr) > 0 && 
-		   (text == substr || (len(text) >= len(substr) && findSubstring(text, substr))) {
+		if len(text) > 0 && len(substr) > 0 &&
+			(text == substr || (len(text) >= len(substr) && findSubstring(text, substr))) {
 			return true
 		}
 	}
@@ -175,13 +175,13 @@ func findSubstring(text, substr string) bool {
 
 func TestPublishTrace(t *testing.T) {
 	tests := []struct {
-		name          string
-		traceData     json.RawMessage
-		serviceName   string
-		traceID       string
-		sourceIP      string
-		userAgent     string
-		description   string
+		name        string
+		traceData   json.RawMessage
+		serviceName string
+		traceID     string
+		sourceIP    string
+		userAgent   string
+		description string
 	}{
 		{
 			name:        "successful trace publish with all fields",
@@ -276,12 +276,12 @@ func TestPublishTrace(t *testing.T) {
 
 func TestPublishMetrics(t *testing.T) {
 	tests := []struct {
-		name          string
-		metricsData   json.RawMessage
-		serviceName   string
-		sourceIP      string
-		userAgent     string
-		description   string
+		name        string
+		metricsData json.RawMessage
+		serviceName string
+		sourceIP    string
+		userAgent   string
+		description string
 	}{
 		{
 			name:        "successful metrics publish",
@@ -300,7 +300,7 @@ func TestPublishMetrics(t *testing.T) {
 			description: "Counter metrics should be handled properly",
 		},
 		{
-			name:        "gauge metrics", 
+			name:        "gauge metrics",
 			metricsData: json.RawMessage(`{"gauges": [{"name": "memory_usage", "value": 85.5}]}`),
 			serviceName: "monitoring-service",
 			sourceIP:    "172.16.0.1",
@@ -348,13 +348,13 @@ func TestPublishMetrics(t *testing.T) {
 
 func TestPublishLogs(t *testing.T) {
 	tests := []struct {
-		name          string
-		logsData      json.RawMessage
-		serviceName   string
-		traceID       string
-		sourceIP      string
-		userAgent     string
-		description   string
+		name        string
+		logsData    json.RawMessage
+		serviceName string
+		traceID     string
+		sourceIP    string
+		userAgent   string
+		description string
 	}{
 		{
 			name:        "successful logs publish with trace ID",
@@ -436,9 +436,9 @@ func TestPublishLogs(t *testing.T) {
 
 func TestPublishBatch(t *testing.T) {
 	tests := []struct {
-		name       string
-		streamType string
-		events     []TelemetryEvent
+		name        string
+		streamType  string
+		events      []TelemetryEvent
 		description string
 	}{
 		{
@@ -494,9 +494,9 @@ func TestPublishBatch(t *testing.T) {
 			description: "Single metrics event should be processed in batch",
 		},
 		{
-			name:       "empty events slice",
-			streamType: "traces",
-			events:     []TelemetryEvent{},
+			name:        "empty events slice",
+			streamType:  "traces",
+			events:      []TelemetryEvent{},
 			description: "Empty events slice should be handled gracefully",
 		},
 		{
@@ -573,7 +573,7 @@ func TestVerifyStreams(t *testing.T) {
 			name: "all streams configured",
 			streams: map[string]string{
 				"traces":  "test-traces",
-				"metrics": "test-metrics", 
+				"metrics": "test-metrics",
 				"logs":    "test-logs",
 			},
 			description: "All three stream types should be configured",
@@ -604,16 +604,16 @@ func TestVerifyStreams(t *testing.T) {
 
 			// Test stream configuration validation
 			assert.NotNil(t, client.streams, "Streams map should not be nil")
-			
+
 			// Test each configured stream
 			for streamType, streamName := range tt.streams {
 				if streamName != "" {
-					assert.Equal(t, streamName, client.streams[streamType], 
+					assert.Equal(t, streamName, client.streams[streamType],
 						"Stream %s should match configuration", streamType)
 					assert.NotEmpty(t, streamName, "Stream name should not be empty for %s", streamType)
 				} else {
 					// Empty stream names should be preserved for validation
-					assert.Empty(t, client.streams[streamType], 
+					assert.Empty(t, client.streams[streamType],
 						"Empty stream name should be preserved for %s", streamType)
 				}
 			}
@@ -722,7 +722,7 @@ func TestKinesisHandler(t *testing.T) {
 	mockClient := &KinesisClient{
 		streams: map[string]string{
 			"traces":  "test-traces",
-			"metrics": "test-metrics", 
+			"metrics": "test-metrics",
 			"logs":    "test-logs",
 		},
 	}
@@ -820,7 +820,7 @@ func TestKinesisHandler(t *testing.T) {
 		assert.Equal(t, TelemetryEventType("unknown"), event.GetType(), "Event type should be preserved")
 		assert.NotEmpty(t, event.GetServiceName(), "Service name should not be empty")
 		assert.NotNil(t, event.ResourceSpans, "Data should not be nil")
-		
+
 		// Unknown types should be ignored (returning nil error)
 		// This tests the default case in HandleTelemetryEvent
 	})
@@ -858,7 +858,6 @@ func TestClientClose(t *testing.T) {
 		t.Fatal("Stop batching channel should be closed after Close()")
 	}
 }
-
 
 // Benchmark test for basic structure validation
 func BenchmarkTelemetryEventCreation(b *testing.B) {

@@ -50,8 +50,8 @@ func RateLimitingMiddleware(cfg *config.Config) gin.HandlerFunc {
 			setRateLimitHeaders(c, rateLimitConfig)
 
 			c.JSON(http.StatusTooManyRequests, gin.H{
-				"error":   "rate_limit_exceeded",
-				"message": "Too many requests. Please try again later.",
+				"error":               "rate_limit_exceeded",
+				"message":             "Too many requests. Please try again later.",
 				"retry_after_seconds": 1,
 			})
 			c.Abort()
@@ -103,8 +103,8 @@ func PathSpecificRateLimitMiddleware(requestsPerSecond int, burstCapacity int) g
 				zap.Int("limit_rps", requestsPerSecond))
 
 			c.JSON(http.StatusTooManyRequests, gin.H{
-				"error":   "rate_limit_exceeded",
-				"message": "Rate limit exceeded for this endpoint. Please try again later.",
+				"error":               "rate_limit_exceeded",
+				"message":             "Rate limit exceeded for this endpoint. Please try again later.",
 				"retry_after_seconds": 1,
 			})
 			c.Abort()
@@ -144,8 +144,8 @@ func SizeBasedRateLimitMiddleware() gin.HandlerFunc {
 				zap.Int64("content_length", contentLength))
 
 			c.JSON(http.StatusTooManyRequests, gin.H{
-				"error":   "rate_limit_exceeded",
-				"message": "Rate limit exceeded based on request size. Please try again later.",
+				"error":               "rate_limit_exceeded",
+				"message":             "Rate limit exceeded based on request size. Please try again later.",
 				"retry_after_seconds": 2,
 			})
 			c.Abort()

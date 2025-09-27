@@ -19,10 +19,10 @@ func TestNewLogsService(t *testing.T) {
 
 func TestLogsService_Export_Basic(t *testing.T) {
 	tests := []struct {
-		name              string
-		request           *logscollectorpb.ExportLogsServiceRequest
-		expectedError     bool
-		expectedLogCount  int
+		name             string
+		request          *logscollectorpb.ExportLogsServiceRequest
+		expectedError    bool
+		expectedLogCount int
 	}{
 		{
 			name: "successful export with single log record",
@@ -41,12 +41,12 @@ func TestLogsService_Export_Basic(t *testing.T) {
 							{
 								LogRecords: []*logspb.LogRecord{
 									{
-										TimeUnixNano:     1640995200000000000,
-										SeverityNumber:   logspb.SeverityNumber_SEVERITY_NUMBER_INFO,
-										SeverityText:     "INFO",
-										Body:             &commonpb.AnyValue{Value: &commonpb.AnyValue_StringValue{StringValue: "Test log message"}},
-										TraceId:          []byte("test-trace-id-123"),
-										SpanId:           []byte("test-span-id"),
+										TimeUnixNano:   1640995200000000000,
+										SeverityNumber: logspb.SeverityNumber_SEVERITY_NUMBER_INFO,
+										SeverityText:   "INFO",
+										Body:           &commonpb.AnyValue{Value: &commonpb.AnyValue_StringValue{StringValue: "Test log message"}},
+										TraceId:        []byte("test-trace-id-123"),
+										SpanId:         []byte("test-span-id"),
 									},
 								},
 							},
@@ -296,10 +296,10 @@ func TestConvertResourceLogToMap(t *testing.T) {
 	// Verify the structure
 	resultMap, ok := result.(map[string]interface{})
 	assert.True(t, ok, "Result should be a map")
-	
+
 	resourceLogs, exists := resultMap["resourceLogs"]
 	assert.True(t, exists, "Should contain resourceLogs key")
-	
+
 	resourceLogsSlice, ok := resourceLogs.([]interface{})
 	assert.True(t, ok, "resourceLogs should be a slice")
 	assert.Len(t, resourceLogsSlice, 1, "Should contain one resource log")
@@ -329,12 +329,12 @@ func TestLogsService_Integration(t *testing.T) {
 						},
 						LogRecords: []*logspb.LogRecord{
 							{
-								TimeUnixNano:     1640995200000000000,
-								SeverityNumber:   logspb.SeverityNumber_SEVERITY_NUMBER_INFO,
-								SeverityText:     "INFO",
-								Body:             &commonpb.AnyValue{Value: &commonpb.AnyValue_StringValue{StringValue: "Integration test log message"}},
-								TraceId:          []byte("integration-trace-123"),
-								SpanId:           []byte("integration-span-456"),
+								TimeUnixNano:   1640995200000000000,
+								SeverityNumber: logspb.SeverityNumber_SEVERITY_NUMBER_INFO,
+								SeverityText:   "INFO",
+								Body:           &commonpb.AnyValue{Value: &commonpb.AnyValue_StringValue{StringValue: "Integration test log message"}},
+								TraceId:        []byte("integration-trace-123"),
+								SpanId:         []byte("integration-span-456"),
 								Attributes: []*commonpb.KeyValue{
 									{
 										Key:   "test.type",
@@ -343,12 +343,12 @@ func TestLogsService_Integration(t *testing.T) {
 								},
 							},
 							{
-								TimeUnixNano:     1640995201000000000,
-								SeverityNumber:   logspb.SeverityNumber_SEVERITY_NUMBER_ERROR,
-								SeverityText:     "ERROR",
-								Body:             &commonpb.AnyValue{Value: &commonpb.AnyValue_StringValue{StringValue: "Integration test error message"}},
-								TraceId:          []byte("integration-trace-123"),
-								SpanId:           []byte("integration-span-789"),
+								TimeUnixNano:   1640995201000000000,
+								SeverityNumber: logspb.SeverityNumber_SEVERITY_NUMBER_ERROR,
+								SeverityText:   "ERROR",
+								Body:           &commonpb.AnyValue{Value: &commonpb.AnyValue_StringValue{StringValue: "Integration test error message"}},
+								TraceId:        []byte("integration-trace-123"),
+								SpanId:         []byte("integration-span-789"),
 							},
 						},
 					},
@@ -422,7 +422,7 @@ func TestLogsService_LogLevels(t *testing.T) {
 // Benchmark test for logs service performance
 func BenchmarkLogsService_Export(b *testing.B) {
 	service := NewLogsService(nil, nil)
-	
+
 	request := &logscollectorpb.ExportLogsServiceRequest{
 		ResourceLogs: []*logspb.ResourceLogs{
 			{

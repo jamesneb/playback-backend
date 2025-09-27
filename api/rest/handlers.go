@@ -4,6 +4,7 @@ import (
 	"errors"
 
 	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/jamesneb/playback-backend/api/rest/constants"
 	"github.com/jamesneb/playback-backend/internal/handlers"
 	"github.com/jamesneb/playback-backend/internal/interfaces"
 	"github.com/jamesneb/playback-backend/internal/storage"
@@ -33,35 +34,34 @@ type APIHandlers struct {
 // NewAPIHandlers creates API handlers directly without caching complexity
 func NewAPIHandlers(deps *Dependencies) (*APIHandlers, error) {
 	if deps == nil {
-		return nil, errors.New(ERROR_DEPENDENCIES_NIL)
+		return nil, errors.New(constants.ErrorDependenciesNil)
 	}
 
 	return createHandlers(deps)
 }
 
-
 // createHandlers creates a new set of API handlers
 func createHandlers(deps *Dependencies) (*APIHandlers, error) {
 	traceHandler := handlers.NewTraceHandler(deps.KinesisClient, deps.ResilienceComponents)
 	if traceHandler == nil {
-		return nil, errors.New(ERROR_TRACE_HANDLER_CREATION)
+		return nil, errors.New(constants.ErrorTraceHandlerCreation)
 	}
 
 	metricsHandler := handlers.NewMetricsHandler(deps.KinesisClient)
 	if metricsHandler == nil {
-		return nil, errors.New(ERROR_METRICS_HANDLER_CREATION)
+		return nil, errors.New(constants.ErrorMetricsHandlerCreation)
 	}
 
 	logsHandler := handlers.NewLogsHandler(deps.KinesisClient)
 	if logsHandler == nil {
-		return nil, errors.New(ERROR_LOGS_HANDLER_CREATION)
+		return nil, errors.New(constants.ErrorLogsHandlerCreation)
 	}
 
 	var replayHandler *handlers.ReplayHandler
 	if deps.S3Client != nil {
-		replayHandler = handlers.NewReplayHandler(deps.S3Client, REPLAY_S3_BUCKET_NAME)
+		replayHandler = handlers.NewReplayHandler(deps.S3Client, constants.ReplayS3BucketName)
 		if replayHandler == nil {
-			return nil, errors.New(ERROR_REPLAY_HANDLER_CREATION)
+			return nil, errors.New(constants.ErrorReplayHandlerCreation)
 		}
 	}
 

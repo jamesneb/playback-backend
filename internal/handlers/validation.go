@@ -14,7 +14,7 @@ import (
 const (
 	// Character validation sets
 	allowedServiceNameChars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_."
-	hexChars               = "0123456789abcdefABCDEF"
+	hexChars                = "0123456789abcdefABCDEF"
 
 	// Validation limits
 	minValidStringLength = 1
@@ -82,10 +82,10 @@ func (v *RequestValidator) ValidateOTLPTraceData(data json.RawMessage) *Validati
 // ValidationError represents a comprehensive validation error with detailed
 // context information for debugging and client feedback.
 type ValidationError struct {
-	Type    ValidationType `json:"type"`
-	Field   string         `json:"field"`
-	Message string         `json:"message"`
-	Code    string         `json:"code"`
+	Type    ValidationType         `json:"type"`
+	Field   string                 `json:"field"`
+	Message string                 `json:"message"`
+	Code    string                 `json:"code"`
 	Details map[string]interface{} `json:"details,omitempty"`
 }
 
@@ -124,7 +124,7 @@ func (v *RequestValidator) validateRequestSize(c *gin.Context) *ValidationError 
 			Code:    "PAYLOAD_TOO_LARGE",
 			Details: map[string]interface{}{
 				"received_size": contentLength,
-				"max_size":     MaxPayloadSize,
+				"max_size":      MaxPayloadSize,
 			},
 		}
 	}
@@ -171,7 +171,7 @@ func (v *RequestValidator) validateDataSize(data json.RawMessage) *ValidationErr
 			Code:    "PAYLOAD_TOO_SMALL",
 			Details: map[string]interface{}{
 				"received_size": dataSize,
-				"min_size":     MinOTLPDataSize,
+				"min_size":      MinOTLPDataSize,
 			},
 		}
 	}
@@ -246,7 +246,7 @@ func (v *RequestValidator) validateResourceSpansCount(data json.RawMessage) *Val
 			Code:    "TOO_MANY_RESOURCE_SPANS",
 			Details: map[string]interface{}{
 				"received_count": spanCount,
-				"max_count":     MaxResourceSpans,
+				"max_count":      MaxResourceSpans,
 			},
 		}
 	}

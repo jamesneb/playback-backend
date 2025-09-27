@@ -5,6 +5,7 @@ import (
 	"html"
 
 	"github.com/gin-gonic/gin"
+	"github.com/jamesneb/playback-backend/api/rest/constants"
 	"github.com/jamesneb/playback-backend/internal/logging"
 	"github.com/jamesneb/playback-backend/pkg/logger"
 	"go.uber.org/zap"
@@ -13,7 +14,7 @@ import (
 // customLogFormatter provides structured logging format
 func customLogFormatter(param gin.LogFormatterParams) string {
 	return fmt.Sprintf("[%s] %s %s %s %d %s %s\n",
-		param.TimeStamp.Format(STANDARD_TIME_FORMAT),
+		param.TimeStamp.Format(constants.StandardTimeFormat),
 		param.Method,
 		param.Path,
 		param.ClientIP,
@@ -35,7 +36,7 @@ func customRecoveryHandler(c *gin.Context, recovered interface{}) {
 		zap.String("path", sanitizePath(c.Request.URL.Path)),
 		zap.String("client_ip", logging.SanitizeClientIP(c.ClientIP())))
 
-	c.AbortWithStatusJSON(int(StatusInternalServerError), gin.H{
+	c.AbortWithStatusJSON(int(constants.StatusInternalServerError), gin.H{
 		"error":   "Internal server error",
 		"message": "The server encountered an unexpected condition",
 	})
@@ -44,17 +45,17 @@ func customRecoveryHandler(c *gin.Context, recovered interface{}) {
 // sanitizePanicInfo removes potentially sensitive information from panic data
 func sanitizePanicInfo(recovered interface{}) string {
 	if recovered == nil {
-		return NIL_PANIC_MESSAGE
+		return constants.ErrorNilPanicMessage
 	}
 
 	panicStr := fmt.Sprintf("%v", recovered)
 
 	// Remove potential file paths, memory addresses, and other sensitive info
-	panicStr = versionSanitizeRegex.ReplaceAllString(panicStr, "[SANITIZED]")
+	panicStr = constants.VersionSanitizeRegex.ReplaceAllString(panicStr, "[SANITIZED]")
 
 	// Truncate if too long
-	if len(panicStr) > MAX_PANIC_MESSAGE_LENGTH {
-		panicStr = panicStr[:MAX_PANIC_MESSAGE_LENGTH] + TRUNCATION_SUFFIX
+	if len(panicStr) > constants.MaxPanicMessageLength {
+		panicStr = panicStr[:constants.MaxPanicMessageLength] + constants.TruncationSuffix
 	}
 
 	return panicStr
@@ -63,10 +64,10 @@ func sanitizePanicInfo(recovered interface{}) string {
 // sanitizePath removes sensitive information from URL paths
 func sanitizePath(path string) string {
 	if path == "" {
-		return string(ROOT_PATH)
+		return string(constants.RootPath)
 	}
 
 	// Remove potential UUIDs, tokens, or other sensitive path components
-	sanitized := versionSanitizeRegex.ReplaceAllString(path, "[ID]")
+	sanitized := constants.VersionSanitizeRegex.ReplaceAllString(path, "[ID]")
 	return html.EscapeString(sanitized)
 }

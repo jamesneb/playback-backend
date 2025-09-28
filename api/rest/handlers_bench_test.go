@@ -7,6 +7,7 @@ import (
 	"github.com/jamesneb/playback-backend/internal/streaming"
 	"github.com/jamesneb/playback-backend/pkg/api"
 	"github.com/jamesneb/playback-backend/pkg/config"
+	"github.com/jamesneb/playback-backend/pkg/config/server"
 )
 
 // BenchmarkNewAPIHandlers benchmarks the handler creation performance
@@ -62,7 +63,7 @@ func BenchmarkDependencyValidation(b *testing.B) {
 		{
 			name: "valid_deps",
 			deps: &Dependencies{
-				Config:               &config.Config{Server: config.ServerConfig{Mode: "release"}},
+				Config:               &config.Config{Server: server.ServerConfig{Mode: "release"}},
 				KinesisClient:        &streaming.KinesisClient{},
 				ResilienceComponents: &interfaces.ResilienceComponents{},
 				Endpoints:            api.NewEndpointCollection(""),

@@ -8,6 +8,7 @@ import (
 	"github.com/jamesneb/playback-backend/internal/storage"
 	"github.com/jamesneb/playback-backend/internal/streaming"
 	"github.com/jamesneb/playback-backend/pkg/config"
+	configserver "github.com/jamesneb/playback-backend/pkg/config/server"
 	"github.com/stretchr/testify/assert"
 	"google.golang.org/grpc"
 )
@@ -26,7 +27,7 @@ func TestNewServiceCollection_ValidationErrors(t *testing.T) {
 		{
 			name: "nil_kinesis_client",
 			deps: &ServiceDependencies{
-				Config:           &config.Config{Server: config.ServerConfig{Host: "localhost", Port: 8080}},
+				Config:           &config.Config{Server: configserver.ServerConfig{Host: "localhost", Port: 8080}},
 				KinesisClient:    nil,
 				ClickHouseClient: &storage.ClickHouseClient{},
 			},
@@ -35,7 +36,7 @@ func TestNewServiceCollection_ValidationErrors(t *testing.T) {
 		{
 			name: "nil_clickhouse_client",
 			deps: &ServiceDependencies{
-				Config:           &config.Config{Server: config.ServerConfig{Host: "localhost", Port: 8080}},
+				Config:           &config.Config{Server: configserver.ServerConfig{Host: "localhost", Port: 8080}},
 				KinesisClient:    &streaming.KinesisClient{},
 				ClickHouseClient: nil,
 			},
@@ -54,7 +55,7 @@ func TestNewServiceCollection_ValidationErrors(t *testing.T) {
 			name: "empty_server_host",
 			deps: &ServiceDependencies{
 				Config: &config.Config{
-					Server: config.ServerConfig{Host: "", Port: 8080},
+					Server: configserver.ServerConfig{Host: "", Port: 8080},
 				},
 				KinesisClient:        &streaming.KinesisClient{},
 				ClickHouseClient:     &storage.ClickHouseClient{},
@@ -66,7 +67,7 @@ func TestNewServiceCollection_ValidationErrors(t *testing.T) {
 			name: "invalid_server_port",
 			deps: &ServiceDependencies{
 				Config: &config.Config{
-					Server: config.ServerConfig{Host: "localhost", Port: 0},
+					Server: configserver.ServerConfig{Host: "localhost", Port: 0},
 				},
 				KinesisClient:        &streaming.KinesisClient{},
 				ClickHouseClient:     &storage.ClickHouseClient{},

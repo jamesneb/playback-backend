@@ -2,6 +2,7 @@ package main
 
 import (
 	"log"
+	"os"
 
 	_ "github.com/jamesneb/playback-backend/docs" // Import generated docs
 	"github.com/jamesneb/playback-backend/internal/app"
@@ -9,14 +10,32 @@ import (
 	"github.com/jamesneb/playback-backend/pkg/logger"
 )
 
+// getConfigPath determines the configuration file path
+// Priority: CONFIG_PATH env var > default environment-based path
+func getConfigPath() string {
+	// Check if CONFIG_PATH environment variable is set
+	if configPath := os.Getenv("CONFIG_PATH"); configPath != "" {
+		return configPath
+	}
+
+	// Use default path based on environment
+	env := os.Getenv("ENV")
+	if env == "" {
+		env = "local" // Default to local.yaml which should exist
+	}
+
+	return "config/environments/" + env + ".yaml"
+}
+
 // @title Playback Backend API
 // @version {{.Version}}
 // @description Distributed systems event replay backend
 // @host {{.Host}}
 // @BasePath /api/v1
 func main() {
-	// Load configuration
-	cfg, err := config.Load("")
+	// Load configuration - use default path if none specified
+	configPath := getConfigPath()
+	cfg, err := config.Load(configPath)
 	if err != nil {
 		log.Fatalf("Failed to load config: %v", err)
 	}

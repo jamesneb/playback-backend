@@ -168,7 +168,7 @@ features:
   data_export:
     enabled: true
     formats: ["json", "csv"]
-    max_export_size: "50MB"
+    max_export_size: 52428800  # 50MB in bytes
 
 # Performance tuning
 performance:

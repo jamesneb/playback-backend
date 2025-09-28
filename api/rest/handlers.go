@@ -7,6 +7,7 @@ import (
 	"github.com/jamesneb/playback-backend/api/rest/constants"
 	"github.com/jamesneb/playback-backend/internal/handlers"
 	"github.com/jamesneb/playback-backend/internal/interfaces"
+	"github.com/jamesneb/playback-backend/internal/metrics"
 	"github.com/jamesneb/playback-backend/internal/storage"
 	"github.com/jamesneb/playback-backend/internal/streaming"
 	"github.com/jamesneb/playback-backend/pkg/api"
@@ -21,6 +22,7 @@ type Dependencies struct {
 	S3Client             *s3.Client
 	Endpoints            *api.EndpointCollection
 	ResilienceComponents *interfaces.ResilienceComponents
+	MetricsRegistry      *metrics.Registry
 }
 
 // APIHandlers holds all HTTP handlers for the REST API

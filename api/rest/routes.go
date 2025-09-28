@@ -18,6 +18,7 @@ import (
 	"github.com/jamesneb/playback-backend/pkg/api"
 	"github.com/jamesneb/playback-backend/pkg/config"
 	"github.com/jamesneb/playback-backend/pkg/logger"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	swaggerFiles "github.com/swaggo/files"
 	ginSwagger "github.com/swaggo/gin-swagger"
 	"go.uber.org/zap"
@@ -464,9 +465,9 @@ func setupMonitoringRoutes(r *gin.Engine, cfg *config.Config) error {
 
 // metricsHandler provides Prometheus metrics endpoint
 func metricsHandler() gin.HandlerFunc {
+	handler := promhttp.Handler()
 	return func(c *gin.Context) {
-		c.Header(string(constants.HeaderContentType), string(constants.ContentTypePrometheusMetrics))
-		c.String(int(constants.StatusOK), constants.MetricsPlaceholderContent)
+		handler.ServeHTTP(c.Writer, c.Request)
 	}
 }
 

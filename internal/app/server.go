@@ -11,6 +11,7 @@ import (
 
 	grpcapi "github.com/jamesneb/playback-backend/api/grpc"
 	"github.com/jamesneb/playback-backend/api/rest"
+	"github.com/jamesneb/playback-backend/internal/metrics"
 	"github.com/jamesneb/playback-backend/pkg/api"
 	"github.com/jamesneb/playback-backend/pkg/config"
 	"github.com/jamesneb/playback-backend/pkg/logger"
@@ -92,6 +93,7 @@ func (s *Server) startHTTPServer(wg *sync.WaitGroup) error {
 		S3Client:             s.services.S3Client,
 		Endpoints:            api.NewEndpointCollectionWithConfig("", apiVersion, apiPrefix), // Use configured API version and prefix
 		ResilienceComponents: s.services.ResilienceComponents,
+		MetricsRegistry:      metrics.NewRegistry(),
 	}
 
 	ginEngine, err := rest.NewServer(restDeps)

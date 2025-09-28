@@ -10,6 +10,8 @@ import (
 	"github.com/jamesneb/playback-backend/internal/streaming"
 	"github.com/jamesneb/playback-backend/pkg/api"
 	"github.com/jamesneb/playback-backend/pkg/config"
+	configapi "github.com/jamesneb/playback-backend/pkg/config/api"
+	configserver "github.com/jamesneb/playback-backend/pkg/config/server"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -104,11 +106,11 @@ func TestAPIHandlers_FieldTypes(t *testing.T) {
 func TestDependenciesWithFullConfiguration(t *testing.T) {
 	// Test Dependencies with more complete configuration
 	cfg := &config.Config{
-		Server: config.ServerConfig{
+		Server: configserver.ServerConfig{
 			Host: "localhost",
 			Port: 8080,
 		},
-		API: config.APIConfig{
+		API: configapi.APIConfig{
 			EnableCORS: true,
 		},
 	}

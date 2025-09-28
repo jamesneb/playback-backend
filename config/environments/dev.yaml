@@ -164,7 +164,7 @@ features:
   data_export:
     enabled: true
     formats: ["json", "csv", "parquet"]
-    max_export_size: "100MB"
+    max_export_size: 104857600  # 100MB in bytes
 
 # Performance tuning
 performance:

@@ -13,22 +13,28 @@ import (
 	"github.com/jamesneb/playback-backend/pkg/telemetry"
 )
 
-// Services holds all initialized services/clients
+// CoreServices holds the common services shared between API and consumer
+type CoreServices struct {
+	KinesisClient    *streaming.KinesisClient
+	ClickHouseClient *storage.ClickHouseClient
+}
+
+// Services holds all initialized services/clients for API server
 type Services struct {
-	KinesisClient        *streaming.KinesisClient
-	ClickHouseClient     *storage.ClickHouseClient
+	*CoreServices
 	S3Client             *s3.Client
 	ResilienceComponents *interfaces.ResilienceComponents
 	CircuitBreaker       *resilience.CircuitBreaker
 }
 
+// ConsumerServices holds services needed by the consumer
 type ConsumerServices struct {
-	KinesisClient    *streaming.KinesisClient
-	ClickHouseClient *storage.ClickHouseClient
+	*CoreServices
 }
 
-func InitializeConsumerServices(cfg *config.Config) (*ConsumerServices, error) {
-	services := &ConsumerServices{}
+// InitializeCoreServices initializes the shared services (ClickHouse and Kinesis)
+func InitializeCoreServices(cfg *config.Config) (*CoreServices, error) {
+	services := &CoreServices{}
 
 	// Initialize ClickHouse client
 	clickhouseClient, err := InitializeClickHouseClient(cfg)
@@ -37,7 +43,7 @@ func InitializeConsumerServices(cfg *config.Config) (*ConsumerServices, error) {
 	}
 	services.ClickHouseClient = clickhouseClient
 
-	// Initialize Kinesis Client
+	// Initialize Kinesis client
 	kinesisClient, err := InitializeKinesisClient(cfg)
 	if err != nil {
 		return nil, err
@@ -45,6 +51,17 @@ func InitializeConsumerServices(cfg *config.Config) (*ConsumerServices, error) {
 	services.KinesisClient = kinesisClient
 
 	return services, nil
+}
+
+func InitializeConsumerServices(cfg *config.Config) (*ConsumerServices, error) {
+	coreServices, err := InitializeCoreServices(cfg)
+	if err != nil {
+		return nil, err
+	}
+
+	return &ConsumerServices{
+		CoreServices: coreServices,
+	}, nil
 }
 
 // Close closes consumer service connections gracefully
@@ -72,21 +89,15 @@ func (s *ConsumerServices) Close() error {
 
 // InitializeAPIServices creates and initializes all required services for the REST/GRPC servers
 func InitializeAPIServices(cfg *config.Config) (*Services, error) {
-	services := &Services{}
-
-	// Initialize ClickHouse client
-	clickhouseClient, err := InitializeClickHouseClient(cfg)
+	// Initialize shared core services
+	coreServices, err := InitializeCoreServices(cfg)
 	if err != nil {
 		return nil, err
 	}
-	services.ClickHouseClient = clickhouseClient
 
-	// Initialize Kinesis client
-	kinesisClient, err := InitializeKinesisClient(cfg)
-	if err != nil {
-		return nil, err
+	services := &Services{
+		CoreServices: coreServices,
 	}
-	services.KinesisClient = kinesisClient
 
 	// Initialize S3 client (optional - only if region is configured)
 	if cfg.Streaming.S3.Region != "" {

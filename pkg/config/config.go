@@ -282,30 +282,3 @@ func applyEnvOverrides(config *Config) error {
 func Load(configPath string) (*Config, error) {
 	return LoadConfig(configPath)
 }
-
-// Backward compatibility type aliases
-type KinesisConfig = streaming.KinesisConfig
-type ServerConfig = server.ServerConfig
-type DatabaseConfig = database.DatabaseConfig
-type APIConfig = api.APIConfig
-type AppConfig = app.AppConfig
-type LoggingConfig = app.LoggingConfig
-type SecurityConfig = security.SecurityConfig
-type StreamingConfig = streaming.StreamingConfig
-type ProcessingConfig = processing.ProcessingConfig
-type RetentionConfig = processing.RetentionConfig
-type ResilienceConfig = streaming.ResilienceConfig
-type CircuitBreakerConfig = streaming.CircuitBreakerConfig
-type RateLimiterConfig = streaming.RateLimiterConfig
-type DLQConfig = streaming.DLQConfig
-type BufferConfig = streaming.BufferConfig
-type ClickHouseConfig = database.ClickHouseConfig
-type RedisConfig = database.RedisConfig
-type CacheConfig = database.CacheConfig
-type CORSConfig = api.CORSConfig
-type TLSConfig = security.TLSConfig
-type JWTConfig = security.JWTConfig
-type MonitoringConfig = security.MonitoringConfig
-type JaegerConfig = security.JaegerConfig
-type PrometheusConfig = security.PrometheusConfig
-type RateLimitConfig = server.RateLimitConfig

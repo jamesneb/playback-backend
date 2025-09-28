@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/jamesneb/playback-backend/internal/handlers/dto"
+	"github.com/jamesneb/playback-backend/internal/handlers/services"
 	"github.com/jamesneb/playback-backend/internal/logging"
 	"github.com/jamesneb/playback-backend/pkg/logger"
 	"github.com/jamesneb/playback-backend/pkg/telemetry"
@@ -16,11 +18,13 @@ import (
 
 type LogsHandler struct {
 	eventPublisher telemetry.EventPublisher
+	queryService   services.LogsQueryService
 }
 
 func NewLogsHandler(eventPublisher telemetry.EventPublisher) *LogsHandler {
 	return &LogsHandler{
 		eventPublisher: eventPublisher,
+		queryService:   services.NewDefaultLogsQueryService(),
 	}
 }
 
@@ -112,7 +116,7 @@ func (h *LogsHandler) CreateLogs(c *gin.Context) {
 	)
 
 	// Return success response
-	response := LogsResponse{
+	response := dto.LogsResponse{
 		Received:  logsCount,
 		Timestamp: time.Now(),
 		Status:    "accepted",
@@ -134,106 +138,31 @@ func (h *LogsHandler) CreateLogs(c *gin.Context) {
 // @Success 200 {object} LogsQueryResponse
 // @Router /api/v1/logs [get]
 func (h *LogsHandler) GetLogs(c *gin.Context) {
-	service := c.Query("service")
-	level := c.Query("level")
-	from := c.Query("from")
-	to := c.Query("to")
-	query := c.Query("q")
+	params := services.LogsQueryParams{
+		Service: c.Query("service"),
+		Level:   c.Query("level"),
+		From:    c.Query("from"),
+		To:      c.Query("to"),
+		Query:   c.Query("q"),
+		Limit:   100, // Default limit
+		Offset:  0,   // Default offset
+	}
 
-	// Mock response for now
-	response := LogsQueryResponse{
-		Service:   service,
-		Level:     level,
-		TimeRange: TimeRange{From: from, To: to},
-		Query:     query,
-		Logs: []LogEntry{
-			{
-				Timestamp: time.Now().Add(-time.Minute * 5),
-				Level:     "INFO",
-				Message:   "Order creation started",
-				Service:   "order-service",
-				TraceID:   "abc123def456",
-				SpanID:    "789xyz",
-				Attributes: map[string]interface{}{
-					"endpoint": "/orders",
-					"method":   "POST",
-				},
-			},
-			{
-				Timestamp: time.Now().Add(-time.Minute * 3),
-				Level:     "WARN",
-				Message:   "Order failed - insufficient inventory",
-				Service:   "order-service",
-				TraceID:   "def456ghi789",
-				SpanID:    "xyz123",
-				Attributes: map[string]interface{}{
-					"order_id":           "order_1234567890",
-					"product_id":         "prod_001",
-					"requested_quantity": 5,
-				},
-			},
-		},
+	response, err := h.queryService.QueryLogs(params)
+	if err != nil {
+		logger.Error("Failed to query logs",
+			zap.Error(err),
+			zap.String("service", params.Service),
+			zap.String("level", params.Level),
+		)
+		c.JSON(http.StatusInternalServerError, ErrorResponse{
+			Error:   "Failed to query logs",
+			Message: "Internal server error",
+		})
+		return
 	}
 
 	c.JSON(http.StatusOK, response)
-}
-
-// OpenTelemetry Logs Protocol structures
-type LogsRequest struct {
-	ResourceLogs []ResourceLog `json:"resourceLogs"`
-}
-
-type ResourceLog struct {
-	Resource  Resource   `json:"resource"`
-	ScopeLogs []ScopeLog `json:"scopeLogs"`
-	SchemaURL string     `json:"schemaUrl,omitempty"`
-}
-
-type ScopeLog struct {
-	Scope      Scope       `json:"scope"`
-	LogRecords []LogRecord `json:"logRecords"`
-}
-
-type LogRecord struct {
-	TimeUnixNano           uint64        `json:"timeUnixNano"`
-	ObservedTimeUnixNano   uint64        `json:"observedTimeUnixNano,omitempty"`
-	SeverityNumber         int32         `json:"severityNumber,omitempty"`
-	SeverityText           string        `json:"severityText,omitempty"`
-	Body                   LogRecordBody `json:"body,omitempty"`
-	Attributes             []Attribute   `json:"attributes,omitempty"`
-	DroppedAttributesCount uint32        `json:"droppedAttributesCount,omitempty"`
-	Flags                  uint32        `json:"flags,omitempty"`
-	TraceID                string        `json:"traceId,omitempty"`
-	SpanID                 string        `json:"spanId,omitempty"`
-}
-
-type LogRecordBody struct {
-	StringValue *string `json:"stringValue,omitempty"`
-}
-
-// Response types
-type LogsResponse struct {
-	Received  int       `json:"received" example:"10"`
-	Timestamp time.Time `json:"timestamp" example:"2023-01-01T00:00:00Z"`
-	Status    string    `json:"status" example:"accepted"`
-}
-
-type LogsQueryResponse struct {
-	Service   string     `json:"service" example:"order-service"`
-	Level     string     `json:"level" example:"INFO"`
-	TimeRange TimeRange  `json:"time_range"`
-	Query     string     `json:"query" example:"order failed"`
-	Logs      []LogEntry `json:"logs"`
-}
-
-type LogEntry struct {
-	Timestamp  time.Time              `json:"timestamp" example:"2023-01-01T00:00:00Z"`
-	Level      string                 `json:"level" example:"INFO"`
-	Message    string                 `json:"message" example:"Order creation started"`
-	Service    string                 `json:"service" example:"order-service"`
-	TraceID    string                 `json:"trace_id,omitempty" example:"abc123def456"`
-	SpanID     string                 `json:"span_id,omitempty" example:"789xyz"`
-	Attributes map[string]interface{} `json:"attributes,omitempty"`
 }
 
 // Helper functions for extracting metadata from OTLP logs data

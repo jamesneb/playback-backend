@@ -8,6 +8,8 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
+	"github.com/jamesneb/playback-backend/internal/handlers/dto"
+	"github.com/jamesneb/playback-backend/internal/handlers/schema"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -71,7 +73,7 @@ func TestLogsHandler_CreateLogs(t *testing.T) {
 			contentType:    "application/json",
 			expectedStatus: http.StatusAccepted, // Expect success with proper mock
 			validateResponse: func(t *testing.T, w *httptest.ResponseRecorder) {
-				var response LogsResponse
+				var response dto.LogsResponse
 				err := json.Unmarshal(w.Body.Bytes(), &response)
 				require.NoError(t, err)
 				assert.Equal(t, "accepted", response.Status)
@@ -159,7 +161,7 @@ func TestLogsHandler_GetLogs(t *testing.T) {
 			queryParams:  "",
 			expectedCode: http.StatusOK,
 			validateFunc: func(t *testing.T, w *httptest.ResponseRecorder) {
-				var response LogsQueryResponse
+				var response dto.LogsQueryResponse
 				err := json.Unmarshal(w.Body.Bytes(), &response)
 				require.NoError(t, err)
 				assert.Len(t, response.Logs, 2) // Mock returns 2 logs
@@ -170,7 +172,7 @@ func TestLogsHandler_GetLogs(t *testing.T) {
 			queryParams:  "?service=test-service",
 			expectedCode: http.StatusOK,
 			validateFunc: func(t *testing.T, w *httptest.ResponseRecorder) {
-				var response LogsQueryResponse
+				var response dto.LogsQueryResponse
 				err := json.Unmarshal(w.Body.Bytes(), &response)
 				require.NoError(t, err)
 				assert.Equal(t, "test-service", response.Service)
@@ -181,7 +183,7 @@ func TestLogsHandler_GetLogs(t *testing.T) {
 			queryParams:  "?level=ERROR",
 			expectedCode: http.StatusOK,
 			validateFunc: func(t *testing.T, w *httptest.ResponseRecorder) {
-				var response LogsQueryResponse
+				var response dto.LogsQueryResponse
 				err := json.Unmarshal(w.Body.Bytes(), &response)
 				require.NoError(t, err)
 				assert.Equal(t, "ERROR", response.Level)
@@ -192,7 +194,7 @@ func TestLogsHandler_GetLogs(t *testing.T) {
 			queryParams:  "?from=2023-01-01T00:00:00Z&to=2023-01-01T01:00:00Z",
 			expectedCode: http.StatusOK,
 			validateFunc: func(t *testing.T, w *httptest.ResponseRecorder) {
-				var response LogsQueryResponse
+				var response dto.LogsQueryResponse
 				err := json.Unmarshal(w.Body.Bytes(), &response)
 				require.NoError(t, err)
 				assert.Equal(t, "2023-01-01T00:00:00Z", response.TimeRange.From)
@@ -204,7 +206,7 @@ func TestLogsHandler_GetLogs(t *testing.T) {
 			queryParams:  "?q=error&service=order-service",
 			expectedCode: http.StatusOK,
 			validateFunc: func(t *testing.T, w *httptest.ResponseRecorder) {
-				var response LogsQueryResponse
+				var response dto.LogsQueryResponse
 				err := json.Unmarshal(w.Body.Bytes(), &response)
 				require.NoError(t, err)
 				assert.Equal(t, "error", response.Query)
@@ -322,37 +324,37 @@ func TestExtractLogsMetadata(t *testing.T) {
 
 func TestLogDataStructures(t *testing.T) {
 	// Test OTLP logs structure creation
-	request := LogsRequest{
-		ResourceLogs: []ResourceLog{
+	request := schema.LogsRequest{
+		ResourceLogs: []schema.ResourceLog{
 			{
-				Resource: Resource{
-					Attributes: []Attribute{
+				Resource: schema.Resource{
+					Attributes: []schema.Attribute{
 						{
 							Key: "service.name",
-							Value: AttributeValue{
+							Value: schema.AttributeValue{
 								StringValue: stringPtr("test-service"),
 							},
 						},
 					},
 				},
-				ScopeLogs: []ScopeLog{
+				ScopeLogs: []schema.ScopeLog{
 					{
-						Scope: Scope{
+						Scope: schema.Scope{
 							Name:    "test-scope",
 							Version: "1.0.0",
 						},
-						LogRecords: []LogRecord{
+						LogRecords: []schema.LogRecord{
 							{
 								TimeUnixNano:   1640995200000000000,
 								SeverityNumber: 9,
 								SeverityText:   "INFO",
 								TraceID:        "test-trace",
 								SpanID:         "test-span",
-								Body:           LogRecordBody{StringValue: stringPtr("Test log message")},
-								Attributes: []Attribute{
+								Body:           schema.LogRecordBody{StringValue: stringPtr("Test log message")},
+								Attributes: []schema.Attribute{
 									{
 										Key: "endpoint",
-										Value: AttributeValue{
+										Value: schema.AttributeValue{
 											StringValue: stringPtr("/api/test"),
 										},
 									},
@@ -371,7 +373,7 @@ func TestLogDataStructures(t *testing.T) {
 	assert.NotEmpty(t, data)
 
 	// Test deserialization
-	var decoded LogsRequest
+	var decoded schema.LogsRequest
 	err = json.Unmarshal(data, &decoded)
 	assert.NoError(t, err)
 	assert.Len(t, decoded.ResourceLogs, 1)
@@ -464,7 +466,7 @@ func TestLogsHandler_Integration(t *testing.T) {
 	// Should return success with proper mock setup
 	assert.Equal(t, http.StatusAccepted, w.Code)
 
-	var response LogsResponse
+	var response dto.LogsResponse
 	err = json.Unmarshal(w.Body.Bytes(), &response)
 	require.NoError(t, err)
 	assert.Equal(t, "accepted", response.Status)

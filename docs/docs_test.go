@@ -49,16 +49,16 @@ func TestSwaggerTemplateStructure(t *testing.T) {
 func TestSwaggerDefinitions(t *testing.T) {
 	// Test that expected data structures are defined
 	definitions := []string{
-		"handlers.TraceResponse",
-		"handlers.CreateTraceRequest",
-		"handlers.ErrorResponse",
-		"handlers.MetricsRequest",
-		"handlers.MetricsResponse",
-		"handlers.LogsRequest",
-		"handlers.LogsResponse",
-		"handlers.TimeRange",
-		"handlers.Attribute",
-		"handlers.Resource",
+		"internal_handlers.TraceResponse",
+		"internal_handlers.CreateTraceRequest",
+		"internal_handlers.ErrorResponse",
+		"internal_handlers.MetricsRequest",
+		"internal_handlers.MetricsResponse",
+		"github_com_jamesneb_playback-backend_internal_handlers_schema.LogsRequest",
+		"github_com_jamesneb_playback-backend_internal_handlers_dto.LogsResponse",
+		"github_com_jamesneb_playback-backend_internal_handlers_services.TimeRange",
+		"internal_handlers.Attribute",
+		"internal_handlers.Resource",
 	}
 
 	for _, def := range definitions {
@@ -86,7 +86,7 @@ func TestAPIEndpoints(t *testing.T) {
 
 func TestResponseCodes(t *testing.T) {
 	// Test that expected HTTP response codes are documented
-	responseCodes := []string{"200", "201", "400", "404"}
+	responseCodes := []string{"200", "400", "404", "500"}
 
 	for _, code := range responseCodes {
 		assert.Contains(t, docTemplate, "\""+code+"\":", "Expected response code %s to be documented", code)

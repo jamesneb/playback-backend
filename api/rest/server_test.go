@@ -10,8 +10,6 @@ import (
 	"github.com/jamesneb/playback-backend/internal/streaming"
 	"github.com/jamesneb/playback-backend/pkg/api"
 	"github.com/jamesneb/playback-backend/pkg/config"
-	configapi "github.com/jamesneb/playback-backend/pkg/config/api"
-	"github.com/jamesneb/playback-backend/pkg/config/server"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -40,8 +38,10 @@ func TestValidateDependencies(t *testing.T) {
 		{
 			name: "nil_endpoints",
 			deps: &Dependencies{
-				Config: &config.Config{
-					Server: server.ServerConfig{Mode: gin.ReleaseMode},
+				Config: &config.ConsolidatedConfig{
+					Network: config.NetworkSettings{
+					HTTP: config.HTTPSettings{Mode: gin.ReleaseMode},
+				},
 				},
 				Endpoints: nil,
 			},
@@ -51,8 +51,10 @@ func TestValidateDependencies(t *testing.T) {
 		{
 			name: "invalid_server_mode",
 			deps: &Dependencies{
-				Config: &config.Config{
-					Server: server.ServerConfig{Mode: "invalid"},
+				Config: &config.ConsolidatedConfig{
+					Network: config.NetworkSettings{
+					HTTP: config.HTTPSettings{Mode: "invalid"},
+				},
 				},
 				Endpoints: &api.EndpointCollection{},
 			},
@@ -62,8 +64,10 @@ func TestValidateDependencies(t *testing.T) {
 		{
 			name: "valid_dependencies_release_mode",
 			deps: &Dependencies{
-				Config: &config.Config{
-					Server: server.ServerConfig{Mode: gin.ReleaseMode},
+				Config: &config.ConsolidatedConfig{
+					Network: config.NetworkSettings{
+					HTTP: config.HTTPSettings{Mode: gin.ReleaseMode},
+				},
 				},
 				Endpoints: &api.EndpointCollection{},
 			},
@@ -72,8 +76,10 @@ func TestValidateDependencies(t *testing.T) {
 		{
 			name: "valid_dependencies_debug_mode",
 			deps: &Dependencies{
-				Config: &config.Config{
-					Server: server.ServerConfig{Mode: gin.DebugMode},
+				Config: &config.ConsolidatedConfig{
+					Network: config.NetworkSettings{
+					HTTP: config.HTTPSettings{Mode: gin.DebugMode},
+				},
 				},
 				Endpoints: &api.EndpointCollection{},
 			},
@@ -82,8 +88,10 @@ func TestValidateDependencies(t *testing.T) {
 		{
 			name: "valid_dependencies_test_mode",
 			deps: &Dependencies{
-				Config: &config.Config{
-					Server: server.ServerConfig{Mode: gin.TestMode},
+				Config: &config.ConsolidatedConfig{
+					Network: config.NetworkSettings{
+					HTTP: config.HTTPSettings{Mode: gin.TestMode},
+				},
 				},
 				Endpoints: &api.EndpointCollection{},
 			},
@@ -113,27 +121,33 @@ func TestApplyConfig(t *testing.T) {
 
 	tests := []struct {
 		name        string
-		config      *config.Config
+		config      *config.ConsolidatedConfig
 		expectError bool
 	}{
 		{
 			name: "set_debug_mode",
-			config: &config.Config{
-				Server: server.ServerConfig{Mode: gin.DebugMode},
+			config: &config.ConsolidatedConfig{
+				Network: config.NetworkSettings{
+					HTTP: config.HTTPSettings{Mode: gin.DebugMode},
+				},
 			},
 			expectError: false,
 		},
 		{
 			name: "set_release_mode",
-			config: &config.Config{
-				Server: server.ServerConfig{Mode: gin.ReleaseMode},
+			config: &config.ConsolidatedConfig{
+				Network: config.NetworkSettings{
+					HTTP: config.HTTPSettings{Mode: gin.ReleaseMode},
+				},
 			},
 			expectError: false,
 		},
 		{
 			name: "set_test_mode",
-			config: &config.Config{
-				Server: server.ServerConfig{Mode: gin.TestMode},
+			config: &config.ConsolidatedConfig{
+				Network: config.NetworkSettings{
+					HTTP: config.HTTPSettings{Mode: gin.TestMode},
+				},
 			},
 			expectError: false,
 		},
@@ -149,7 +163,7 @@ func TestApplyConfig(t *testing.T) {
 				assert.Error(t, err)
 			} else {
 				assert.NoError(t, err)
-				assert.Equal(t, tt.config.Server.Mode, gin.Mode())
+				assert.Equal(t, tt.config.Network.HTTP.Mode, gin.Mode())
 			}
 
 			// Reset mode
@@ -199,9 +213,11 @@ func TestSetupTrustedProxies(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			r := gin.New()
-			cfg := &config.Config{
-				Server: server.ServerConfig{
-					TrustedProxies: tt.trustedProxies,
+			cfg := &config.ConsolidatedConfig{
+				Network: config.NetworkSettings{
+					HTTP: config.HTTPSettings{
+						TrustedProxies: tt.trustedProxies,
+					},
 				},
 			}
 
@@ -305,8 +321,10 @@ func TestValidServerModes(t *testing.T) {
 	for _, mode := range validModes {
 		t.Run("mode_"+mode, func(t *testing.T) {
 			deps := &Dependencies{
-				Config: &config.Config{
-					Server: server.ServerConfig{Mode: mode},
+				Config: &config.ConsolidatedConfig{
+					Network: config.NetworkSettings{
+						HTTP: config.HTTPSettings{Mode: mode},
+					},
 				},
 				Endpoints: &api.EndpointCollection{},
 			}
@@ -322,13 +340,13 @@ func TestMinimalValidDependencies(t *testing.T) {
 
 	// Create minimal valid dependencies
 	deps := &Dependencies{
-		Config: &config.Config{
-			Server: server.ServerConfig{
-				Mode:           gin.TestMode,
-				TrustedProxies: []string{},
-			},
-			API: configapi.APIConfig{
-				EnableCORS: false,
+		Config: &config.ConsolidatedConfig{
+			Network: config.NetworkSettings{
+				HTTP: config.HTTPSettings{
+					Mode:           gin.TestMode,
+					TrustedProxies: []string{},
+					EnableCORS:     false,
+				},
 			},
 		},
 		Endpoints:            &api.EndpointCollection{},

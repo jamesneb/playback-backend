@@ -9,6 +9,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/jamesneb/playback-backend/api/rest/constants"
+	pkgerrors "github.com/jamesneb/playback-backend/pkg/errors"
 	"github.com/jamesneb/playback-backend/pkg/config"
 	"github.com/jamesneb/playback-backend/pkg/logger"
 	"go.uber.org/zap"
@@ -73,35 +74,35 @@ func validateDependencies(deps *Dependencies) error {
 	}
 
 	// validate gin server mode
-	mode := deps.Config.Server.Mode
+	mode := deps.Config.Network.HTTP.Mode
 	if mode != gin.ReleaseMode && mode != gin.DebugMode && mode != gin.TestMode {
 		return fmt.Errorf("invalid server mode: '%s', must be one of %s %s %s", mode, gin.ReleaseMode, gin.DebugMode, gin.TestMode)
 	}
 	return nil
 }
 
-func applyConfig(cfg *config.Config) error {
+func applyConfig(cfg *config.ConsolidatedConfig) error {
 	originalMode := gin.Mode()
 
-	gin.SetMode(cfg.Server.Mode)
+	gin.SetMode(cfg.Network.HTTP.Mode)
 
-	if gin.Mode() != cfg.Server.Mode {
-		return fmt.Errorf("failed to set gin server mode to '%s', still '%s'", cfg.Server.Mode, gin.Mode())
+	if gin.Mode() != cfg.Network.HTTP.Mode {
+		return fmt.Errorf("failed to set gin server mode to '%s', still '%s'", cfg.Network.HTTP.Mode, gin.Mode())
 
 	}
 
-	logger.Debug("Gin mode configured", zap.String("mode", cfg.Server.Mode), zap.String("previous", originalMode))
+	logger.Debug("Gin mode configured", zap.String("mode", cfg.Network.HTTP.Mode), zap.String("previous", originalMode))
 
 	return nil
 
 }
 
 // setupMiddleware configures standard middleware
-func setupMiddleware(r *gin.Engine, cfg *config.Config) error {
+func setupMiddleware(r *gin.Engine, cfg *config.ConsolidatedConfig) error {
 	if cfg == nil {
 		return errors.New(constants.ErrorConfigMiddlewareNil)
 	}
-	if cfg.API.EnableCORS && len(cfg.API.CORS.AllowedOrigins) == 0 {
+	if cfg.Network.HTTP.EnableCORS && len(cfg.Network.HTTP.CORS.AllowedOrigins) == 0 {
 		logger.Warn(constants.CORSNoOriginsWarning)
 	}
 
@@ -124,12 +125,16 @@ func setupMiddleware(r *gin.Engine, cfg *config.Config) error {
 	}))
 	r.Use(gin.RecoveryWithWriter(gin.DefaultWriter, customRecoveryHandler))
 
+	// Standardized error handling middleware (must be after recovery)
+	errorHandler := pkgerrors.NewHandler(logger.GetGlobalLogger().Logger)
+	r.Use(errorHandler.Middleware())
+
 	// Request size limit
 	r.MaxMultipartMemory = constants.MaxMultipartMemory
 
 	// CORS middleware
-	if cfg.API.EnableCORS {
-		corsHandler, err := createCorsMiddleware(cfg.API.CORS)
+	if cfg.Network.HTTP.EnableCORS {
+		corsHandler, err := createCorsMiddleware(cfg.Network.HTTP.CORS)
 		if err != nil {
 			return fmt.Errorf("unable to create CORS middleware: %w", err)
 		}
@@ -137,7 +142,7 @@ func setupMiddleware(r *gin.Engine, cfg *config.Config) error {
 	}
 
 	logger.Info("Middleware configured",
-		zap.Bool("cors_enabled", cfg.API.EnableCORS),
+		zap.Bool("cors_enabled", cfg.Network.HTTP.EnableCORS),
 		zap.Bool("compression_enabled", true),
 		zap.Bool("security_headers_enabled", true),
 		zap.Duration("request_timeout", constants.RequestTimeout))
@@ -168,8 +173,8 @@ func timeoutMiddleware(timeout time.Duration) gin.HandlerFunc {
 // CORS middleware functions moved to cors.go
 
 // setupTrustedProxies configures trusted proxies
-func setupTrustedProxies(r *gin.Engine, cfg *config.Config) error {
-	proxies := cfg.Server.TrustedProxies
+func setupTrustedProxies(r *gin.Engine, cfg *config.ConsolidatedConfig) error {
+	proxies := cfg.Network.HTTP.TrustedProxies
 
 	for _, proxy := range proxies {
 		if net.ParseIP(proxy) == nil && proxy != constants.LocalHost {

@@ -22,11 +22,11 @@ type RateLimitConfig struct {
 }
 
 // RateLimitingMiddleware creates a comprehensive rate limiting middleware
-func RateLimitingMiddleware(cfg *config.Config) gin.HandlerFunc {
+func RateLimitingMiddleware(cfg *config.ConsolidatedConfig) gin.HandlerFunc {
 	// Extract rate limiting config from main config
 	rateLimitConfig := RateLimitConfig{
-		RequestsPerSecond: cfg.Resilience.RateLimiter.RequestsPerSecond,
-		BurstCapacity:     cfg.Resilience.RateLimiter.BurstCapacity,
+		RequestsPerSecond: cfg.Network.HTTP.RateLimitRPS,
+		BurstCapacity:     cfg.Network.HTTP.RateLimitBurst,
 		CleanupInterval:   30 * time.Second,
 		MaxIdleTime:       5 * time.Minute,
 	}

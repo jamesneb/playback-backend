@@ -9,41 +9,115 @@ import (
 	"go.uber.org/zap/zapcore"
 )
 
-var Logger *zap.Logger
-
-func init() {
-	// Initialize logger with proper error handling instead of panic
-	logger, err := initializeLogger()
-	if err != nil {
-		// Use standard library logger as fallback
-		log.Printf("WARNING: Failed to initialize zap logger: %v. Using fallback logger.", err)
-		Logger = createFallbackLogger()
-		return
-	}
-	Logger = logger
+// LoggerConfig holds configuration for logger creation
+type LoggerConfig struct {
+	Level        zapcore.Level
+	OutputPaths  []string
+	ErrorPaths   []string
+	Development  bool
+	DisableCaller bool
 }
 
-// initializeLogger creates and configures the zap logger with error handling
-func initializeLogger() (*zap.Logger, error) {
+// DefaultConfig returns a sensible default configuration
+func DefaultConfig() *LoggerConfig {
+	return &LoggerConfig{
+		Level:        zapcore.InfoLevel,
+		OutputPaths:  []string{"stdout"},
+		ErrorPaths:   []string{"stderr"},
+		Development:  false,
+		DisableCaller: false,
+	}
+}
+
+// DevelopmentConfig returns configuration suitable for development
+func DevelopmentConfig() *LoggerConfig {
+	return &LoggerConfig{
+		Level:        zapcore.DebugLevel,
+		OutputPaths:  []string{"stdout"},
+		ErrorPaths:   []string{"stderr"},
+		Development:  true,
+		DisableCaller: false,
+	}
+}
+
+// ProductionConfig returns configuration suitable for production
+func ProductionConfig() *LoggerConfig {
+	return &LoggerConfig{
+		Level:        zapcore.InfoLevel,
+		OutputPaths:  []string{"stdout"},
+		ErrorPaths:   []string{"stderr"},
+		Development:  false,
+		DisableCaller: false,
+	}
+}
+
+// NewLogger creates a new logger with the given configuration
+// This replaces the global init() function with explicit construction
+func NewLogger(config *LoggerConfig) (*zap.Logger, error) {
+	if config == nil {
+		return nil, fmt.Errorf("logger configuration cannot be nil")
+	}
+
 	// Validate output paths exist and are writable
-	if err := validateOutputPaths([]string{"stdout"}, []string{"stderr"}); err != nil {
+	if err := validateOutputPaths(config.OutputPaths, config.ErrorPaths); err != nil {
 		return nil, fmt.Errorf("output path validation failed: %w", err)
 	}
 
-	config := zap.NewProductionConfig()
-	config.Level = zap.NewAtomicLevelAt(zapcore.InfoLevel)
-	config.OutputPaths = []string{"stdout"}
-	config.ErrorOutputPaths = []string{"stderr"}
+	return buildLogger(config)
+}
 
-	// Disable sampling to ensure all log messages are output
-	config.Sampling = nil
+// NewDefaultLogger creates a logger with default configuration
+func NewDefaultLogger() (*zap.Logger, error) {
+	return NewLogger(DefaultConfig())
+}
 
-	// Add caller info and stack traces for errors
-	logger, err := config.Build(
-		zap.AddCaller(),
-		zap.AddCallerSkip(1), // Skip wrapper functions
+// MustNewLogger creates a logger or panics - use sparingly and only at application startup
+func MustNewLogger(config *LoggerConfig) *zap.Logger {
+	logger, err := NewLogger(config)
+	if err != nil {
+		log.Panicf("Failed to create logger: %v", err)
+	}
+	return logger
+}
+
+// NewLoggerWithFallback creates a logger with automatic fallback on failure
+func NewLoggerWithFallback(config *LoggerConfig) *zap.Logger {
+	logger, err := NewLogger(config)
+	if err != nil {
+		// Use standard library logger as fallback
+		log.Printf("WARNING: Failed to initialize zap logger: %v. Using fallback logger.", err)
+		return createFallbackLogger()
+	}
+	return logger
+}
+
+// buildLogger creates and configures the zap logger with error handling
+func buildLogger(config *LoggerConfig) (*zap.Logger, error) {
+	var zapConfig zap.Config
+
+	if config.Development {
+		zapConfig = zap.NewDevelopmentConfig()
+	} else {
+		zapConfig = zap.NewProductionConfig()
+		// Disable sampling to ensure all log messages are output
+		zapConfig.Sampling = nil
+	}
+
+	// Apply configuration
+	zapConfig.Level = zap.NewAtomicLevelAt(config.Level)
+	zapConfig.OutputPaths = config.OutputPaths
+	zapConfig.ErrorOutputPaths = config.ErrorPaths
+
+	// Build options
+	options := []zap.Option{
 		zap.AddStacktrace(zapcore.ErrorLevel),
-	)
+	}
+
+	if !config.DisableCaller {
+		options = append(options, zap.AddCaller())
+	}
+
+	logger, err := zapConfig.Build(options...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to build logger config: %w", err)
 	}
@@ -95,26 +169,117 @@ func createFallbackLogger() *zap.Logger {
 	return logger
 }
 
-func Info(msg string, fields ...zap.Field) {
-	Logger.Info(msg, fields...)
+// Logger is a backwards compatibility type that wraps *zap.Logger
+// This allows gradual migration from global logger usage
+type Logger struct {
+	*zap.Logger
 }
 
-func Error(msg string, fields ...zap.Field) {
-	Logger.Error(msg, fields...)
+// NewLoggerFromZap creates a Logger from a *zap.Logger
+func NewLoggerFromZap(zapLogger *zap.Logger) *Logger {
+	return &Logger{Logger: zapLogger}
 }
 
-func Warn(msg string, fields ...zap.Field) {
-	Logger.Warn(msg, fields...)
-}
+// Sync safely syncs the underlying logger
+func (l *Logger) Sync() error {
+	if l.Logger == nil {
+		return fmt.Errorf("logger is nil")
+	}
 
-func Debug(msg string, fields ...zap.Field) {
-	Logger.Debug(msg, fields...)
-}
-
-func Sync() {
-	if err := Logger.Sync(); err != nil {
+	if err := l.Logger.Sync(); err != nil {
 		// Can't use the logger here since it might be failing
 		// Use standard library to log this error
 		fmt.Fprintf(os.Stderr, "Failed to sync logger: %v\n", err)
+		return err
+	}
+	return nil
+}
+
+// Global logger instance for backwards compatibility
+// Deprecated: Use dependency injection with NewLogger instead
+var globalLogger *Logger
+
+// InitGlobalLogger initializes the global logger instance
+// Deprecated: Use dependency injection with NewLogger instead
+func InitGlobalLogger(config *LoggerConfig) error {
+	zapLogger, err := NewLogger(config)
+	if err != nil {
+		return err
+	}
+	globalLogger = NewLoggerFromZap(zapLogger)
+	return nil
+}
+
+// GetGlobalLogger returns the global logger instance
+// Deprecated: Use dependency injection with NewLogger instead
+func GetGlobalLogger() *Logger {
+	if globalLogger == nil {
+		// Create a fallback logger if none has been initialized
+		globalLogger = NewLoggerFromZap(createFallbackLogger())
+	}
+	return globalLogger
+}
+
+// SetGlobalLogger replaces the global logger (useful for testing)
+func SetGlobalLogger(logger *Logger) {
+	globalLogger = logger
+}
+
+// Initialize initializes the global logger with the specified configuration
+func Initialize(serviceName, level, format string) error {
+	config := DefaultConfig()
+
+	// Set log level
+	switch level {
+	case "debug":
+		config.Level = zapcore.DebugLevel
+	case "info":
+		config.Level = zapcore.InfoLevel
+	case "warn":
+		config.Level = zapcore.WarnLevel
+	case "error":
+		config.Level = zapcore.ErrorLevel
+	default:
+		config.Level = zapcore.InfoLevel
+	}
+
+	// Set development mode for console format
+	if format == "console" {
+		config.Development = true
+	}
+
+	zapLogger, err := NewLogger(config)
+	if err != nil {
+		return fmt.Errorf("failed to create logger: %w", err)
+	}
+
+	logger := NewLoggerFromZap(zapLogger)
+	SetGlobalLogger(logger)
+	return nil
+}
+
+// Global convenience functions for backwards compatibility
+// Deprecated: Use dependency injection with NewLogger instead
+func Info(msg string, fields ...zap.Field) {
+	GetGlobalLogger().Info(msg, fields...)
+}
+
+func Error(msg string, fields ...zap.Field) {
+	GetGlobalLogger().Error(msg, fields...)
+}
+
+func Warn(msg string, fields ...zap.Field) {
+	GetGlobalLogger().Warn(msg, fields...)
+}
+
+func Debug(msg string, fields ...zap.Field) {
+	GetGlobalLogger().Debug(msg, fields...)
+}
+
+func Sync() {
+	if err := GetGlobalLogger().Sync(); err != nil {
+		// Can't use logger to log this error since we're syncing
+		// Write directly to stderr as a fallback
+		_, _ = os.Stderr.WriteString("Failed to sync global logger: " + err.Error() + "\n")
 	}
 }

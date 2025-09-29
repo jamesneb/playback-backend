@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Metrics API - {{.Title}}</title>
+    <link href="/docs/static/css/docs.css" rel="stylesheet">
+    <link rel="icon" href="/docs/static/favicon.ico">
+</head>
+<body>
+    <nav class="navbar">
+        <div class="nav-brand">
+            <h1>📊 Playback API</h1>
+            <span class="version">v{{.Version}}</span>
+        </div>
+        <div class="nav-links">
+            <a href="/docs/">Home</a>
+            <a href="/docs/reference/traces">Traces</a>
+            <a href="/docs/reference/logs">Logs</a>
+            <a href="/docs/reference/replay">Replay</a>
+        </div>
+    </nav>
+
+    <main class="main-content">
+        <header class="hero">
+            <h1>📊 Metrics API</h1>
+            <p class="hero-subtitle">
+                Time-series metrics ingestion and aggregation with OpenTelemetry protocol
+            </p>
+        </header>
+
+        <section class="section">
+            <h2>Base URL</h2>
+            <pre><code>{{.BaseURL}}/v1/metrics</code></pre>
+        </section>
+
+        <section class="section">
+            <h2>Endpoints</h2>
+
+            <div class="endpoint">
+                <h3>POST /v1/metrics</h3>
+                <p>Ingest metrics using OpenTelemetry protocol</p>
+
+                <h4>Headers</h4>
+                <pre><code>Content-Type: application/x-protobuf
+Authorization: Bearer &lt;api-key&gt;</code></pre>
+
+                <h4>Request Body</h4>
+                <p>OpenTelemetry ExportMetricsServiceRequest protobuf message</p>
+                <pre><code>{
+  "resource_metrics": [{
+    "resource": {
+      "attributes": [
+        {"key": "service.name", "value": {"string_value": "my-service"}},
+        {"key": "service.version", "value": {"string_value": "1.0.0"}}
+      ]
+    },
+    "scope_metrics": [{
+      "scope": {
+        "name": "my-meter",
+        "version": "1.0.0"
+      },
+      "metrics": [{
+        "name": "http_requests_total",
+        "description": "Total number of HTTP requests",
+        "unit": "1",
+        "sum": {
+          "data_points": [{
+            "attributes": [
+              {"key": "method", "value": {"string_value": "GET"}},
+              {"key": "status", "value": {"string_value": "200"}}
+            ],
+            "start_time_unix_nano": "1640995200000000000",
+            "time_unix_nano": "1640995260000000000",
+            "as_int": "42"
+          }],
+          "aggregation_temporality": "AGGREGATION_TEMPORALITY_CUMULATIVE",
+          "is_monotonic": true
+        }
+      }, {
+        "name": "http_request_duration_seconds",
+        "description": "HTTP request duration in seconds",
+        "unit": "s",
+        "histogram": {
+          "data_points": [{
+            "attributes": [
+              {"key": "method", "value": {"string_value": "GET"}}
+            ],
+            "start_time_unix_nano": "1640995200000000000",
+            "time_unix_nano": "1640995260000000000",
+            "count": "100",
+            "sum": 15.5,
+            "bucket_counts": ["10", "20", "30", "25", "10", "5"],
+            "explicit_bounds": [0.1, 0.5, 1.0, 2.5, 5.0, 10.0]
+          }],
+          "aggregation_temporality": "AGGREGATION_TEMPORALITY_CUMULATIVE"
+        }
+      }]
+    }]
+  }]
+}</code></pre>
+
+                <h4>Response</h4>
+                <pre><code>HTTP/1.1 200 OK
+Content-Type: application/json
+
+{
+  "partial_success": {
+    "rejected_data_points": 0,
+    "error_message": ""
+  }
+}</code></pre>
+            </div>
+
+            <div class="endpoint">
+                <h3>GET /v1/metrics/query</h3>
+                <p>Query time-series metrics with PromQL-like syntax</p>
+
+                <h4>Query Parameters</h4>
+                <ul>
+                    <li><code>query</code> - Metric query expression</li>
+                    <li><code>start</code> - Start time (Unix timestamp or RFC3339)</li>
+                    <li><code>end</code> - End time (Unix timestamp or RFC3339)</li>
+                    <li><code>step</code> - Query resolution step (e.g., "5m", "1h")</li>
+                </ul>
+
+                <h4>Example Query</h4>
+                <pre><code>GET /v1/metrics/query?query=http_requests_total{method="GET"}&start=1640995200&end=1640998800&step=60</code></pre>
+
+                <h4>Response</h4>
+                <pre><code>HTTP/1.1 200 OK
+Content-Type: application/json
+
+{
+  "status": "success",
+  "data": {
+    "resultType": "matrix",
+    "result": [{
+      "metric": {
+        "__name__": "http_requests_total",
+        "method": "GET",
+        "service": "my-service"
+      },
+      "values": [
+        [1640995200, "100"],
+        [1640995260, "110"],
+        [1640995320, "125"]
+      ]
+    }]
+  }
+}</code></pre>
+            </div>
+
+            <div class="endpoint">
+                <h3>GET /v1/metrics/query_range</h3>
+                <p>Query metrics over a time range with aggregation</p>
+
+                <h4>Query Parameters</h4>
+                <ul>
+                    <li><code>query</code> - Metric query with aggregation functions</li>
+                    <li><code>start</code> - Start time</li>
+                    <li><code>end</code> - End time</li>
+                    <li><code>step</code> - Aggregation step</li>
+                </ul>
+
+                <h4>Supported Functions</h4>
+                <ul>
+                    <li><code>rate()</code> - Calculate per-second rate</li>
+                    <li><code>sum()</code> - Sum values across dimensions</li>
+                    <li><code>avg()</code> - Average values</li>
+                    <li><code>max()</code> - Maximum value</li>
+                    <li><code>min()</code> - Minimum value</li>
+                    <li><code>histogram_quantile()</code> - Calculate percentiles</li>
+                </ul>
+
+                <h4>Example</h4>
+                <pre><code>GET /v1/metrics/query_range?query=rate(http_requests_total[5m])&start=1640995200&end=1640998800&step=300</code></pre>
+            </div>
+
+            <div class="endpoint">
+                <h3>GET /v1/metrics/labels</h3>
+                <p>List available metric labels</p>
+
+                <h4>Query Parameters</h4>
+                <ul>
+                    <li><code>match[]</code> - Label matcher expressions</li>
+                    <li><code>start</code> - Start time (optional)</li>
+                    <li><code>end</code> - End time (optional)</li>
+                </ul>
+
+                <h4>Response</h4>
+                <pre><code>HTTP/1.1 200 OK
+Content-Type: application/json
+
+{
+  "status": "success",
+  "data": [
+    "__name__",
+    "method",
+    "service",
+    "status"
+  ]
+}</code></pre>
+            </div>
+
+            <div class="endpoint">
+                <h3>GET /v1/metrics/label/{label_name}/values</h3>
+                <p>Get all values for a specific label</p>
+
+                <h4>Response</h4>
+                <pre><code>HTTP/1.1 200 OK
+Content-Type: application/json
+
+{
+  "status": "success",
+  "data": [
+    "GET",
+    "POST",
+    "PUT",
+    "DELETE"
+  ]
+}</code></pre>
+            </div>
+        </section>
+
+        <section class="section">
+            <h2>Metric Types</h2>
+            <div class="metric-types">
+                <div class="metric-type">
+                    <h4>Counter</h4>
+                    <p>Monotonically increasing values (e.g., request count)</p>
+                </div>
+                <div class="metric-type">
+                    <h4>Gauge</h4>
+                    <p>Current values that can go up or down (e.g., CPU usage)</p>
+                </div>
+                <div class="metric-type">
+                    <h4>Histogram</h4>
+                    <p>Distribution of values in configurable buckets (e.g., response time)</p>
+                </div>
+                <div class="metric-type">
+                    <h4>Summary</h4>
+                    <p>Quantile observations over sliding time windows</p>
+                </div>
+            </div>
+        </section>
+
+        <section class="section">
+            <h2>Rate Limits</h2>
+            <ul>
+                <li>Ingestion: 100,000 data points/second per API key</li>
+                <li>Query: 1,000 requests/minute per API key</li>
+                <li>Batch size: Maximum 10,000 data points per request</li>
+                <li>Query complexity: Maximum 10,000 series per query</li>
+            </ul>
+        </section>
+    </main>
+
+    <footer class="footer">
+        <div class="footer-content">
+            <div class="footer-section">
+                <h4>API</h4>
+                <ul>
+                    <li><a href="/docs/reference/traces">Traces</a></li>
+                    <li><a href="/docs/reference/metrics">Metrics</a></li>
+                    <li><a href="/docs/reference/logs">Logs</a></li>
+                    <li><a href="/docs/reference/replay">Replay</a></li>
+                </ul>
+            </div>
+        </div>
+    </footer>
+
+    <script src="/docs/static/js/docs.js"></script>
+</body>
+</html>

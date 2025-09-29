@@ -26,6 +26,19 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
+    # Resource limits for database performance and security
+    deploy:
+      resources:
+        limits:
+          memory: 2048M
+          cpus: '2.0'
+        reservations:
+          memory: 512M
+          cpus: '0.5'
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
 
   # Redis - Multi-tier caching
   redis:
@@ -43,6 +56,19 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
+    # Resource limits for cache performance
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '1.0'
+        reservations:
+          memory: 128M
+          cpus: '0.25'
+    ulimits:
+      nofile:
+        soft: 16384
+        hard: 32768
 
   # LocalStack - AWS services emulation
   localstack:
@@ -72,6 +98,19 @@ services:
       interval: 30s
       timeout: 10s
       retries: 5
+    # Resource limits for mock AWS services
+    deploy:
+      resources:
+        limits:
+          memory: 1024M
+          cpus: '1.5'
+        reservations:
+          memory: 256M
+          cpus: '0.5'
+    ulimits:
+      nofile:
+        soft: 8192
+        hard: 16384
 
   # Database migration service
   db-migrate:
@@ -91,6 +130,15 @@ services:
     networks:
       - telemetry_network
     restart: "no"
+    # Resource limits for migration utility
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.5'
+        reservations:
+          memory: 64M
+          cpus: '0.1'
 
   # S3 bucket initialization
   s3-init:
@@ -106,8 +154,17 @@ services:
       "
     networks:
       - telemetry_network
+    # Resource limits for initialization utility
+    deploy:
+      resources:
+        limits:
+          memory: 64M
+          cpus: '0.1'
+        reservations:
+          memory: 16M
+          cpus: '0.05'
 
-  # Kinesis streams initialization  
+  # Kinesis streams initialization
   kinesis-init:
     image: localstack/localstack-pro:latest
     depends_on:
@@ -126,13 +183,22 @@ services:
         apk add --no-cache aws-cli
         echo 'Creating Kinesis streams...'
         aws kinesis create-stream --stream-name telemetry-traces --shard-count 1 --endpoint-url http://localstack:4566 --region us-east-1 || echo 'Stream creation failed'
-        aws kinesis create-stream --stream-name telemetry-metrics --shard-count 1 --endpoint-url http://localstack:4566 --region us-east-1 || echo 'Stream creation failed'  
+        aws kinesis create-stream --stream-name telemetry-metrics --shard-count 1 --endpoint-url http://localstack:4566 --region us-east-1 || echo 'Stream creation failed'
         aws kinesis create-stream --stream-name telemetry-logs --shard-count 1 --endpoint-url http://localstack:4566 --region us-east-1 || echo 'Stream creation failed'
         echo 'Checking streams...'
         aws kinesis list-streams --endpoint-url http://localstack:4566 --region us-east-1
         echo 'Kinesis streams setup completed'
     networks:
       - telemetry_network
+    # Resource limits for initialization utility
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.5'
+        reservations:
+          memory: 64M
+          cpus: '0.1'
 
   # Playback Backend - Your main service
   playback-backend:
@@ -174,6 +240,22 @@ services:
       - telemetry_network
     volumes:
       - ../../config:/app/config:ro
+    # Resource limits for high-performance telemetry server
+    deploy:
+      resources:
+        limits:
+          memory: 1024M
+          cpus: '2.0'
+        reservations:
+          memory: 256M
+          cpus: '0.5'
+    ulimits:
+      nofile:
+        soft: 32768
+        hard: 65536
+      nproc:
+        soft: 2048
+        hard: 4096
 
   # Kinesis Consumer - Processes stream data and writes to ClickHouse
   kinesis-consumer:
@@ -203,6 +285,22 @@ services:
       - telemetry_network
     volumes:
       - ../../config:/app/config:ro
+    # Resource limits for stream processing workload
+    deploy:
+      resources:
+        limits:
+          memory: 1536M
+          cpus: '2.5'
+        reservations:
+          memory: 384M
+          cpus: '1.0'
+    ulimits:
+      nofile:
+        soft: 16384
+        hard: 32768
+      nproc:
+        soft: 1024
+        hard: 2048
 
   # Order Service - Test data generator
   order-service:
@@ -219,6 +317,19 @@ services:
       - playback-backend
     networks:
       - telemetry_network
+    # Resource limits for test service
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.5'
+        reservations:
+          memory: 64M
+          cpus: '0.1'
+    ulimits:
+      nofile:
+        soft: 4096
+        hard: 8192
 
   # Load Test - Continuous order generation for telemetry
   load-test:
@@ -236,6 +347,19 @@ services:
     networks:
       - telemetry_network
     restart: unless-stopped
+    # Resource limits for load testing
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+          cpus: '0.25'
+        reservations:
+          memory: 32M
+          cpus: '0.05'
+    ulimits:
+      nofile:
+        soft: 2048
+        hard: 4096
 
 networks:
   telemetry_network:

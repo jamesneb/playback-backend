@@ -11,7 +11,7 @@ import (
 
 func TestLoggerInitialization(t *testing.T) {
 	// Logger should be initialized automatically via init()
-	assert.NotNil(t, Logger)
+	assert.NotNil(t, GetGlobalLogger())
 }
 
 func TestLoggerFunctions(t *testing.T) {
@@ -20,9 +20,9 @@ func TestLoggerFunctions(t *testing.T) {
 	observedLogger := zap.New(observedZapCore)
 
 	// Temporarily replace the global logger for testing
-	originalLogger := Logger
-	Logger = observedLogger
-	defer func() { Logger = originalLogger }()
+	originalLogger := GetGlobalLogger()
+	SetGlobalLogger(NewLoggerFromZap(observedLogger))
+	defer SetGlobalLogger(originalLogger)
 
 	tests := []struct {
 		name          string
@@ -98,9 +98,9 @@ func TestLoggerFields(t *testing.T) {
 	observedLogger := zap.New(observedZapCore)
 
 	// Temporarily replace the global logger for testing
-	originalLogger := Logger
-	Logger = observedLogger
-	defer func() { Logger = originalLogger }()
+	originalLogger := GetGlobalLogger()
+	SetGlobalLogger(NewLoggerFromZap(observedLogger))
+	defer SetGlobalLogger(originalLogger)
 
 	// Test logging with various field types
 	Info("test message with fields",
@@ -147,7 +147,7 @@ func TestSyncFunction(t *testing.T) {
 
 func TestLoggerConfiguration(t *testing.T) {
 	// Test logger configuration by checking it's not nil and has expected properties
-	assert.NotNil(t, Logger)
+	assert.NotNil(t, GetGlobalLogger())
 
 	// Test that we can create log entries without panic
 	assert.NotPanics(t, func() {

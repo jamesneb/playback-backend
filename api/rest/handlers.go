@@ -12,11 +12,13 @@ import (
 	"github.com/jamesneb/playback-backend/internal/streaming"
 	"github.com/jamesneb/playback-backend/pkg/api"
 	"github.com/jamesneb/playback-backend/pkg/config"
+	"github.com/jamesneb/playback-backend/pkg/logger"
+	"github.com/jamesneb/playback-backend/pkg/telemetry"
 )
 
 // Dependencies holds all the dependencies needed by the REST API
 type Dependencies struct {
-	Config               *config.Config
+	Config               *config.ConsolidatedConfig
 	KinesisClient        *streaming.KinesisClient
 	ClickHouseClient     *storage.ClickHouseClient
 	S3Client             *s3.Client
@@ -44,17 +46,38 @@ func NewAPIHandlers(deps *Dependencies) (*APIHandlers, error) {
 
 // createHandlers creates a new set of API handlers
 func createHandlers(deps *Dependencies) (*APIHandlers, error) {
-	traceHandler := handlers.NewTraceHandler(deps.KinesisClient, deps.ResilienceComponents)
+	// Use stub publisher for local development when Kinesis is not available
+	var eventPublisher telemetry.EventPublisher
+	if deps.KinesisClient == nil {
+		logger.Info("Using stub event publisher for local development")
+		eventPublisher = streaming.NewStubEventPublisher()
+	} else {
+		eventPublisher = deps.KinesisClient
+	}
+
+	// Create handlers with ClickHouse integration for production queries
+	var traceHandler *handlers.TraceHandler
+	var metricsHandler *handlers.MetricsHandler
+	var logsHandler *handlers.LogsHandler
+
+	if deps.ClickHouseClient != nil {
+		// Production: Use real ClickHouse query services
+		traceHandler = handlers.NewTraceHandlerWithClickHouse(eventPublisher, deps.ResilienceComponents, deps.ClickHouseClient)
+		metricsHandler = handlers.NewMetricsHandlerWithClickHouse(eventPublisher, deps.ClickHouseClient, deps.ResilienceComponents)
+		logsHandler = handlers.NewLogsHandlerWithClickHouse(eventPublisher, deps.ClickHouseClient, deps.ResilienceComponents)
+	} else {
+		// Fallback: Use handlers without query capabilities (ingestion only)
+		traceHandler = handlers.NewTraceHandler(eventPublisher, deps.ResilienceComponents)
+		metricsHandler = handlers.NewMetricsHandler(eventPublisher, deps.ResilienceComponents)
+		logsHandler = handlers.NewLogsHandler(eventPublisher, deps.ResilienceComponents)
+	}
+
 	if traceHandler == nil {
 		return nil, errors.New(constants.ErrorTraceHandlerCreation)
 	}
-
-	metricsHandler := handlers.NewMetricsHandler(deps.KinesisClient)
 	if metricsHandler == nil {
 		return nil, errors.New(constants.ErrorMetricsHandlerCreation)
 	}
-
-	logsHandler := handlers.NewLogsHandler(deps.KinesisClient)
 	if logsHandler == nil {
 		return nil, errors.New(constants.ErrorLogsHandlerCreation)
 	}

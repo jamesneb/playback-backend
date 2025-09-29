@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Replay API - {{.Title}}</title>
+    <link href="/docs/static/css/docs.css" rel="stylesheet">
+    <link rel="icon" href="/docs/static/favicon.ico">
+</head>
+<body>
+    <nav class="navbar">
+        <div class="nav-brand">
+            <h1>📊 Playback API</h1>
+            <span class="version">v{{.Version}}</span>
+        </div>
+        <div class="nav-links">
+            <a href="/docs/">Home</a>
+            <a href="/docs/reference/traces">Traces</a>
+            <a href="/docs/reference/metrics">Metrics</a>
+            <a href="/docs/reference/logs">Logs</a>
+        </div>
+    </nav>
+
+    <main class="main-content">
+        <header class="hero">
+            <h1>🎬 Replay API</h1>
+            <p class="hero-subtitle">
+                Session replay data storage and retrieval for user experience monitoring
+            </p>
+        </header>
+
+        <section class="section">
+            <h2>Base URL</h2>
+            <pre><code>{{.BaseURL}}/v1/replay</code></pre>
+        </section>
+
+        <section class="section">
+            <h2>Endpoints</h2>
+
+            <div class="endpoint">
+                <h3>POST /v1/replay/sessions</h3>
+                <p>Create a new replay session</p>
+
+                <h4>Headers</h4>
+                <pre><code>Content-Type: application/json
+Authorization: Bearer &lt;api-key&gt;</code></pre>
+
+                <h4>Request Body</h4>
+                <pre><code>{
+  "session_id": "sess_01234567890abcdef",
+  "user_id": "user_12345",
+  "url": "https://example.com/dashboard",
+  "user_agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)...",
+  "viewport": {
+    "width": 1920,
+    "height": 1080
+  },
+  "metadata": {
+    "environment": "production",
+    "version": "1.2.3",
+    "feature_flags": ["new_ui", "analytics_v2"]
+  }
+}</code></pre>
+
+                <h4>Response</h4>
+                <pre><code>HTTP/1.1 201 Created
+Content-Type: application/json
+
+{
+  "session_id": "sess_01234567890abcdef",
+  "upload_url": "https://upload.playback.com/v1/replay/sess_01234567890abcdef/events",
+  "expires_at": "2024-01-01T01:00:00Z"
+}</code></pre>
+            </div>
+
+            <div class="endpoint">
+                <h3>POST /v1/replay/{session_id}/events</h3>
+                <p>Upload replay events for a session</p>
+
+                <h4>Headers</h4>
+                <pre><code>Content-Type: application/json
+Authorization: Bearer &lt;api-key&gt;
+Content-Encoding: gzip (optional)</code></pre>
+
+                <h4>Request Body</h4>
+                <p>Array of replay events in rrweb format</p>
+                <pre><code>[
+  {
+    "type": 0,
+    "data": {
+      "node": {
+        "type": 0,
+        "childNodes": [{
+          "type": 1,
+          "tagName": "html",
+          "attributes": {"lang": "en"},
+          "childNodes": [...]
+        }]
+      }
+    },
+    "timestamp": 1640995200000
+  },
+  {
+    "type": 2,
+    "data": {
+      "node": {
+        "id": 123,
+        "tagName": "button",
+        "attributes": {"class": "btn-primary"}
+      },
+      "nextId": 456
+    },
+    "timestamp": 1640995201000
+  },
+  {
+    "type": 3,
+    "data": {
+      "source": 2,
+      "type": 0,
+      "id": 123,
+      "x": 150,
+      "y": 300
+    },
+    "timestamp": 1640995202000
+  }
+]</code></pre>
+
+                <h4>Response</h4>
+                <pre><code>HTTP/1.1 200 OK
+Content-Type: application/json
+
+{
+  "events_received": 1547,
+  "events_processed": 1547,
+  "session_duration_ms": 45000
+}</code></pre>
+            </div>
+
+            <div class="endpoint">
+                <h3>GET /v1/replay/{session_id}</h3>
+                <p>Retrieve session replay data</p>
+
+                <h4>Query Parameters</h4>
+                <ul>
+                    <li><code>start</code> - Start time offset (ms) within session</li>
+                    <li><code>end</code> - End time offset (ms) within session</li>
+                    <li><code>format</code> - Response format: rrweb, compressed (default: rrweb)</li>
+                </ul>
+
+                <h4>Response</h4>
+                <pre><code>HTTP/1.1 200 OK
+Content-Type: application/json
+
+{
+  "session_id": "sess_01234567890abcdef",
+  "user_id": "user_12345",
+  "created_at": "2024-01-01T00:00:00Z",
+  "duration_ms": 45000,
+  "url": "https://example.com/dashboard",
+  "viewport": {
+    "width": 1920,
+    "height": 1080
+  },
+  "events": [{
+    "type": 0,
+    "data": {...},
+    "timestamp": 1640995200000
+  }],
+  "metadata": {
+    "event_count": 1547,
+    "errors": 3,
+    "clicks": 42,
+    "scrolls": 89
+  }
+}</code></pre>
+            </div>
+
+            <div class="endpoint">
+                <h3>GET /v1/replay/sessions</h3>
+                <p>List and search replay sessions</p>
+
+                <h4>Query Parameters</h4>
+                <ul>
+                    <li><code>user_id</code> - Filter by user ID</li>
+                    <li><code>url</code> - Filter by URL (supports wildcards)</li>
+                    <li><code>start</code> - Start time (RFC3339)</li>
+                    <li><code>end</code> - End time (RFC3339)</li>
+                    <li><code>min_duration</code> - Minimum session duration (ms)</li>
+                    <li><code>max_duration</code> - Maximum session duration (ms)</li>
+                    <li><code>has_errors</code> - Filter sessions with errors (true/false)</li>
+                    <li><code>limit</code> - Result limit (max 1000, default 50)</li>
+                    <li><code>offset</code> - Pagination offset</li>
+                </ul>
+
+                <h4>Response</h4>
+                <pre><code>HTTP/1.1 200 OK
+Content-Type: application/json
+
+{
+  "sessions": [{
+    "session_id": "sess_01234567890abcdef",
+    "user_id": "user_12345",
+    "url": "https://example.com/dashboard",
+    "created_at": "2024-01-01T00:00:00Z",
+    "duration_ms": 45000,
+    "event_count": 1547,
+    "error_count": 3,
+    "viewport": {
+      "width": 1920,
+      "height": 1080
+    }
+  }],
+  "total": 2847,
+  "has_more": true
+}</code></pre>
+            </div>
+
+            <div class="endpoint">
+                <h3>GET /v1/replay/{session_id}/heatmap</h3>
+                <p>Generate interaction heatmap data for a session</p>
+
+                <h4>Query Parameters</h4>
+                <ul>
+                    <li><code>type</code> - Heatmap type: clicks, scrolls, moves (default: clicks)</li>
+                    <li><code>viewport_width</code> - Normalize to viewport width</li>
+                    <li><code>viewport_height</code> - Normalize to viewport height</li>
+                </ul>
+
+                <h4>Response</h4>
+                <pre><code>HTTP/1.1 200 OK
+Content-Type: application/json
+
+{
+  "session_id": "sess_01234567890abcdef",
+  "type": "clicks",
+  "viewport": {
+    "width": 1920,
+    "height": 1080
+  },
+  "points": [{
+    "x": 150,
+    "y": 300,
+    "intensity": 5,
+    "timestamp": 1640995202000
+  }, {
+    "x": 200,
+    "y": 450,
+    "intensity": 12,
+    "timestamp": 1640995205000
+  }],
+  "total_interactions": 42
+}</code></pre>
+            </div>
+
+            <div class="endpoint">
+                <h3>DELETE /v1/replay/{session_id}</h3>
+                <p>Delete a replay session (GDPR compliance)</p>
+
+                <h4>Response</h4>
+                <pre><code>HTTP/1.1 204 No Content</code></pre>
+            </div>
+        </section>
+
+        <section class="section">
+            <h2>Event Types</h2>
+            <div class="event-types">
+                <div class="event-type">
+                    <h4>Type 0 - DomContentLoaded</h4>
+                    <p>Full DOM snapshot when recording starts</p>
+                </div>
+                <div class="event-type">
+                    <h4>Type 1 - Load</h4>
+                    <p>Page load complete event</p>
+                </div>
+                <div class="event-type">
+                    <h4>Type 2 - FullSnapshot</h4>
+                    <p>Full DOM snapshot during recording</p>
+                </div>
+                <div class="event-type">
+                    <h4>Type 3 - IncrementalSnapshot</h4>
+                    <p>DOM mutations, mouse movements, input changes</p>
+                </div>
+                <div class="event-type">
+                    <h4>Type 4 - Meta</h4>
+                    <p>Viewport changes, media interactions</p>
+                </div>
+                <div class="event-type">
+                    <h4>Type 5 - Custom</h4>
+                    <p>Custom application events</p>
+                </div>
+            </div>
+        </section>
+
+        <section class="section">
+            <h2>Data Retention</h2>
+            <ul>
+                <li>Standard plan: 30 days</li>
+                <li>Pro plan: 90 days</li>
+                <li>Enterprise plan: Custom retention period</li>
+                <li>GDPR deletion: Immediate upon request</li>
+            </ul>
+        </section>
+
+        <section class="section">
+            <h2>Rate Limits</h2>
+            <ul>
+                <li>Session creation: 1,000/hour per API key</li>
+                <li>Event upload: 10MB/second per session</li>
+                <li>Session retrieval: 100/minute per API key</li>
+                <li>Maximum session duration: 2 hours</li>
+                <li>Maximum events per session: 1,000,000</li>
+            </ul>
+        </section>
+
+        <section class="section">
+            <h2>Privacy & Security</h2>
+            <div class="privacy-features">
+                <div class="privacy-feature">
+                    <h4>🔒 Data Masking</h4>
+                    <p>Automatic PII redaction in form fields and sensitive elements</p>
+                </div>
+                <div class="privacy-feature">
+                    <h4>🛡️ GDPR Compliance</h4>
+                    <p>Right to deletion, data portability, and consent management</p>
+                </div>
+                <div class="privacy-feature">
+                    <h4>🔐 Encryption</h4>
+                    <p>End-to-end encryption for replay data at rest and in transit</p>
+                </div>
+                <div class="privacy-feature">
+                    <h4>📍 Geolocation</h4>
+                    <p>Optional recording with user consent for location-based insights</p>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <footer class="footer">
+        <div class="footer-content">
+            <div class="footer-section">
+                <h4>API</h4>
+                <ul>
+                    <li><a href="/docs/reference/traces">Traces</a></li>
+                    <li><a href="/docs/reference/metrics">Metrics</a></li>
+                    <li><a href="/docs/reference/logs">Logs</a></li>
+                    <li><a href="/docs/reference/replay">Replay</a></li>
+                </ul>
+            </div>
+        </div>
+    </footer>
+
+    <script src="/docs/static/js/docs.js"></script>
+</body>
+</html>

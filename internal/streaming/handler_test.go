@@ -3,6 +3,7 @@ package streaming
 import (
 	"context"
 	"encoding/json"
+	"sync"
 	"testing"
 	"time"
 
@@ -13,6 +14,19 @@ import (
 	metricspb "go.opentelemetry.io/proto/otlp/metrics/v1"
 	tracepb "go.opentelemetry.io/proto/otlp/trace/v1"
 )
+
+// createMockKinesisClient creates a mock KinesisClient for testing
+func createMockKinesisClient() *KinesisClient {
+	// Create a minimal mock that won't try to connect to AWS
+	return &KinesisClient{
+		client:         nil, // We won't be making actual AWS calls
+		streamManager:  nil,
+		publisher:      nil,
+		batchProcessor: nil,
+		mu:             sync.RWMutex{},
+		shutdownOnce:   sync.Once{},
+	}
+}
 
 // MockKinesisClient implements the client interface for testing the handler
 type MockKinesisClient struct {
@@ -200,14 +214,7 @@ func TestKinesisHandlerEventRouting(t *testing.T) {
 
 func TestKinesisHandlerSwitchCases(t *testing.T) {
 	// Test the actual switch case logic in HandleTelemetryEvent without AWS calls
-	client := &KinesisClient{
-		streams: map[string]string{
-			"traces":  "test-traces",
-			"metrics": "test-metrics",
-			"logs":    "test-logs",
-		},
-	}
-
+	client := createMockKinesisClient()
 	handler := NewKinesisHandler(client)
 
 	// Test unknown event type (should return ErrUnsupportedEventType in default case)
@@ -222,19 +229,8 @@ func TestKinesisHandlerSwitchCases(t *testing.T) {
 }
 
 func TestKinesisHandlerWithRealClient(t *testing.T) {
-	// This test uses a KinesisClient without AWS connectivity to test the handler interface
-	client := &KinesisClient{
-		streams: map[string]string{
-			"traces":  "test-traces",
-			"metrics": "test-metrics",
-			"logs":    "test-logs",
-		},
-		batchChannels: make(map[string]chan LegacyTelemetryEvent),
-		shutdownCh:    make(chan struct{}),
-		batchSize:     100,
-		flushInterval: 5 * time.Second,
-	}
-
+	// This test uses a mock KinesisClient to test the handler interface
+	client := createMockKinesisClient()
 	handler := NewKinesisHandler(client)
 
 	t.Run("handler_interface_compliance", func(t *testing.T) {

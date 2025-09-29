@@ -121,6 +121,32 @@ func SanitizeDataSize(size int) string {
 	}
 }
 
+// SanitizePath removes sensitive information from URL paths while preserving structure
+func SanitizePath(path string) string {
+	if path == "" {
+		return "/"
+	}
+
+	// Replace UUIDs, IDs, tokens with placeholder
+	uuidRegex := regexp.MustCompile(`[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}`)
+	sanitized := uuidRegex.ReplaceAllString(path, "{uuid}")
+
+	// Replace numeric IDs
+	idRegex := regexp.MustCompile(`/\d+(/|$)`)
+	sanitized = idRegex.ReplaceAllString(sanitized, "/{id}$1")
+
+	// Replace hex tokens/IDs
+	hexRegex := regexp.MustCompile(`/[0-9a-fA-F]{16,}(/|$)`)
+	sanitized = hexRegex.ReplaceAllString(sanitized, "/{token}$1")
+
+	// Limit length to prevent log bloat
+	if len(sanitized) > 200 {
+		return sanitized[:197] + "..."
+	}
+
+	return sanitized
+}
+
 // hashString creates a consistent hash of a string for anonymization
 func hashString(s string) string {
 	hash := sha256.Sum256([]byte(s))

@@ -7,13 +7,13 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/jamesneb/playback-backend/api/rest/constants"
-	configapi "github.com/jamesneb/playback-backend/pkg/config/api"
+	"github.com/jamesneb/playback-backend/pkg/config"
 	"github.com/jamesneb/playback-backend/pkg/logger"
 	"go.uber.org/zap"
 )
 
 // createCorsMiddleware creates CORS middleware with complete origin matching and performance optimizations
-func createCorsMiddleware(corsConfig configapi.CORSConfig) (gin.HandlerFunc, error) {
+func createCorsMiddleware(corsConfig config.CORSSettings) (gin.HandlerFunc, error) {
 	if len(corsConfig.AllowedOrigins) == 0 {
 		return nil, errors.New("CORS enabled but no allowed origins specified")
 	}

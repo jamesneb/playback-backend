@@ -16,11 +16,6 @@ import (
 	internalstreaming "github.com/jamesneb/playback-backend/internal/streaming"
 	"github.com/jamesneb/playback-backend/pkg/api"
 	"github.com/jamesneb/playback-backend/pkg/config"
-	configapi "github.com/jamesneb/playback-backend/pkg/config/api"
-	"github.com/jamesneb/playback-backend/pkg/config/app"
-	"github.com/jamesneb/playback-backend/pkg/config/database"
-	"github.com/jamesneb/playback-backend/pkg/config/security"
-	"github.com/jamesneb/playback-backend/pkg/config/server"
 	configstreaming "github.com/jamesneb/playback-backend/pkg/config/streaming"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -31,61 +26,65 @@ func TestHTTPServerIntegration(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	// Create test configuration
-	cfg := &config.Config{
-		Server: server.ServerConfig{
-			Mode: gin.TestMode,
-			Host: "localhost",
-			Port: 8080,
-		},
-		App: app.AppConfig{
+	cfg := &config.ConsolidatedConfig{
+		App: config.AppSettings{
 			Name:    "test-app",
 			Version: "1.0.0",
 		},
-		API: configapi.APIConfig{
-			EnableCORS: true,
-			CORS: configapi.CORSConfig{
-				AllowedOrigins: []string{"*"},
-				AllowedMethods: []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
-				AllowedHeaders: []string{"*"},
-				MaxAge:         3600,
-			},
-		},
-		Resilience: configstreaming.ResilienceConfig{
-			RateLimiter: configstreaming.RateLimiterConfig{
-				RequestsPerSecond: 1000,
-				BurstCapacity:     2000,
-			},
-		},
-		Monitoring: security.MonitoringConfig{
-			EnableMetrics:   true,
-			MetricsEndpoint: "/metrics",
-		},
-		Streaming: configstreaming.StreamingConfig{
-			Kinesis: configstreaming.KinesisConfig{
-				TracesStreamName:  "test-traces-stream",
-				MetricsStreamName: "test-metrics-stream",
-				LogsStreamName:    "test-logs-stream",
-				Region:            "us-east-1",
-				EndpointURL:       "http://localhost:4566", // LocalStack endpoint for testing
-				Streams: map[string]string{
-					"traces":  "test-traces-stream",
-					"metrics": "test-metrics-stream",
-					"logs":    "test-logs-stream",
+		Network: config.NetworkSettings{
+			HTTP: config.HTTPSettings{
+				Mode: gin.TestMode,
+				Host: "localhost",
+				Port: 8080,
+				EnableCORS: true,
+				CORS: config.CORSSettings{
+					AllowedOrigins: []string{"*"},
+					AllowedMethods: []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
+					AllowedHeaders: []string{"*"},
+					MaxAge:         3600,
 				},
+				RateLimitRPS:   1000,
+				RateLimitBurst: 2000,
+			},
+		},
+		Data: config.DataSettings{
+			Kinesis: config.KinesisSettings{
+				TracesStream:    "test-traces-stream",
+				MetricsStream:   "test-metrics-stream",
+				LogsStream:      "test-logs-stream",
+				Region:          "us-east-1",
+				EndpointURL:     "http://localhost:4566", // LocalStack endpoint for testing
 				AccessKeyID:     "test-access-key",
 				SecretAccessKey: "test-secret-key",
 			},
-		},
-		Database: database.DatabaseConfig{
-			ClickHouse: database.ClickHouseConfig{
+			ClickHouse: config.ClickHouseSettings{
 				Host:     "localhost:9000",
 				Database: "test_db",
 			},
 		},
+		Operations: config.OperationsSettings{
+			EnableMetrics: true,
+			MetricsPath:   "/metrics",
+		},
 	}
 
 	// Create mock dependencies with proper initialization
-	kinesisClient, err := internalstreaming.NewKinesisClient(&cfg.Streaming.Kinesis)
+	// Convert ConsolidatedConfig.KinesisSettings to old streaming.KinesisConfig format
+	legacyKinesisConfig := &configstreaming.KinesisConfig{
+		Region:            cfg.Data.Kinesis.Region,
+		AccessKeyID:       cfg.Data.Kinesis.AccessKeyID,
+		SecretAccessKey:   cfg.Data.Kinesis.SecretAccessKey,
+		EndpointURL:       cfg.Data.Kinesis.EndpointURL,
+		TracesStreamName:  cfg.Data.Kinesis.TracesStream,
+		MetricsStreamName: cfg.Data.Kinesis.MetricsStream,
+		LogsStreamName:    cfg.Data.Kinesis.LogsStream,
+		Streams: map[string]string{
+			"traces":  cfg.Data.Kinesis.TracesStream,
+			"metrics": cfg.Data.Kinesis.MetricsStream,
+			"logs":    cfg.Data.Kinesis.LogsStream,
+		},
+	}
+	kinesisClient, err := internalstreaming.NewKinesisClient(legacyKinesisConfig, "test")
 	if err != nil {
 		// If we can't connect to LocalStack/AWS, skip the integration test
 		t.Skip("Kinesis client initialization failed, LocalStack may not be running:", err)
@@ -93,8 +92,8 @@ func TestHTTPServerIntegration(t *testing.T) {
 
 	// Create ClickHouse config for internal storage package
 	chConfig := &storage.ClickHouseConfig{
-		Host:     cfg.Database.ClickHouse.Host,
-		Database: cfg.Database.ClickHouse.Database,
+		Host:     cfg.Data.ClickHouse.Host,
+		Database: cfg.Data.ClickHouse.Database,
 	}
 	clickHouseClient, err := storage.NewClickHouseClient(chConfig)
 	if err != nil {
@@ -289,34 +288,30 @@ func TestHTTPServerIntegration(t *testing.T) {
 func TestHTTPRoutingIntegration(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
-	cfg := &config.Config{
-		Server: server.ServerConfig{
-			Mode: gin.TestMode,
-			Host: "localhost",
-			Port: 8080,
-		},
-		App: app.AppConfig{
+	cfg := &config.ConsolidatedConfig{
+		App: config.AppSettings{
 			Name:    "test-app",
 			Version: "1.0.0",
 		},
-		API: configapi.APIConfig{
-			EnableCORS: true,
-			CORS: configapi.CORSConfig{
-				AllowedOrigins: []string{"*"},
-				AllowedMethods: []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
-				AllowedHeaders: []string{"*"},
-				MaxAge:         3600,
+		Network: config.NetworkSettings{
+			HTTP: config.HTTPSettings{
+				Mode: gin.TestMode,
+				Host: "localhost",
+				Port: 8080,
+				EnableCORS: true,
+				CORS: config.CORSSettings{
+					AllowedOrigins: []string{"*"},
+					AllowedMethods: []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
+					AllowedHeaders: []string{"*"},
+					MaxAge:         3600,
+				},
+				RateLimitRPS:   1000,
+				RateLimitBurst: 2000,
 			},
 		},
-		Resilience: configstreaming.ResilienceConfig{
-			RateLimiter: configstreaming.RateLimiterConfig{
-				RequestsPerSecond: 1000,
-				BurstCapacity:     2000,
-			},
-		},
-		Monitoring: security.MonitoringConfig{
-			EnableMetrics:   true,
-			MetricsEndpoint: "/metrics",
+		Operations: config.OperationsSettings{
+			EnableMetrics: true,
+			MetricsPath:   "/metrics",
 		},
 	}
 
@@ -426,19 +421,17 @@ func TestHTTPRoutingIntegration(t *testing.T) {
 func TestServerShutdownIntegration(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
-	cfg := &config.Config{
-		Server: server.ServerConfig{
-			Mode: gin.TestMode,
-		},
-		Resilience: configstreaming.ResilienceConfig{
-			RateLimiter: configstreaming.RateLimiterConfig{
-				RequestsPerSecond: 100,
-				BurstCapacity:     200,
+	cfg := &config.ConsolidatedConfig{
+		Network: config.NetworkSettings{
+			HTTP: config.HTTPSettings{
+				Mode: gin.TestMode,
+				RateLimitRPS:   100,
+				RateLimitBurst: 200,
 			},
 		},
-		Monitoring: security.MonitoringConfig{
-			EnableMetrics:   true,
-			MetricsEndpoint: "/metrics",
+		Operations: config.OperationsSettings{
+			EnableMetrics: true,
+			MetricsPath:   "/metrics",
 		},
 	}
 
@@ -483,19 +476,17 @@ func TestServerShutdownIntegration(t *testing.T) {
 func TestMiddlewareIntegration(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
-	cfg := &config.Config{
-		Server: server.ServerConfig{
-			Mode: gin.TestMode,
-		},
-		Monitoring: security.MonitoringConfig{
-			EnableMetrics:   true,
-			MetricsEndpoint: "/metrics",
-		},
-		Resilience: configstreaming.ResilienceConfig{
-			RateLimiter: configstreaming.RateLimiterConfig{
-				RequestsPerSecond: 100,
-				BurstCapacity:     200,
+	cfg := &config.ConsolidatedConfig{
+		Network: config.NetworkSettings{
+			HTTP: config.HTTPSettings{
+				Mode: gin.TestMode,
+				RateLimitRPS:   100,
+				RateLimitBurst: 200,
 			},
+		},
+		Operations: config.OperationsSettings{
+			EnableMetrics: true,
+			MetricsPath:   "/metrics",
 		},
 	}
 
@@ -552,12 +543,12 @@ func TestServerWithMockedDependencies(t *testing.T) {
 			name: "minimal dependencies",
 			setupDeps: func() *Dependencies {
 				return &Dependencies{
-					Config: &config.Config{
-						Server: server.ServerConfig{Mode: gin.TestMode},
-						Resilience: configstreaming.ResilienceConfig{
-							RateLimiter: configstreaming.RateLimiterConfig{
-								RequestsPerSecond: 100,
-								BurstCapacity:     200,
+					Config: &config.ConsolidatedConfig{
+						Network: config.NetworkSettings{
+							HTTP: config.HTTPSettings{
+								Mode:           gin.TestMode,
+								RateLimitRPS:   100,
+								RateLimitBurst: 200,
 							},
 						},
 					},

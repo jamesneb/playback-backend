@@ -273,16 +273,16 @@ func (mr *MigrationRunner) Migrate() error {
 
 func main() {
 	// Load configuration using the same config system as the main app
-	cfg, err := config.Load("")
+	cfg, err := config.LoadConsolidatedConfig("")
 	if err != nil {
 		log.Fatalf("Failed to load configuration: %v", err)
 	}
 
 	// Extract ClickHouse configuration
-	host := cfg.Database.ClickHouse.Host
-	username := cfg.Database.ClickHouse.Username
-	password := cfg.Database.ClickHouse.Password
-	database := cfg.Database.ClickHouse.Database
+	host := cfg.Data.ClickHouse.Host
+	username := cfg.Data.ClickHouse.Username
+	password := cfg.Data.ClickHouse.Password
+	database := cfg.Data.ClickHouse.Database
 
 	log.Printf("Connecting to ClickHouse at %s, target database: %s", host, database)
 

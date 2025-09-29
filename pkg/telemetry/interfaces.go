@@ -3,6 +3,15 @@ package telemetry
 import (
 	"context"
 	"encoding/json"
+	"errors"
+)
+
+// Event validation errors
+var (
+	ErrInvalidServiceName = errors.New("invalid or empty service name")
+	ErrMissingTraceID     = errors.New("missing trace ID")
+	ErrEmptyData          = errors.New("empty telemetry data")
+	ErrInvalidEventType   = errors.New("invalid event type")
 )
 
 // EventPublisher defines a generic interface for publishing telemetry events

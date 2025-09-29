@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Logs API - {{.Title}}</title>
+    <link href="/docs/static/css/docs.css" rel="stylesheet">
+    <link rel="icon" href="/docs/static/favicon.ico">
+</head>
+<body>
+    <nav class="navbar">
+        <div class="nav-brand">
+            <h1>📊 Playback API</h1>
+            <span class="version">v{{.Version}}</span>
+        </div>
+        <div class="nav-links">
+            <a href="/docs/">Home</a>
+            <a href="/docs/reference/traces">Traces</a>
+            <a href="/docs/reference/metrics">Metrics</a>
+            <a href="/docs/reference/replay">Replay</a>
+        </div>
+    </nav>
+
+    <main class="main-content">
+        <header class="hero">
+            <h1>📝 Logs API</h1>
+            <p class="hero-subtitle">
+                Structured log data ingestion and search with OpenTelemetry protocol
+            </p>
+        </header>
+
+        <section class="section">
+            <h2>Base URL</h2>
+            <pre><code>{{.BaseURL}}/v1/logs</code></pre>
+        </section>
+
+        <section class="section">
+            <h2>Endpoints</h2>
+
+            <div class="endpoint">
+                <h3>POST /v1/logs</h3>
+                <p>Ingest log records using OpenTelemetry protocol</p>
+
+                <h4>Headers</h4>
+                <pre><code>Content-Type: application/x-protobuf
+Authorization: Bearer &lt;api-key&gt;</code></pre>
+
+                <h4>Request Body</h4>
+                <p>OpenTelemetry ExportLogsServiceRequest protobuf message</p>
+                <pre><code>{
+  "resource_logs": [{
+    "resource": {
+      "attributes": [
+        {"key": "service.name", "value": {"string_value": "my-service"}},
+        {"key": "service.version", "value": {"string_value": "1.0.0"}}
+      ]
+    },
+    "scope_logs": [{
+      "scope": {
+        "name": "my-logger",
+        "version": "1.0.0"
+      },
+      "log_records": [{
+        "time_unix_nano": "1640995200000000000",
+        "severity_number": "SEVERITY_NUMBER_ERROR",
+        "severity_text": "ERROR",
+        "body": {
+          "string_value": "Failed to process request"
+        },
+        "attributes": [
+          {"key": "http.method", "value": {"string_value": "POST"}},
+          {"key": "http.status_code", "value": {"int_value": "500"}},
+          {"key": "error.message", "value": {"string_value": "Database connection timeout"}},
+          {"key": "user.id", "value": {"string_value": "12345"}}
+        ],
+        "trace_id": "0123456789abcdef0123456789abcdef",
+        "span_id": "0123456789abcdef"
+      }]
+    }]
+  }]
+}</code></pre>
+
+                <h4>Response</h4>
+                <pre><code>HTTP/1.1 200 OK
+Content-Type: application/json
+
+{
+  "partial_success": {
+    "rejected_log_records": 0,
+    "error_message": ""
+  }
+}</code></pre>
+            </div>
+
+            <div class="endpoint">
+                <h3>GET /v1/logs/search</h3>
+                <p>Search and filter log records</p>
+
+                <h4>Query Parameters</h4>
+                <ul>
+                    <li><code>query</code> - Search query (Lucene-like syntax)</li>
+                    <li><code>start</code> - Start time (RFC3339)</li>
+                    <li><code>end</code> - End time (RFC3339)</li>
+                    <li><code>severity</code> - Filter by severity level</li>
+                    <li><code>service</code> - Filter by service name</li>
+                    <li><code>trace_id</code> - Filter by trace ID</li>
+                    <li><code>limit</code> - Result limit (max 10,000, default 1,000)</li>
+                    <li><code>offset</code> - Pagination offset</li>
+                    <li><code>sort</code> - Sort order: timestamp_asc, timestamp_desc (default)</li>
+                </ul>
+
+                <h4>Example Search Query</h4>
+                <pre><code>GET /v1/logs/search?query=error.message:"timeout" AND http.status_code:500&start=2024-01-01T00:00:00Z&end=2024-01-01T23:59:59Z&limit=100</code></pre>
+
+                <h4>Response</h4>
+                <pre><code>HTTP/1.1 200 OK
+Content-Type: application/json
+
+{
+  "logs": [{
+    "timestamp": "2024-01-01T12:00:00.123456789Z",
+    "severity": "ERROR",
+    "message": "Failed to process request",
+    "service": "my-service",
+    "trace_id": "0123456789abcdef0123456789abcdef",
+    "span_id": "0123456789abcdef",
+    "attributes": {
+      "http.method": "POST",
+      "http.status_code": 500,
+      "error.message": "Database connection timeout",
+      "user.id": "12345"
+    }
+  }],
+  "total": 1547,
+  "has_more": true
+}</code></pre>
+            </div>
+
+            <div class="endpoint">
+                <h3>GET /v1/logs/tail</h3>
+                <p>Real-time log streaming with Server-Sent Events</p>
+
+                <h4>Query Parameters</h4>
+                <ul>
+                    <li><code>query</code> - Filter query for streaming logs</li>
+                    <li><code>service</code> - Filter by service name</li>
+                    <li><code>severity</code> - Minimum severity level</li>
+                </ul>
+
+                <h4>Response</h4>
+                <pre><code>HTTP/1.1 200 OK
+Content-Type: text/event-stream
+Cache-Control: no-cache
+Connection: keep-alive
+
+data: {"timestamp":"2024-01-01T12:00:01Z","severity":"INFO","message":"Request processed","service":"my-service"}
+
+data: {"timestamp":"2024-01-01T12:00:02Z","severity":"ERROR","message":"Failed to connect","service":"my-service"}</code></pre>
+            </div>
+
+            <div class="endpoint">
+                <h3>GET /v1/logs/aggregate</h3>
+                <p>Aggregate log data by time intervals and fields</p>
+
+                <h4>Query Parameters</h4>
+                <ul>
+                    <li><code>query</code> - Filter query</li>
+                    <li><code>start</code> - Start time</li>
+                    <li><code>end</code> - End time</li>
+                    <li><code>interval</code> - Time interval (e.g., "1m", "5m", "1h")</li>
+                    <li><code>group_by</code> - Fields to group by (comma-separated)</li>
+                    <li><code>function</code> - Aggregation function: count, avg, sum, min, max</li>
+                </ul>
+
+                <h4>Example</h4>
+                <pre><code>GET /v1/logs/aggregate?query=severity:ERROR&start=2024-01-01T00:00:00Z&end=2024-01-01T23:59:59Z&interval=1h&group_by=service&function=count</code></pre>
+
+                <h4>Response</h4>
+                <pre><code>HTTP/1.1 200 OK
+Content-Type: application/json
+
+{
+  "buckets": [{
+    "timestamp": "2024-01-01T00:00:00Z",
+    "groups": {
+      "my-service": 15,
+      "auth-service": 8,
+      "payment-service": 3
+    }
+  }, {
+    "timestamp": "2024-01-01T01:00:00Z",
+    "groups": {
+      "my-service": 12,
+      "auth-service": 5,
+      "payment-service": 1
+    }
+  }]
+}</code></pre>
+            </div>
+        </section>
+
+        <section class="section">
+            <h2>Query Syntax</h2>
+            <div class="query-syntax">
+                <h4>Field Search</h4>
+                <pre><code>field:value
+service:"my-service"
+http.status_code:500</code></pre>
+
+                <h4>Boolean Operators</h4>
+                <pre><code>severity:ERROR AND service:"payment"
+severity:ERROR OR severity:WARN
+NOT severity:DEBUG</code></pre>
+
+                <h4>Range Queries</h4>
+                <pre><code>http.status_code:[400 TO 499]
+timestamp:[2024-01-01T00:00:00Z TO 2024-01-01T23:59:59Z]</code></pre>
+
+                <h4>Wildcards</h4>
+                <pre><code>message:*timeout*
+service:auth-*
+error.message:connection?failed</code></pre>
+
+                <h4>Regular Expressions</h4>
+                <pre><code>message:/error|fail|exception/i
+user.id:/user-\d+/</code></pre>
+            </div>
+        </section>
+
+        <section class="section">
+            <h2>Severity Levels</h2>
+            <div class="severity-levels">
+                <div class="severity-level">
+                    <h4>TRACE (1-4)</h4>
+                    <p>Fine-grained informational events</p>
+                </div>
+                <div class="severity-level">
+                    <h4>DEBUG (5-8)</h4>
+                    <p>Debug-level messages</p>
+                </div>
+                <div class="severity-level">
+                    <h4>INFO (9-12)</h4>
+                    <p>Informational messages</p>
+                </div>
+                <div class="severity-level">
+                    <h4>WARN (13-16)</h4>
+                    <p>Warning conditions</p>
+                </div>
+                <div class="severity-level">
+                    <h4>ERROR (17-20)</h4>
+                    <p>Error conditions</p>
+                </div>
+                <div class="severity-level">
+                    <h4>FATAL (21-24)</h4>
+                    <p>Fatal error conditions</p>
+                </div>
+            </div>
+        </section>
+
+        <section class="section">
+            <h2>Rate Limits</h2>
+            <ul>
+                <li>Ingestion: 1,000,000 log records/second per API key</li>
+                <li>Search: 100 requests/minute per API key</li>
+                <li>Streaming: 10 concurrent connections per API key</li>
+                <li>Batch size: Maximum 100,000 log records per request</li>
+            </ul>
+        </section>
+    </main>
+
+    <footer class="footer">
+        <div class="footer-content">
+            <div class="footer-section">
+                <h4>API</h4>
+                <ul>
+                    <li><a href="/docs/reference/traces">Traces</a></li>
+                    <li><a href="/docs/reference/metrics">Metrics</a></li>
+                    <li><a href="/docs/reference/logs">Logs</a></li>
+                    <li><a href="/docs/reference/replay">Replay</a></li>
+                </ul>
+            </div>
+        </div>
+    </footer>
+
+    <script src="/docs/static/js/docs.js"></script>
+</body>
+</html>

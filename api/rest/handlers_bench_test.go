@@ -7,14 +7,13 @@ import (
 	"github.com/jamesneb/playback-backend/internal/streaming"
 	"github.com/jamesneb/playback-backend/pkg/api"
 	"github.com/jamesneb/playback-backend/pkg/config"
-	"github.com/jamesneb/playback-backend/pkg/config/server"
 )
 
 // BenchmarkNewAPIHandlers benchmarks the handler creation performance
 func BenchmarkNewAPIHandlers(b *testing.B) {
 	// Create mock dependencies
 	deps := &Dependencies{
-		Config:               &config.Config{},
+		Config:               &config.ConsolidatedConfig{},
 		KinesisClient:        &streaming.KinesisClient{}, // Mock client
 		ResilienceComponents: &interfaces.ResilienceComponents{},
 		Endpoints:            api.NewEndpointCollection(""),
@@ -35,7 +34,7 @@ func BenchmarkNewAPIHandlers(b *testing.B) {
 // BenchmarkNewAPIHandlersParallel benchmarks handler creation under concurrent load
 func BenchmarkNewAPIHandlersParallel(b *testing.B) {
 	deps := &Dependencies{
-		Config:               &config.Config{},
+		Config:               &config.ConsolidatedConfig{},
 		KinesisClient:        &streaming.KinesisClient{},
 		ResilienceComponents: &interfaces.ResilienceComponents{},
 		Endpoints:            api.NewEndpointCollection(""),
@@ -63,7 +62,7 @@ func BenchmarkDependencyValidation(b *testing.B) {
 		{
 			name: "valid_deps",
 			deps: &Dependencies{
-				Config:               &config.Config{Server: server.ServerConfig{Mode: "release"}},
+				Config:               &config.ConsolidatedConfig{Network: config.NetworkSettings{HTTP: config.HTTPSettings{Mode: "release"}}},
 				KinesisClient:        &streaming.KinesisClient{},
 				ResilienceComponents: &interfaces.ResilienceComponents{},
 				Endpoints:            api.NewEndpointCollection(""),

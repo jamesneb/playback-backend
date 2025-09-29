@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Traces API - {{.Title}}</title>
+    <link href="/docs/static/css/docs.css" rel="stylesheet">
+    <link rel="icon" href="/docs/static/favicon.ico">
+</head>
+<body>
+    <nav class="navbar">
+        <div class="nav-brand">
+            <h1>📊 Playback API</h1>
+            <span class="version">v{{.Version}}</span>
+        </div>
+        <div class="nav-links">
+            <a href="/docs/">Home</a>
+            <a href="/docs/reference/metrics">Metrics</a>
+            <a href="/docs/reference/logs">Logs</a>
+            <a href="/docs/reference/replay">Replay</a>
+        </div>
+    </nav>
+
+    <main class="main-content">
+        <header class="hero">
+            <h1>🔍 Traces API</h1>
+            <p class="hero-subtitle">
+                Distributed tracing ingestion and query with OpenTelemetry protocol support
+            </p>
+        </header>
+
+        <section class="section">
+            <h2>Base URL</h2>
+            <pre><code>{{.BaseURL}}/v1/traces</code></pre>
+        </section>
+
+        <section class="section">
+            <h2>Endpoints</h2>
+
+            <div class="endpoint">
+                <h3>POST /v1/traces</h3>
+                <p>Ingest trace spans using OpenTelemetry protocol</p>
+
+                <h4>Headers</h4>
+                <pre><code>Content-Type: application/x-protobuf
+Authorization: Bearer &lt;api-key&gt;
+X-Trace-Id: &lt;trace-id&gt; (optional)</code></pre>
+
+                <h4>Request Body</h4>
+                <p>OpenTelemetry ExportTraceServiceRequest protobuf message</p>
+                <pre><code>{
+  "resource_spans": [{
+    "resource": {
+      "attributes": [
+        {"key": "service.name", "value": {"string_value": "my-service"}},
+        {"key": "service.version", "value": {"string_value": "1.0.0"}}
+      ]
+    },
+    "scope_spans": [{
+      "scope": {
+        "name": "my-tracer",
+        "version": "1.0.0"
+      },
+      "spans": [{
+        "trace_id": "0123456789abcdef0123456789abcdef",
+        "span_id": "0123456789abcdef",
+        "parent_span_id": "fedcba9876543210",
+        "name": "http_request",
+        "kind": "SPAN_KIND_SERVER",
+        "start_time_unix_nano": "1640995200000000000",
+        "end_time_unix_nano": "1640995200100000000",
+        "attributes": [
+          {"key": "http.method", "value": {"string_value": "GET"}},
+          {"key": "http.status_code", "value": {"int_value": "200"}}
+        ],
+        "status": {
+          "code": "STATUS_CODE_OK"
+        }
+      }]
+    }]
+  }]
+}</code></pre>
+
+                <h4>Response</h4>
+                <pre><code>HTTP/1.1 200 OK
+Content-Type: application/json
+
+{
+  "partial_success": {
+    "rejected_spans": 0,
+    "error_message": ""
+  }
+}</code></pre>
+            </div>
+
+            <div class="endpoint">
+                <h3>GET /v1/traces/{trace_id}</h3>
+                <p>Retrieve complete trace by ID</p>
+
+                <h4>Parameters</h4>
+                <ul>
+                    <li><code>trace_id</code> (path) - 32-character hex trace ID</li>
+                    <li><code>format</code> (query) - Response format: json, otlp (default: json)</li>
+                </ul>
+
+                <h4>Response</h4>
+                <pre><code>HTTP/1.1 200 OK
+Content-Type: application/json
+
+{
+  "trace_id": "0123456789abcdef0123456789abcdef",
+  "spans": [{
+    "span_id": "0123456789abcdef",
+    "parent_span_id": "fedcba9876543210",
+    "operation_name": "http_request",
+    "service_name": "my-service",
+    "start_time": "2024-01-01T00:00:00.000000Z",
+    "duration_ms": 100,
+    "tags": {
+      "http.method": "GET",
+      "http.status_code": 200
+    }
+  }]
+}</code></pre>
+            </div>
+
+            <div class="endpoint">
+                <h3>GET /v1/traces</h3>
+                <p>Search and filter traces</p>
+
+                <h4>Query Parameters</h4>
+                <ul>
+                    <li><code>service</code> - Filter by service name</li>
+                    <li><code>operation</code> - Filter by operation name</li>
+                    <li><code>start</code> - Start time (RFC3339)</li>
+                    <li><code>end</code> - End time (RFC3339)</li>
+                    <li><code>duration_min</code> - Minimum duration (ms)</li>
+                    <li><code>duration_max</code> - Maximum duration (ms)</li>
+                    <li><code>tags</code> - Tag filters (key:value format)</li>
+                    <li><code>limit</code> - Result limit (max 1000, default 100)</li>
+                    <li><code>offset</code> - Pagination offset</li>
+                </ul>
+
+                <h4>Response</h4>
+                <pre><code>HTTP/1.1 200 OK
+Content-Type: application/json
+
+{
+  "traces": [{
+    "trace_id": "0123456789abcdef0123456789abcdef",
+    "root_service": "my-service",
+    "root_operation": "http_request",
+    "start_time": "2024-01-01T00:00:00.000000Z",
+    "duration_ms": 250,
+    "span_count": 5,
+    "error_count": 0
+  }],
+  "total": 42,
+  "has_more": true
+}</code></pre>
+            </div>
+        </section>
+
+        <section class="section">
+            <h2>Rate Limits</h2>
+            <ul>
+                <li>Ingestion: 10,000 spans/second per API key</li>
+                <li>Query: 100 requests/minute per API key</li>
+                <li>Batch size: Maximum 1,000 spans per request</li>
+            </ul>
+        </section>
+
+        <section class="section">
+            <h2>Error Codes</h2>
+            <div class="error-codes">
+                <div class="error-code">
+                    <h4>400 Bad Request</h4>
+                    <p>Invalid request format or missing required fields</p>
+                </div>
+                <div class="error-code">
+                    <h4>401 Unauthorized</h4>
+                    <p>Missing or invalid API key</p>
+                </div>
+                <div class="error-code">
+                    <h4>413 Payload Too Large</h4>
+                    <p>Request exceeds maximum size limit (10MB)</p>
+                </div>
+                <div class="error-code">
+                    <h4>429 Too Many Requests</h4>
+                    <p>Rate limit exceeded</p>
+                </div>
+                <div class="error-code">
+                    <h4>500 Internal Server Error</h4>
+                    <p>Server processing error</p>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <footer class="footer">
+        <div class="footer-content">
+            <div class="footer-section">
+                <h4>API</h4>
+                <ul>
+                    <li><a href="/docs/reference/traces">Traces</a></li>
+                    <li><a href="/docs/reference/metrics">Metrics</a></li>
+                    <li><a href="/docs/reference/logs">Logs</a></li>
+                    <li><a href="/docs/reference/replay">Replay</a></li>
+                </ul>
+            </div>
+        </div>
+    </footer>
+
+    <script src="/docs/static/js/docs.js"></script>
+</body>
+</html>

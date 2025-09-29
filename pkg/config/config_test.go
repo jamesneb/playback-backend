@@ -28,17 +28,16 @@ app:
   name: "test-service"
   version: "1.0.0"
   environment: "test"
+  log_level: "info"
+  log_format: "json"
 
-server:
-  host: "localhost"
-  port: 8080
-  mode: "release"
+network:
+  http:
+    host: "localhost"
+    port: 8080
+    mode: "release"
 
-logging:
-  level: "info"
-  format: "json"
-
-database:
+data:
   clickhouse:
     host: "localhost:9000"
     database: "telemetry"
@@ -48,31 +47,23 @@ database:
     host: "localhost:6379"
     password: "redis123"
     database: 0
-
-streaming:
-  provider: "kinesis"
   kinesis:
     region: "us-east-1"
-    streams:
-      traces: "traces-stream"
-      metrics: "metrics-stream"
-      logs: "logs-stream"
-    batch_size: 100
-    flush_interval: "5s"
-    max_retries: 3
-    retry_delay: "1s"
+    traces_stream: "traces-stream"
+    metrics_stream: "metrics-stream"
+    logs_stream: "logs-stream"
 `,
 			expectedError: false,
 			validateFunc: func(t *testing.T, cfg *Config) {
-				assert.Equal(t, "test-service", cfg.App.Name)
-				assert.Equal(t, "1.0.0", cfg.App.Version)
-				assert.Equal(t, "localhost", cfg.Server.Host)
-				assert.Equal(t, 8080, cfg.Server.Port)
-				assert.Equal(t, "localhost:9000", cfg.Database.ClickHouse.Host)
-				assert.Equal(t, "telemetry", cfg.Database.ClickHouse.Database)
-				assert.Equal(t, "us-east-1", cfg.Streaming.Kinesis.Region)
-				assert.Equal(t, "traces-stream", cfg.Streaming.Kinesis.Streams["traces"])
-				assert.Equal(t, "info", cfg.Logging.Level)
+				assert.Equal(t, "test-service", cfg.ConsolidatedConfig.App.Name)
+				assert.Equal(t, "1.0.0", cfg.ConsolidatedConfig.App.Version)
+				assert.Equal(t, "localhost", cfg.Network.HTTP.Host)
+				assert.Equal(t, 8080, cfg.Network.HTTP.Port)
+				assert.Equal(t, "localhost:9000", cfg.Data.ClickHouse.Host)
+				assert.Equal(t, "telemetry", cfg.Data.ClickHouse.Database)
+				assert.Equal(t, "us-east-1", cfg.Data.Kinesis.Region)
+				assert.Equal(t, "traces-stream", cfg.Data.Kinesis.TracesStream)
+				assert.Equal(t, "info", cfg.ConsolidatedConfig.App.LogLevel)
 			},
 		},
 		{
@@ -80,38 +71,35 @@ streaming:
 			configContent: `
 app:
   name: "test-service"
+  log_level: "info"
 
-server:
-  host: "localhost"
-  port: 8080
+network:
+  http:
+    host: "localhost"
+    port: 8080
 
-database:
+data:
   clickhouse:
     host: "localhost:9000"
     database: "telemetry"
     password: "config_password"
-
-logging:
-  level: "info"
-
-streaming:
   kinesis:
     region: "us-west-2"
 `,
 			envVars: map[string]string{
-				"LOG_LEVEL": "debug",
+				"PLAYBACK_APP_LOG_LEVEL": "debug",
 			},
 			expectedError: false,
 			validateFunc: func(t *testing.T, cfg *Config) {
 				// Verify only log level override works
-				assert.Equal(t, "debug", cfg.Logging.Level)
+				assert.Equal(t, "debug", cfg.ConsolidatedConfig.App.LogLevel)
 
 				// Verify all other values remain from config file
-				assert.Equal(t, "localhost", cfg.Server.Host)
-				assert.Equal(t, "telemetry", cfg.Database.ClickHouse.Database)
-				assert.Equal(t, "localhost:9000", cfg.Database.ClickHouse.Host)
-				assert.Equal(t, "config_password", cfg.Database.ClickHouse.Password)
-				assert.Equal(t, "us-west-2", cfg.Streaming.Kinesis.Region)
+				assert.Equal(t, "localhost", cfg.Network.HTTP.Host)
+				assert.Equal(t, "telemetry", cfg.Data.ClickHouse.Database)
+				assert.Equal(t, "localhost:9000", cfg.Data.ClickHouse.Host)
+				assert.Equal(t, "config_password", cfg.Data.ClickHouse.Password)
+				assert.Equal(t, "us-west-2", cfg.Data.Kinesis.Region)
 			},
 		},
 		{
@@ -339,13 +327,16 @@ app:
   name: "playback-backend"
   version: "1.0.0"
   environment: "test"
+  log_level: "info"
+  log_format: "json"
 
-server:
-  host: "0.0.0.0"
-  port: 8080
-  mode: "release"
+network:
+  http:
+    host: "0.0.0.0"
+    port: 8080
+    mode: "release"
 
-database:
+data:
   clickhouse:
     host: "clickhouse:9000"
     database: "telemetry"
@@ -355,23 +346,11 @@ database:
     host: "redis:6379"
     password: "redis123"
     database: 0
-
-streaming:
-  provider: "kinesis"
   kinesis:
     region: "us-east-1"
-    streams:
-      traces: "telemetry-traces"
-      metrics: "telemetry-metrics"
-      logs: "telemetry-logs"
-    batch_size: 100
-    flush_interval: "5s"
-    max_retries: 3
-    retry_delay: "1s"
-
-logging:
-  level: "info"
-  format: "json"
+    traces_stream: "telemetry-traces"
+    metrics_stream: "telemetry-metrics"
+    logs_stream: "telemetry-logs"
 `
 
 	configFile := filepath.Join(tempDir, "integration_config.yaml")
@@ -379,12 +358,12 @@ logging:
 	require.NoError(t, err)
 
 	// Set environment overrides
-	if err := os.Setenv("LOG_LEVEL", "debug"); err != nil {
-		t.Fatalf("Failed to set LOG_LEVEL: %v", err)
+	if err := os.Setenv("PLAYBACK_APP_LOG_LEVEL", "debug"); err != nil {
+		t.Fatalf("Failed to set PLAYBACK_APP_LOG_LEVEL: %v", err)
 	}
 	defer func() {
-		if err := os.Unsetenv("LOG_LEVEL"); err != nil {
-			t.Errorf("Failed to unset LOG_LEVEL: %v", err)
+		if err := os.Unsetenv("PLAYBACK_APP_LOG_LEVEL"); err != nil {
+			t.Errorf("Failed to unset PLAYBACK_APP_LOG_LEVEL: %v", err)
 		}
 	}()
 
@@ -393,17 +372,17 @@ logging:
 	require.NoError(t, err)
 	require.NotNil(t, config)
 
-	// Verify configuration values
-	assert.Equal(t, "0.0.0.0", config.Server.Host)
-	assert.Equal(t, 8080, config.Server.Port)
+	// Verify configuration values using consolidated config structure
+	assert.Equal(t, "0.0.0.0", config.Network.HTTP.Host)
+	assert.Equal(t, 8080, config.Network.HTTP.Port)
 
-	assert.Equal(t, "clickhouse:9000", config.Database.ClickHouse.Host)
-	assert.Equal(t, "telemetry", config.Database.ClickHouse.Database)
-	assert.Equal(t, "admin123", config.Database.ClickHouse.Password) // From config file
+	assert.Equal(t, "clickhouse:9000", config.Data.ClickHouse.Host)
+	assert.Equal(t, "telemetry", config.Data.ClickHouse.Database)
+	assert.Equal(t, "admin123", config.Data.ClickHouse.Password) // From config file
 
-	assert.Equal(t, "us-east-1", config.Streaming.Kinesis.Region)
-	assert.Equal(t, "telemetry-traces", config.Streaming.Kinesis.Streams["traces"])
+	assert.Equal(t, "us-east-1", config.Data.Kinesis.Region)
+	assert.Equal(t, "telemetry-traces", config.Data.Kinesis.TracesStream)
 
-	assert.Equal(t, "redis:6379", config.Database.Redis.Host)
-	assert.Equal(t, "debug", config.Logging.Level) // Overridden by env
+	assert.Equal(t, "redis:6379", config.Data.Redis.Host)
+	assert.Equal(t, "debug", config.ConsolidatedConfig.App.LogLevel) // Overridden by env
 }

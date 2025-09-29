@@ -87,9 +87,44 @@ docs-swagger: ## Generate Swagger documentation with environment-specific values
 	fi
 	@echo "✅ Swagger docs generated"
 
-test-load: ## Run load test against order service
-	@echo "🚀 Running load test..."
-	@cd examples/load-test && go run main.go -url http://localhost:8081 -rps 10 -duration 30s
+test-load: ## Run comprehensive load test against playback backend
+	@echo "🚀 Running comprehensive load test..."
+	@cd test/load && go run main.go
+
+test-load-quick: ## Run quick load test (30s duration, 50 RPS)
+	@echo "🚀 Running quick load test..."
+	@cd test/load && LOAD_TEST_DURATION=30s LOAD_TEST_TARGET_RPS=50 go run main.go
+
+test-load-stress: ## Run stress test (10m duration, 200 RPS)
+	@echo "🚀 Running stress load test..."
+	@cd test/load && LOAD_TEST_DURATION=10m LOAD_TEST_TARGET_RPS=200 LOAD_TEST_MAX_CONCURRENCY=100 go run main.go
+
+test-chaos: ## Run chaos engineering tests
+	@echo "🌪️  Running chaos engineering tests..."
+	@cd test/chaos && go run main.go
+
+test-chaos-quick: ## Run quick chaos tests (1m intervals, 2m max time)
+	@echo "🌪️  Running quick chaos tests..."
+	@cd test/chaos && CHAOS_EXPERIMENT_INTERVAL=1m CHAOS_MAX_EXPERIMENT_TIME=2m go run main.go
+
+test-resilience: test-load test-chaos ## Run full resilience test suite (load + chaos)
+	@echo "🛡️  Full resilience testing completed!"
+
+test-integration: ## Run AWS integration tests (requires AWS setup)
+	@echo "🔗 Running AWS integration tests..."
+	@cd test/integration && source .env 2>/dev/null || echo "⚠️  .env file not found, using environment variables"
+	@cd test/integration && go test -v -timeout 10m
+
+test-integration-setup: ## Set up AWS resources for integration tests
+	@echo "🚀 Setting up AWS resources for integration tests..."
+	@test/integration/setup_aws_resources.sh
+
+test-integration-cleanup: ## Clean up AWS resources after integration tests
+	@echo "🧹 Cleaning up AWS integration test resources..."
+	@test/integration/cleanup_aws_resources.sh
+
+test-full: test test-load test-chaos test-integration ## Run all tests (unit, load, chaos, integration)
+	@echo "🎯 All testing suites completed successfully!"
 
 init-terraform: ## Initialize Terraform for environment (ENV=dev|staging|prod)
 	@echo "Initializing Terraform for $(ENV)..."

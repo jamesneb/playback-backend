@@ -9,10 +9,13 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/jamesneb/playback-backend/internal/interfaces"
+	pkgerrors "github.com/jamesneb/playback-backend/pkg/errors"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/zap"
 )
+
 
 func TestNewTraceHandler(t *testing.T) {
 	mockPublisher := &MockEventPublisher{}
@@ -155,29 +158,39 @@ func TestTraceHandler_CreateTrace(t *testing.T) {
 func TestTraceHandler_GetTrace(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
-	mockClient := &MockEventPublisher{}
-	handler := NewTraceHandler(mockClient, &interfaces.ResilienceComponents{})
+	mockPublisher := &MockEventPublisher{}
+
+	// Create handler without ClickHouse - this is the expected scenario for the test
+	handler := NewTraceHandler(mockPublisher, &interfaces.ResilienceComponents{})
 
 	// Create request
 	req := httptest.NewRequest(http.MethodGet, "/traces/test-trace-id", nil)
 	w := httptest.NewRecorder()
 
-	// Create Gin context with URL parameter
+	// Create Gin context with URL parameter and error handling middleware
 	router := gin.New()
+
+	// Add error handling middleware
+	zapLogger := zap.NewNop() // Use a no-op logger for tests
+	errorHandler := pkgerrors.NewHandler(zapLogger)
+	router.Use(errorHandler.Middleware())
+
 	router.GET("/traces/:id", handler.GetTrace)
 
 	// Execute request
 	router.ServeHTTP(w, req)
 
-	// Verify response (currently returns mock data)
-	assert.Equal(t, http.StatusOK, w.Code)
+	// Verify response - should return service unavailable since no ClickHouse is configured
+	assert.Equal(t, http.StatusServiceUnavailable, w.Code)
 
-	var response TraceResponse
+	var response map[string]interface{}
 	err := json.Unmarshal(w.Body.Bytes(), &response)
 	require.NoError(t, err)
 
-	assert.Equal(t, "test-trace-id", response.ID)
-	assert.Contains(t, response.TraceID, "sample-trace-test-trace-id")
+	// Check that it returns a proper error response structure
+	errorDetails, exists := response["error"].(map[string]interface{})
+	require.True(t, exists, "Response should contain error details")
+	assert.Equal(t, "SERVICE_UNAVAILABLE", errorDetails["code"])
 }
 
 func TestExtractServiceNameAndTraceID(t *testing.T) {

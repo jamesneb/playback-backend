@@ -4,27 +4,56 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
-	"strings"
+	"strconv"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/jamesneb/playback-backend/internal/handlers/services"
+	"github.com/jamesneb/playback-backend/internal/interfaces"
 	"github.com/jamesneb/playback-backend/internal/logging"
+	"github.com/jamesneb/playback-backend/internal/metrics"
+	"github.com/jamesneb/playback-backend/internal/storage"
 	"github.com/jamesneb/playback-backend/pkg/logger"
 	"github.com/jamesneb/playback-backend/pkg/telemetry"
 	"go.uber.org/zap"
+	"google.golang.org/protobuf/proto"
+	metricscollectorpb "go.opentelemetry.io/proto/otlp/collector/metrics/v1"
 )
 
 type MetricsHandler struct {
-	eventPublisher telemetry.EventPublisher
+	*BaseTelemetryHandler
+	queryService services.MetricsQueryService
 }
 
-func NewMetricsHandler(eventPublisher telemetry.EventPublisher) *MetricsHandler {
+func NewMetricsHandler(eventPublisher telemetry.EventPublisher, resilienceComponents *interfaces.ResilienceComponents) *MetricsHandler {
+	baseHandler := NewBaseTelemetryHandler(
+		eventPublisher,
+		&MetricMetadataExtractor{},
+		NewStreamingTelemetryProcessor(eventPublisher, TelemetryMetric),
+		TelemetryMetric,
+	)
+
 	return &MetricsHandler{
-		eventPublisher: eventPublisher,
+		BaseTelemetryHandler: baseHandler,
+		queryService:         services.NewDefaultMetricsQueryService(),
 	}
 }
 
-// CreateMetrics receives metrics data
+func NewMetricsHandlerWithClickHouse(eventPublisher telemetry.EventPublisher, clickhouse *storage.ClickHouseClient, resilienceComponents *interfaces.ResilienceComponents) *MetricsHandler {
+	baseHandler := NewBaseTelemetryHandler(
+		eventPublisher,
+		&MetricMetadataExtractor{},
+		NewStreamingTelemetryProcessor(eventPublisher, TelemetryMetric),
+		TelemetryMetric,
+	)
+
+	return &MetricsHandler{
+		BaseTelemetryHandler: baseHandler,
+		queryService:         services.NewClickHouseMetricsQueryService(clickhouse),
+	}
+}
+
+// CreateMetrics - hot path HTTP ingestion using consolidated base handler
 // @Summary Receive metrics
 // @Description Receive metrics data from OpenTelemetry
 // @Tags metrics
@@ -35,124 +64,133 @@ func NewMetricsHandler(eventPublisher telemetry.EventPublisher) *MetricsHandler 
 // @Failure 400 {object} ErrorResponse
 // @Router /api/v1/metrics [post]
 func (h *MetricsHandler) CreateMetrics(c *gin.Context) {
-	// Validate content type
-	contentType := c.GetHeader("Content-Type")
-	if !strings.Contains(contentType, ContentTypeJSON) {
-		logger.Warn("Invalid content type received",
-			zap.String("content_type", contentType),
-			zap.String("expected", ContentTypeJSON),
-			zap.String("client_ip", logging.SanitizeClientIP(c.ClientIP())),
-			zap.String("user_agent", logging.SanitizeUserAgent(c.GetHeader("User-Agent"))))
-		c.JSON(http.StatusBadRequest, ErrorResponse{
-			Error:   "Invalid content type",
-			Message: "Content-Type must be application/json",
-		})
-		return
-	}
-
-	// Parse the OTLP metrics data (raw JSON)
-	var otlpData json.RawMessage
-	if err := c.ShouldBindJSON(&otlpData); err != nil {
-		logger.Error("Failed to parse OTLP metrics data",
-			zap.Error(err),
-			zap.String("client_ip", logging.SanitizeClientIP(c.ClientIP())),
-			zap.String("user_agent", logging.SanitizeUserAgent(c.GetHeader("User-Agent"))),
-		)
-		c.JSON(http.StatusBadRequest, ErrorResponse{
-			Error:   "Invalid OTLP metrics data",
-			Message: err.Error(),
-		})
-		return
-	}
-
-	// Extract service name and metrics count with single parse operation
-	serviceName, metricsCount := extractMetricsServiceNameAndCount(otlpData)
-
-	// Log the ingestion event
-	logger.Debug("Received OTLP metrics data",
-		zap.String("service_name", logging.SanitizeServiceName(serviceName)),
-		zap.Int("metrics_count", metricsCount),
-		zap.String("client_ip", logging.SanitizeClientIP(c.ClientIP())),
-		zap.String("user_agent", logging.SanitizeUserAgent(c.GetHeader("User-Agent"))),
-		zap.String("data_size", logging.SanitizeDataSize(len(otlpData))),
-	)
-
-	// Publish to Kinesis
-	ctx, cancel := context.WithTimeout(c.Request.Context(), 10*time.Second)
-	defer cancel()
-
-	err := h.eventPublisher.PublishMetrics(
-		ctx,
-		otlpData,
-		serviceName,
-		c.ClientIP(),
-		c.GetHeader("User-Agent"),
-	)
-	if err != nil {
-		logger.Error("Failed to publish metrics to Kinesis",
-			zap.Error(err),
-			zap.String("service_name", serviceName),
-			zap.Int("metrics_count", metricsCount),
-		)
-		c.JSON(http.StatusInternalServerError, ErrorResponse{
-			Error:   "Failed to process metrics data",
-			Message: "Internal server error",
-		})
-		return
-	}
-
-	// Log successful ingestion
-	logger.Debug("Successfully published metrics to Kinesis",
-		zap.String("service_name", serviceName),
-		zap.Int("metrics_count", metricsCount),
-	)
-
-	// Return success response
-	response := MetricsResponse{
-		Received:  metricsCount,
-		Timestamp: time.Now(),
-		Status:    "accepted",
-	}
-
-	c.JSON(http.StatusAccepted, response)
+	h.HandleIngestion(c)
 }
 
-// GetMetrics retrieves metrics (placeholder for querying)
+// CreateMetricsGRPC - zero-allocation gRPC ingestion bypassing JSON entirely
+func (h *MetricsHandler) CreateMetricsGRPC(ctx context.Context, req *metricscollectorpb.ExportMetricsServiceRequest) (*metricscollectorpb.ExportMetricsServiceResponse, error) {
+	// Zero-copy protobuf serialization
+	data, err := proto.Marshal(req)
+	if err != nil {
+		return nil, err
+	}
+
+	// Use base handler's metadata extraction (no duplication)
+	metadata := h.extractor.ExtractMetadata(data)
+	metadata.DataSize = int32(len(data))
+
+	// Hot path processing with optimized timeout
+	processCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	if err := h.processor.ProcessTelemetryData(processCtx, data, &metadata); err != nil {
+		return nil, err
+	}
+
+	return &metricscollectorpb.ExportMetricsServiceResponse{}, nil
+}
+
+// GetMetrics retrieves metrics using the query service
 // @Summary Get metrics
 // @Description Get metrics data for analysis
 // @Tags metrics
 // @Produce json
 // @Param service query string false "Service name"
+// @Param metric_name query string false "Specific metric name"
 // @Param from query string false "Start time (RFC3339)"
 // @Param to query string false "End time (RFC3339)"
-// @Success 200 {object} MetricsQueryResponse
+// @Param aggregation query string false "Aggregation function (sum, avg, count, min, max)"
+// @Param group_by query string false "Group by field (service, metric_name, time_bucket)"
+// @Param limit query int false "Limit number of results (default 100, max 10000)"
+// @Param offset query int false "Offset for pagination (default 0)"
+// @Success 200 {object} services.MetricsQueryResponse
+// @Failure 400 {object} ErrorResponse
+// @Failure 500 {object} ErrorResponse
 // @Router /api/v1/metrics [get]
 func (h *MetricsHandler) GetMetrics(c *gin.Context) {
-	service := c.Query("service")
-	from := c.Query("from")
-	to := c.Query("to")
-
-	// Mock response for now
-	response := MetricsQueryResponse{
-		Service:   service,
-		TimeRange: TimeRange{From: from, To: to},
-		Metrics: []MetricData{
-			{
-				Name:      "orders_total",
-				Type:      "counter",
-				Value:     156,
-				Labels:    map[string]string{"status": "success"},
-				Timestamp: time.Now(),
-			},
-			{
-				Name:      "order_duration_seconds",
-				Type:      "histogram",
-				Value:     0.235,
-				Labels:    map[string]string{"status": "success"},
-				Timestamp: time.Now(),
-			},
-		},
+	// Parse query parameters
+	params := services.MetricsQueryParams{
+		ServiceName: c.Query("service"),
+		MetricName:  c.Query("metric_name"),
+		Aggregation: c.Query("aggregation"),
+		GroupBy:     c.Query("group_by"),
+		Limit:       services.DefaultMetricsLimit,
+		Offset:      services.DefaultMetricsOffset,
 	}
+
+	// Parse time range parameters
+	if fromStr := c.Query("from"); fromStr != "" {
+		if fromTime, err := time.Parse(time.RFC3339, fromStr); err == nil {
+			params.From = fromTime
+		} else {
+			logger.Warn("Invalid from time format",
+				zap.String("from", fromStr),
+				zap.String("client_ip", logging.SanitizeClientIP(c.ClientIP())))
+			c.JSON(http.StatusBadRequest, ErrorResponse{
+				Error:   "Invalid time format",
+				Message: "from parameter must be in RFC3339 format",
+			})
+			return
+		}
+	}
+
+	if toStr := c.Query("to"); toStr != "" {
+		if toTime, err := time.Parse(time.RFC3339, toStr); err == nil {
+			params.To = toTime
+		} else {
+			logger.Warn("Invalid to time format",
+				zap.String("to", toStr),
+				zap.String("client_ip", logging.SanitizeClientIP(c.ClientIP())))
+			c.JSON(http.StatusBadRequest, ErrorResponse{
+				Error:   "Invalid time format",
+				Message: "to parameter must be in RFC3339 format",
+			})
+			return
+		}
+	}
+
+	// Parse pagination parameters
+	if limitStr := c.Query("limit"); limitStr != "" {
+		if limit, err := strconv.Atoi(limitStr); err == nil && limit > 0 {
+			if limit > services.MaxMetricsLimit {
+				params.Limit = services.MaxMetricsLimit
+			} else {
+				params.Limit = limit
+			}
+		}
+	}
+
+	if offsetStr := c.Query("offset"); offsetStr != "" {
+		if offset, err := strconv.Atoi(offsetStr); err == nil && offset >= 0 {
+			params.Offset = offset
+		}
+	}
+
+	// Query metrics using the service
+	queryStart := time.Now()
+	response, err := h.queryService.QueryMetrics(c.Request.Context(), params)
+	queryLatency := time.Since(queryStart).Seconds()
+
+	if err != nil {
+		// Record query failure metrics
+		metrics.Global().RecordBusinessError("query", params.ServiceName, "error")
+		logger.Error("Failed to query metrics",
+			zap.Error(err),
+			zap.String("service", params.ServiceName),
+			zap.String("metric_name", params.MetricName),
+			zap.String("client_ip", logging.SanitizeClientIP(c.ClientIP())))
+		c.JSON(http.StatusInternalServerError, ErrorResponse{
+			Error:   "Failed to query metrics",
+			Message: "Internal server error",
+		})
+		return
+	}
+
+	// Record successful query metrics - estimate response size for business tracking
+	responseSize := len(response.Metrics) * 100 // Rough estimate per metric record
+	metricsRegistry := metrics.Global()
+	metricsRegistry.RecordDataQuery("metrics", "query", float64(responseSize), queryLatency)
+	metricsRegistry.RecordStorageOperation("read", "success")
 
 	c.JSON(http.StatusOK, response)
 }
@@ -243,28 +281,9 @@ type MetricsResponse struct {
 	Status    string    `json:"status" example:"accepted"`
 }
 
-type MetricsQueryResponse struct {
-	Service   string       `json:"service" example:"order-service"`
-	TimeRange TimeRange    `json:"time_range"`
-	Metrics   []MetricData `json:"metrics"`
-}
-
-type TimeRange struct {
-	From string `json:"from" example:"2023-01-01T00:00:00Z"`
-	To   string `json:"to" example:"2023-01-01T01:00:00Z"`
-}
-
-type MetricData struct {
-	Name      string            `json:"name" example:"orders_total"`
-	Type      string            `json:"type" example:"counter"`
-	Value     float64           `json:"value" example:"156"`
-	Labels    map[string]string `json:"labels" example:"status:success"`
-	Timestamp time.Time         `json:"timestamp" example:"2023-01-01T00:00:00Z"`
-}
-
-// Helper functions for extracting metadata from OTLP metrics data
+// Keep existing helper function for backward compatibility
+// The base handler now uses this via MetricMetadataExtractor
 func extractMetricsServiceNameAndCount(data json.RawMessage) (string, int) {
-	// Parse OTLP metrics structure once to extract both service name and count
 	var otlp struct {
 		ResourceMetrics []struct {
 			Resource struct {
@@ -291,7 +310,6 @@ func extractMetricsServiceNameAndCount(data json.RawMessage) (string, int) {
 	metricsCount := 0
 
 	for _, rm := range otlp.ResourceMetrics {
-		// Extract service name from first ResourceMetric with service.name attribute
 		if serviceName == "unknown" {
 			for _, attr := range rm.Resource.Attributes {
 				if attr.Key == "service.name" && attr.Value.StringValue != "" {
@@ -300,8 +318,6 @@ func extractMetricsServiceNameAndCount(data json.RawMessage) (string, int) {
 				}
 			}
 		}
-
-		// Count metrics in all scope metrics
 		for _, sm := range rm.ScopeMetrics {
 			metricsCount += len(sm.Metrics)
 		}

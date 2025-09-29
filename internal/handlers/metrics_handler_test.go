@@ -2,20 +2,34 @@ package handlers
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/jamesneb/playback-backend/internal/handlers/services"
+	"github.com/jamesneb/playback-backend/internal/interfaces"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
 
+// MockMetricsQueryService is a mock implementation of MetricsQueryService
+type MockMetricsQueryService struct {
+	mock.Mock
+}
+
+func (m *MockMetricsQueryService) QueryMetrics(ctx context.Context, params services.MetricsQueryParams) (*services.MetricsQueryResponse, error) {
+	args := m.Called(ctx, params)
+	return args.Get(0).(*services.MetricsQueryResponse), args.Error(1)
+}
+
 func TestNewMetricsHandler(t *testing.T) {
 	mockPublisher := &MockEventPublisher{}
-	handler := NewMetricsHandler(mockPublisher)
+	handler := NewMetricsHandler(mockPublisher, &interfaces.ResilienceComponents{})
 
 	assert.NotNil(t, handler)
 	assert.Equal(t, mockPublisher, handler.eventPublisher)
@@ -107,7 +121,7 @@ func TestMetricsHandler_CreateMetrics(t *testing.T) {
 				mockClient.On("PublishMetrics", mock.Anything, mock.Anything, "test-service", mock.Anything, mock.Anything).Return(nil)
 			}
 
-			handler := NewMetricsHandler(mockClient)
+			handler := NewMetricsHandler(mockClient, &interfaces.ResilienceComponents{})
 
 			var body []byte
 			if str, ok := tt.requestBody.(string); ok {
@@ -145,9 +159,6 @@ func TestMetricsHandler_CreateMetrics(t *testing.T) {
 func TestMetricsHandler_GetMetrics(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
-	mockClient := &MockEventPublisher{}
-	handler := NewMetricsHandler(mockClient)
-
 	tests := []struct {
 		name         string
 		queryParams  string
@@ -159,7 +170,7 @@ func TestMetricsHandler_GetMetrics(t *testing.T) {
 			queryParams:  "",
 			expectedCode: http.StatusOK,
 			validateFunc: func(t *testing.T, w *httptest.ResponseRecorder) {
-				var response MetricsQueryResponse
+				var response services.MetricsQueryResponse
 				err := json.Unmarshal(w.Body.Bytes(), &response)
 				require.NoError(t, err)
 				assert.Len(t, response.Metrics, 2) // Mock returns 2 metrics
@@ -170,7 +181,7 @@ func TestMetricsHandler_GetMetrics(t *testing.T) {
 			queryParams:  "?service=test-service",
 			expectedCode: http.StatusOK,
 			validateFunc: func(t *testing.T, w *httptest.ResponseRecorder) {
-				var response MetricsQueryResponse
+				var response services.MetricsQueryResponse
 				err := json.Unmarshal(w.Body.Bytes(), &response)
 				require.NoError(t, err)
 				assert.Equal(t, "test-service", response.Service)
@@ -181,7 +192,7 @@ func TestMetricsHandler_GetMetrics(t *testing.T) {
 			queryParams:  "?from=2023-01-01T00:00:00Z&to=2023-01-01T01:00:00Z",
 			expectedCode: http.StatusOK,
 			validateFunc: func(t *testing.T, w *httptest.ResponseRecorder) {
-				var response MetricsQueryResponse
+				var response services.MetricsQueryResponse
 				err := json.Unmarshal(w.Body.Bytes(), &response)
 				require.NoError(t, err)
 				assert.Equal(t, "2023-01-01T00:00:00Z", response.TimeRange.From)
@@ -192,6 +203,61 @@ func TestMetricsHandler_GetMetrics(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			// Create fresh mocks for each test
+			mockClient := &MockEventPublisher{}
+			mockQueryService := &MockMetricsQueryService{}
+
+			// Create base handler
+			baseHandler := NewBaseTelemetryHandler(
+				mockClient,
+				&MetricMetadataExtractor{},
+				NewStreamingTelemetryProcessor(mockClient, TelemetryMetric),
+				TelemetryMetric,
+			)
+
+			handler := &MetricsHandler{
+				BaseTelemetryHandler: baseHandler,
+				queryService:         mockQueryService,
+			}
+
+			// Parse timestamps for tests
+			timestamp1, _ := time.Parse(time.RFC3339, "2023-01-01T00:00:00Z")
+			timestamp2, _ := time.Parse(time.RFC3339, "2023-01-01T00:01:00Z")
+
+			// Setup mock expectations based on test case
+			switch tt.name {
+			case "without query parameters":
+				mockQueryService.On("QueryMetrics", mock.Anything, mock.MatchedBy(func(params services.MetricsQueryParams) bool {
+					return params.ServiceName == "" && params.MetricName == ""
+				})).Return(&services.MetricsQueryResponse{
+					Metrics: []services.MetricData{
+						{Name: "cpu_usage", Type: "gauge", Value: 75.5, Timestamp: timestamp1},
+						{Name: "memory_usage", Type: "gauge", Value: 80.2, Timestamp: timestamp2},
+					},
+				}, nil)
+			case "with service parameter":
+				mockQueryService.On("QueryMetrics", mock.Anything, mock.MatchedBy(func(params services.MetricsQueryParams) bool {
+					return params.ServiceName == "test-service"
+				})).Return(&services.MetricsQueryResponse{
+					Service: "test-service",
+					Metrics: []services.MetricData{
+						{Name: "requests_total", Type: "counter", Value: 100, Timestamp: timestamp1},
+					},
+				}, nil)
+			case "with time range parameters":
+				mockQueryService.On("QueryMetrics", mock.Anything, mock.MatchedBy(func(params services.MetricsQueryParams) bool {
+					return !params.From.IsZero() && !params.To.IsZero()
+				})).Return(&services.MetricsQueryResponse{
+					TimeRange: services.TimeRange{
+						From: "2023-01-01T00:00:00Z",
+						To:   "2023-01-01T01:00:00Z",
+					},
+					Metrics: []services.MetricData{
+						{Name: "response_time", Type: "histogram", Value: 125.0, Timestamp: timestamp1},
+					},
+				}, nil)
+			}
+
 			req := httptest.NewRequest(http.MethodGet, "/metrics"+tt.queryParams, nil)
 			w := httptest.NewRecorder()
 
@@ -203,6 +269,9 @@ func TestMetricsHandler_GetMetrics(t *testing.T) {
 			if tt.validateFunc != nil {
 				tt.validateFunc(t, w)
 			}
+
+			// Verify mock expectations
+			mockQueryService.AssertExpectations(t)
 		})
 	}
 }
@@ -418,7 +487,7 @@ func TestMetricsHandler_Integration(t *testing.T) {
 	mockClient := &MockEventPublisher{}
 	mockClient.On("PublishMetrics", mock.Anything, mock.Anything, "integration-metrics-service", mock.Anything, mock.Anything).Return(nil)
 
-	handler := NewMetricsHandler(mockClient)
+	handler := NewMetricsHandler(mockClient, &interfaces.ResilienceComponents{})
 	router := gin.New()
 	router.POST("/metrics", handler.CreateMetrics)
 
@@ -457,7 +526,7 @@ func int64Ptr(i int64) *int64 {
 func BenchmarkMetricsHandler_CreateMetrics(b *testing.B) {
 	gin.SetMode(gin.TestMode)
 
-	handler := NewMetricsHandler(&MockEventPublisher{})
+	handler := NewMetricsHandler(&MockEventPublisher{}, &interfaces.ResilienceComponents{})
 
 	metricsData := map[string]interface{}{
 		"resourceMetrics": []interface{}{

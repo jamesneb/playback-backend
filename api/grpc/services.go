@@ -19,7 +19,7 @@ import (
 
 // ServiceDependencies holds all dependencies needed by gRPC services
 type ServiceDependencies struct {
-	Config               *config.Config
+	Config               *config.ConsolidatedConfig
 	KinesisClient        *streaming.KinesisClient
 	ClickHouseClient     *storage.ClickHouseClient
 	ResilienceComponents *interfaces.ResilienceComponents
@@ -84,10 +84,7 @@ func NewServiceCollection(deps *ServiceDependencies) (*ServiceCollection, error)
 	if deps.ResilienceComponents == nil {
 		return nil, fmt.Errorf("%s", ErrResilienceCompNil)
 	}
-	if deps.Config.Server.Host == "" {
-		return nil, fmt.Errorf("%s", ErrServerHostEmpty)
-	}
-	if deps.Config.Server.Port <= 0 {
+	if deps.Config.Network.GRPC.Port <= 0 {
 		return nil, fmt.Errorf("%s", ErrServerPortInvalid)
 	}
 

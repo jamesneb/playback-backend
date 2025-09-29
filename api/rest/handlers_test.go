@@ -10,15 +10,13 @@ import (
 	"github.com/jamesneb/playback-backend/internal/streaming"
 	"github.com/jamesneb/playback-backend/pkg/api"
 	"github.com/jamesneb/playback-backend/pkg/config"
-	configapi "github.com/jamesneb/playback-backend/pkg/config/api"
-	configserver "github.com/jamesneb/playback-backend/pkg/config/server"
 	"github.com/stretchr/testify/assert"
 )
 
 func TestDependencies_Structure(t *testing.T) {
 	// Test that Dependencies struct can be created and has expected fields
 	deps := &Dependencies{
-		Config:               &config.Config{},
+		Config:               &config.ConsolidatedConfig{},
 		KinesisClient:        &streaming.KinesisClient{},
 		ClickHouseClient:     &storage.ClickHouseClient{},
 		S3Client:             &s3.Client{},
@@ -78,7 +76,7 @@ func TestDependencies_FieldTypes(t *testing.T) {
 	deps := &Dependencies{}
 
 	// Test field types by attempting assignment
-	deps.Config = &config.Config{}
+	deps.Config = &config.ConsolidatedConfig{}
 	deps.KinesisClient = &streaming.KinesisClient{}
 	deps.ClickHouseClient = &storage.ClickHouseClient{}
 	deps.S3Client = &s3.Client{}
@@ -105,13 +103,13 @@ func TestAPIHandlers_FieldTypes(t *testing.T) {
 
 func TestDependenciesWithFullConfiguration(t *testing.T) {
 	// Test Dependencies with more complete configuration
-	cfg := &config.Config{
-		Server: configserver.ServerConfig{
-			Host: "localhost",
-			Port: 8080,
-		},
-		API: configapi.APIConfig{
-			EnableCORS: true,
+	cfg := &config.ConsolidatedConfig{
+		Network: config.NetworkSettings{
+			HTTP: config.HTTPSettings{
+				Host: "localhost",
+				Port: 8080,
+				EnableCORS: true,
+			},
 		},
 	}
 
@@ -127,9 +125,9 @@ func TestDependenciesWithFullConfiguration(t *testing.T) {
 	}
 
 	// Verify configuration is properly set
-	assert.Equal(t, "localhost", deps.Config.Server.Host)
-	assert.Equal(t, 8080, deps.Config.Server.Port)
-	assert.True(t, deps.Config.API.EnableCORS)
+	assert.Equal(t, "localhost", deps.Config.Network.HTTP.Host)
+	assert.Equal(t, 8080, deps.Config.Network.HTTP.Port)
+	assert.True(t, deps.Config.Network.HTTP.EnableCORS)
 }
 
 func TestStructInstantiation(t *testing.T) {

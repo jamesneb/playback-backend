@@ -13,11 +13,37 @@ import (
 	"go.uber.org/zap"
 )
 
+// Worker pool constants
+const (
+	// DefaultWorkerPoolSize defines default number of worker goroutines
+	DefaultWorkerPoolSize = 10
+
+	// MaxWorkerPoolSize defines maximum number of worker goroutines to prevent resource exhaustion
+	MaxWorkerPoolSize = 50
+
+	// WorkerChannelBufferSize defines buffer size for worker job channels
+	WorkerChannelBufferSize = 100
+
+	// AsyncFlushTimeout defines timeout for background flush operations
+	AsyncFlushTimeout = 30 * time.Second
+
+	// MaxConcurrentBatchOps defines maximum concurrent batch processing operations
+	MaxConcurrentBatchOps = 4
+)
+
 var (
 	ErrBufferFull      = errors.New("kinesis buffer is full")
 	ErrBufferClosed    = errors.New("kinesis buffer is closed")
 	ErrTenantThrottled = errors.New("tenant is being throttled")
+	ErrWorkerPoolFull  = errors.New("worker pool is full, flush job rejected")
 )
+
+// FlushJob represents a background flush job for the worker pool
+type FlushJob struct {
+	TenantID string
+	Ctx      context.Context
+	Cancel   context.CancelFunc
+}
 
 // KinesisBuffer provides resilient buffering and batching for Kinesis
 type KinesisBuffer struct {
@@ -36,6 +62,14 @@ type KinesisBuffer struct {
 	// Per-tenant buffers
 	tenantBuffers map[string]*TenantBuffer
 	bufferMutex   sync.RWMutex
+
+	// Bounded worker pool for async operations
+	workerPoolSize int
+	flushJobChan   chan FlushJob
+	workerWg       sync.WaitGroup
+
+	// Semaphore for bounded concurrent batch operations
+	batchSemaphore chan struct{}
 
 	// Global state
 	closed    int32 // Use atomic operations (0=open, 1=closed)
@@ -60,11 +94,12 @@ type TenantBuffer struct {
 
 // BufferConfig holds configuration for the Kinesis buffer
 type BufferConfig struct {
-	MaxBatchSize    int
-	MaxBatchWait    time.Duration
-	MaxBufferSize   int
-	FlushInterval   time.Duration
-	MaxTenantBuffer int
+	MaxBatchSize     int
+	MaxBatchWait     time.Duration
+	MaxBufferSize    int
+	FlushInterval    time.Duration
+	MaxTenantBuffer  int
+	WorkerPoolSize   int // Number of worker goroutines for async flush operations
 }
 
 // BufferHealthMetrics tracks buffer health and performance
@@ -104,6 +139,14 @@ func NewKinesisBuffer(
 	if config.MaxTenantBuffer == 0 {
 		config.MaxTenantBuffer = 1000
 	}
+	if config.WorkerPoolSize == 0 {
+		config.WorkerPoolSize = DefaultWorkerPoolSize
+	} else if config.WorkerPoolSize > MaxWorkerPoolSize {
+		logger.Warn("Worker pool size exceeds maximum, using maximum",
+			zap.Int("requested_size", config.WorkerPoolSize),
+			zap.Int("max_size", MaxWorkerPoolSize))
+		config.WorkerPoolSize = MaxWorkerPoolSize
+	}
 
 	kb := &KinesisBuffer{
 		kinesisClient:   kinesisClient,
@@ -115,16 +158,111 @@ func NewKinesisBuffer(
 		maxBufferSize:   config.MaxBufferSize,
 		maxTenantBuffer: config.MaxTenantBuffer,
 		flushInterval:   config.FlushInterval,
+		workerPoolSize:  config.WorkerPoolSize,
 		tenantBuffers:   make(map[string]*TenantBuffer),
+		flushJobChan:    make(chan FlushJob, WorkerChannelBufferSize),
+		batchSemaphore:  make(chan struct{}, MaxConcurrentBatchOps),
 		closeChan:       make(chan struct{}),
 		healthMetrics:   &BufferHealthMetrics{},
 	}
+
+	// Start bounded worker pool for async flush operations
+	kb.startWorkerPool()
 
 	// Start background flush goroutine
 	kb.wg.Add(1)
 	go kb.flushLoop()
 
 	return kb
+}
+
+// startWorkerPool initializes and starts the bounded worker pool for async flush operations
+func (kb *KinesisBuffer) startWorkerPool() {
+	logger.Info("Starting bounded worker pool",
+		zap.Int("worker_count", kb.workerPoolSize),
+		zap.Int("channel_buffer", WorkerChannelBufferSize))
+
+	// Start worker goroutines
+	for i := 0; i < kb.workerPoolSize; i++ {
+		kb.workerWg.Add(1)
+		go kb.flushWorker(i)
+	}
+}
+
+// flushWorker processes flush jobs from the job channel
+func (kb *KinesisBuffer) flushWorker(workerID int) {
+	defer kb.workerWg.Done()
+
+	logger.Debug("Flush worker started", zap.Int("worker_id", workerID))
+
+	for {
+		select {
+		case job, ok := <-kb.flushJobChan:
+			if !ok {
+				logger.Debug("Flush worker stopping - job channel closed", zap.Int("worker_id", workerID))
+				return
+			}
+
+			// Get the tenant buffer
+			kb.bufferMutex.RLock()
+			buffer, exists := kb.tenantBuffers[job.TenantID]
+			kb.bufferMutex.RUnlock()
+
+			if !exists || buffer == nil {
+				logger.Debug("Tenant buffer not found for flush job",
+					zap.String("tenant", job.TenantID),
+					zap.Int("worker_id", workerID))
+				job.Cancel() // Cancel context since job won't be processed
+				continue
+			}
+
+			// Perform the flush operation
+			if err := kb.flushTenantBuffer(job.Ctx, job.TenantID, buffer); err != nil {
+				logger.Error("Failed to flush buffer in worker",
+					zap.String("tenant", job.TenantID),
+					zap.Int("worker_id", workerID),
+					zap.Error(err))
+			}
+
+			// Always cancel the context when job is complete
+			job.Cancel()
+
+		case <-kb.closeChan:
+			logger.Debug("Flush worker stopping - buffer closed", zap.Int("worker_id", workerID))
+			return
+		}
+	}
+}
+
+// submitFlushJob submits a flush job to the worker pool with bounded queuing
+func (kb *KinesisBuffer) submitFlushJob(tenantID string) error {
+	if atomic.LoadInt32(&kb.closed) != 0 {
+		return ErrBufferClosed
+	}
+
+	// Create background context with timeout for async flush
+	// Don't inherit request context which gets cancelled when handler returns
+	flushCtx, cancel := context.WithTimeout(context.Background(), AsyncFlushTimeout)
+
+	job := FlushJob{
+		TenantID: tenantID,
+		Ctx:      flushCtx,
+		Cancel:   cancel,
+	}
+
+	// Try to submit job without blocking
+	select {
+	case kb.flushJobChan <- job:
+		// Job successfully queued - worker will handle context cancellation
+		return nil
+	default:
+		// Job queue is full - cancel context and return error
+		cancel()
+		logger.Warn("Flush job queue is full, rejecting job",
+			zap.String("tenant", tenantID),
+			zap.Int("queue_size", WorkerChannelBufferSize))
+		return ErrWorkerPoolFull
+	}
 }
 
 // BufferEvent adds an event to the buffer with resilience features
@@ -171,18 +309,20 @@ func (kb *KinesisBuffer) BufferEvent(ctx context.Context, event streaming.Teleme
 
 	// Check if we should flush immediately (batch size reached)
 	if buffer.size() >= kb.maxBatchSize {
-		go func() {
-			// Create background context with timeout for async flush
-			// Don't inherit request context which gets cancelled when handler returns
-			flushCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-			defer cancel()
-
-			if err := kb.flushTenantBuffer(flushCtx, tenantID, buffer); err != nil {
-				logger.Error("Failed to flush full buffer",
+		// Submit flush job to bounded worker pool instead of spawning unbounded goroutines
+		if err := kb.submitFlushJob(tenantID); err != nil {
+			// If worker pool is full, log warning but don't fail the request
+			// The periodic flush will eventually handle this buffer
+			if err == ErrWorkerPoolFull {
+				logger.Warn("Worker pool full, deferring flush to periodic timer",
+					zap.String("tenant", tenantID),
+					zap.Int("buffer_size", buffer.size()))
+			} else {
+				logger.Error("Failed to submit flush job",
 					zap.String("tenant", tenantID),
 					zap.Error(err))
 			}
-		}()
+		}
 	}
 
 	return nil
@@ -396,87 +536,113 @@ func (kb *KinesisBuffer) processBatch(ctx context.Context, events []streaming.Te
 			}
 		}
 
-		// Process each type in parallel
+		// Process each type in parallel using semaphore-controlled concurrency
+		// This maintains parallel processing benefits while bounding goroutine count
 		var wg sync.WaitGroup
 		var errors []error
 		var errorsMutex sync.Mutex
 
-		// Process traces
+		// Helper function to safely add errors
+		addError := func(err error) {
+			errorsMutex.Lock()
+			errors = append(errors, err)
+			errorsMutex.Unlock()
+		}
+
+		// Process traces with semaphore control
 		if len(traceEvents) > 0 {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
+				// Acquire semaphore
+				kb.batchSemaphore <- struct{}{}
+				defer func() { <-kb.batchSemaphore }()
+
+				// Use batch processing for efficiency
 				for _, event := range traceEvents {
 					if err := kb.kinesisClient.PublishTraceProtobuf(ctx, event.ResourceSpans,
 						event.ServiceName, event.TraceID, event.Metadata.SourceIP); err != nil {
-						errorsMutex.Lock()
-						errors = append(errors, fmt.Errorf("failed to publish trace: %w", err))
-						errorsMutex.Unlock()
+						addError(fmt.Errorf("failed to publish trace: %w", err))
 					}
 				}
 			}()
 		}
 
-		// Process metrics
+		// Process metrics with semaphore control
 		if len(metricEvents) > 0 {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
+				// Acquire semaphore
+				kb.batchSemaphore <- struct{}{}
+				defer func() { <-kb.batchSemaphore }()
+
 				for _, event := range metricEvents {
 					if err := kb.kinesisClient.PublishMetricsProtobuf(ctx, event.ResourceMetrics,
 						event.ServiceName, event.Metadata.SourceIP); err != nil {
-						errorsMutex.Lock()
-						errors = append(errors, fmt.Errorf("failed to publish metrics: %w", err))
-						errorsMutex.Unlock()
+						addError(fmt.Errorf("failed to publish metrics: %w", err))
 					}
 				}
 			}()
 		}
 
-		// Process logs
+		// Process logs with semaphore control
 		if len(logEvents) > 0 {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
+				// Acquire semaphore
+				kb.batchSemaphore <- struct{}{}
+				defer func() { <-kb.batchSemaphore }()
+
 				for _, event := range logEvents {
 					if err := kb.kinesisClient.PublishLogsProtobuf(ctx, event.ResourceLogs,
 						event.ServiceName, event.TraceID, event.Metadata.SourceIP); err != nil {
-						errorsMutex.Lock()
-						errors = append(errors, fmt.Errorf("failed to publish logs: %w", err))
-						errorsMutex.Unlock()
+						addError(fmt.Errorf("failed to publish logs: %w", err))
 					}
 				}
 			}()
 		}
 
-		// Process legacy events (HTTP JSON)
+		// Process legacy events with semaphore control and batch API
 		if len(legacyEvents) > 0 {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
+				// Acquire semaphore
+				kb.batchSemaphore <- struct{}{}
+				defer func() { <-kb.batchSemaphore }()
+
+				// Group legacy events by type for batch processing
+				traceEventsLegacy := make([]streaming.LegacyTelemetryEvent, 0)
+				metricEventsLegacy := make([]streaming.LegacyTelemetryEvent, 0)
+				logEventsLegacy := make([]streaming.LegacyTelemetryEvent, 0)
+
 				for _, event := range legacyEvents {
 					switch event.Type {
 					case "traces":
-						if err := kb.kinesisClient.PublishTrace(ctx, event.Data, event.ServiceName,
-							event.TraceID, event.Metadata.SourceIP, event.Metadata.UserAgent); err != nil {
-							errorsMutex.Lock()
-							errors = append(errors, fmt.Errorf("failed to publish legacy trace: %w", err))
-							errorsMutex.Unlock()
-						}
+						traceEventsLegacy = append(traceEventsLegacy, *event)
 					case "metrics":
-						if err := kb.kinesisClient.PublishMetrics(ctx, event.Data, event.ServiceName,
-							event.Metadata.SourceIP, event.Metadata.UserAgent); err != nil {
-							errorsMutex.Lock()
-							errors = append(errors, fmt.Errorf("failed to publish legacy metrics: %w", err))
-							errorsMutex.Unlock()
-						}
+						metricEventsLegacy = append(metricEventsLegacy, *event)
 					case "logs":
-						if err := kb.kinesisClient.PublishLogs(ctx, event.Data, event.ServiceName,
-							event.TraceID, event.Metadata.SourceIP, event.Metadata.UserAgent); err != nil {
-							errorsMutex.Lock()
-							errors = append(errors, fmt.Errorf("failed to publish legacy logs: %w", err))
-							errorsMutex.Unlock()
-						}
+						logEventsLegacy = append(logEventsLegacy, *event)
+					}
+				}
+
+				// Use batch APIs for efficiency
+				if len(traceEventsLegacy) > 0 {
+					if err := kb.kinesisClient.PublishBatch(ctx, "traces", traceEventsLegacy); err != nil {
+						addError(fmt.Errorf("failed to publish legacy trace batch: %w", err))
+					}
+				}
+				if len(metricEventsLegacy) > 0 {
+					if err := kb.kinesisClient.PublishBatch(ctx, "metrics", metricEventsLegacy); err != nil {
+						addError(fmt.Errorf("failed to publish legacy metrics batch: %w", err))
+					}
+				}
+				if len(logEventsLegacy) > 0 {
+					if err := kb.kinesisClient.PublishBatch(ctx, "logs", logEventsLegacy); err != nil {
+						addError(fmt.Errorf("failed to publish legacy logs batch: %w", err))
 					}
 				}
 			}()

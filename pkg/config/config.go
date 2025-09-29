@@ -1,3 +1,10 @@
+// Package config provides configuration management for the playback-backend application.
+//
+// This package contains both the new ConsolidatedConfig (preferred) and legacy Config structures.
+// New code should use ConsolidatedConfig which provides a clean, simplified configuration structure.
+//
+// The legacy Config structure and related imports from specific config packages
+// (api, app, database, etc.) are maintained for backward compatibility only.
 package config
 
 import (
@@ -48,47 +55,67 @@ var (
 )
 
 // Config represents the complete application configuration
-// This is now composed of focused domain-specific configurations
+// This maintains backward compatibility while supporting the new consolidated structure
 type Config struct {
+	// New consolidated structure (preferred)
+	*ConsolidatedConfig `yaml:",inline"`
+
+	// Legacy structure for backward compatibility (deprecated)
 	// Application settings
-	App     app.AppConfig     `yaml:"app"`
-	Logging app.LoggingConfig `yaml:"logging"`
+	App     app.AppConfig     `yaml:"app,omitempty"`
+	Logging app.LoggingConfig `yaml:"logging,omitempty"`
 
 	// Server and API
-	Server server.ServerConfig `yaml:"server"`
-	API    api.APIConfig       `yaml:"api"`
+	Server server.ServerConfig `yaml:"server,omitempty"`
+	API    api.APIConfig       `yaml:"api,omitempty"`
 
 	// Data layer
-	Database database.DatabaseConfig `yaml:"database"`
-	Cache    database.CacheConfig    `yaml:"cache"`
+	Database database.DatabaseConfig `yaml:"database,omitempty"`
+	Cache    database.CacheConfig    `yaml:"cache,omitempty"`
 
 	// Streaming and messaging
-	Streaming streaming.StreamingConfig `yaml:"streaming"`
+	Streaming streaming.StreamingConfig `yaml:"streaming,omitempty"`
 
 	// Processing and features
-	Processing processing.ProcessingConfig `yaml:"processing"`
-	Retention  processing.RetentionConfig  `yaml:"retention"`
-	Features   processing.FeaturesConfig   `yaml:"features"`
+	Processing processing.ProcessingConfig `yaml:"processing,omitempty"`
+	Retention  processing.RetentionConfig  `yaml:"retention,omitempty"`
+	Features   processing.FeaturesConfig   `yaml:"features,omitempty"`
 
 	// Security and monitoring
-	Security   security.SecurityConfig   `yaml:"security"`
-	Monitoring security.MonitoringConfig `yaml:"monitoring"`
+	Security   security.SecurityConfig   `yaml:"security,omitempty"`
+	Monitoring security.MonitoringConfig `yaml:"monitoring,omitempty"`
 
 	// Resilience (backward compatibility)
-	Resilience streaming.ResilienceConfig `yaml:"resilience"`
+	Resilience streaming.ResilienceConfig `yaml:"resilience,omitempty"`
 
 	// Development settings
-	Development app.DevelopmentConfig `yaml:"development"`
+	Development app.DevelopmentConfig `yaml:"development,omitempty"`
 
 	// Performance settings
-	Performance api.PerformanceConfig `yaml:"performance"`
+	Performance api.PerformanceConfig `yaml:"performance,omitempty"`
 
 	// Swagger documentation
-	Swagger api.SwaggerConfig `yaml:"swagger"`
+	Swagger api.SwaggerConfig `yaml:"swagger,omitempty"`
 }
 
 // LoadConfig loads configuration from the specified file path with validation
+// Supports both consolidated and legacy configuration formats
 func LoadConfig(configPath string) (*Config, error) {
+	// Try loading with new consolidated structure first
+	consolidatedConfig, err := LoadConsolidatedConfig(configPath)
+	if err == nil {
+		// Successfully loaded consolidated format
+		return &Config{
+			ConsolidatedConfig: consolidatedConfig,
+		}, nil
+	}
+
+	// Fallback to legacy format loading
+	return loadLegacyConfig(configPath)
+}
+
+// loadLegacyConfig loads the legacy configuration format
+func loadLegacyConfig(configPath string) (*Config, error) {
 	// Validate file path for security
 	normalizedPath, err := validateConfigPath(configPath)
 	if err != nil {

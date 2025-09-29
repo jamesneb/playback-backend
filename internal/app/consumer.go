@@ -16,7 +16,7 @@ import (
 
 // ConsumerApp manages the Kinesis consumer application lifecycle
 type ConsumerApp struct {
-	cfg             *config.Config
+	cfg             *config.ConsolidatedConfig
 	services        *ConsumerServices
 	kinesisConsumer *consumer.KinesisConsumer
 	ctx             context.Context
@@ -24,7 +24,7 @@ type ConsumerApp struct {
 }
 
 // NewConsumerApp creates a new consumer application instance
-func NewConsumerApp(cfg *config.Config, services *ConsumerServices) *ConsumerApp {
+func NewConsumerApp(cfg *config.ConsolidatedConfig, services *ConsumerServices) *ConsumerApp {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	return &ConsumerApp{
@@ -38,12 +38,16 @@ func NewConsumerApp(cfg *config.Config, services *ConsumerServices) *ConsumerApp
 // Initialize sets up the Kinesis consumer with configuration
 func (app *ConsumerApp) Initialize() error {
 	kinesisConsumer, err := consumer.NewKinesisConsumer(app.ctx, &consumer.ConsumerConfig{
-		Region:          app.cfg.Streaming.Kinesis.Region,
-		EndpointURL:     app.cfg.Streaming.Kinesis.EndpointURL,
-		AccessKeyID:     app.cfg.Streaming.Kinesis.AccessKeyID,
-		SecretAccessKey: app.cfg.Streaming.Kinesis.SecretAccessKey,
-		Streams:         app.cfg.Streaming.Kinesis.Streams,
-		PollInterval:    time.Duration(app.cfg.Streaming.Kinesis.PollInterval) * time.Second,
+		Region:          app.cfg.Data.Kinesis.Region,
+		EndpointURL:     app.cfg.Data.Kinesis.EndpointURL,
+		AccessKeyID:     app.cfg.Data.Kinesis.AccessKeyID,
+		SecretAccessKey: app.cfg.Data.Kinesis.SecretAccessKey,
+		Streams: map[string]string{
+			"traces":  app.cfg.Data.Kinesis.TracesStream,
+			"metrics": app.cfg.Data.Kinesis.MetricsStream,
+			"logs":    app.cfg.Data.Kinesis.LogsStream,
+		},
+		PollInterval:    5 * time.Second, // Default poll interval
 	}, app.services.ClickHouseClient)
 
 	if err != nil {
@@ -62,7 +66,7 @@ func (app *ConsumerApp) Start() error {
 	}
 	logger.Info(MsgStartingConsumerService,
 		zap.String("version", app.cfg.App.Version),
-		zap.Int("streams", len(app.cfg.Streaming.Kinesis.Streams)))
+		zap.Int("streams", 3)) // traces, metrics, logs
 
 	if err := app.kinesisConsumer.Start(app.ctx); err != nil {
 		return fmt.Errorf(ErrKinesisConsumerStart, err)

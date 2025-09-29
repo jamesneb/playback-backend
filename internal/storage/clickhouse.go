@@ -17,6 +17,45 @@ import (
 	"go.uber.org/zap"
 )
 
+// ServiceExtractor efficiently extracts service metadata from OTLP resource attributes
+type ServiceExtractor struct {
+	// Pre-allocated maps to avoid repeated allocations
+	attributesBuffer map[string]string
+}
+
+// NewServiceExtractor creates a reusable service extractor with pre-allocated buffers
+func NewServiceExtractor() *ServiceExtractor {
+	return &ServiceExtractor{
+		attributesBuffer: make(map[string]string, 16), // Pre-allocate for typical attribute count
+	}
+}
+
+// ServiceInfo holds extracted service metadata
+type ServiceInfo struct {
+	Name    string
+	Version string
+}
+
+// BatchContext holds reusable resources for batch operations
+type BatchContext struct {
+	// Pre-allocated hex encoding buffers
+	TraceIDBuffer      [32]byte // 16 bytes * 2 hex = 32 chars
+	SpanIDBuffer       [16]byte // 8 bytes * 2 hex = 16 chars
+	ParentSpanIDBuffer [16]byte // 8 bytes * 2 hex = 16 chars
+	// Reusable timestamp
+	IngestedAt time.Time
+	// Service extractor
+	Extractor *ServiceExtractor
+}
+
+// NewBatchContext creates a batch context with pre-allocated resources
+func NewBatchContext() *BatchContext {
+	return &BatchContext{
+		IngestedAt: time.Now(),
+		Extractor:  NewServiceExtractor(),
+	}
+}
+
 type ClickHouseClient struct {
 	conn driver.Conn
 }
@@ -102,6 +141,207 @@ func NewClickHouseClient(cfg *ClickHouseConfig) (*ClickHouseClient, error) {
 	return &ClickHouseClient{conn: conn}, nil
 }
 
+// ExtractFromTraceEvent extracts service info from trace event resource attributes
+func (se *ServiceExtractor) ExtractFromTraceEvent(event *streaming.TraceTelemetryEvent) ServiceInfo {
+	serviceInfo := ServiceInfo{Name: "", Version: ""}
+
+	if event.ResourceSpans != nil && event.ResourceSpans.Resource != nil {
+		for _, attr := range event.ResourceSpans.Resource.Attributes {
+			switch attr.Key {
+			case "service.name":
+				if value := attr.Value.GetStringValue(); value != "" {
+					serviceInfo.Name = value
+				}
+			case "service.version":
+				if value := attr.Value.GetStringValue(); value != "" {
+					serviceInfo.Version = value
+				}
+			}
+		}
+	}
+
+	return serviceInfo
+}
+
+// ExtractFromMetricsEvent extracts service info from metrics event resource attributes
+func (se *ServiceExtractor) ExtractFromMetricsEvent(event *streaming.MetricsTelemetryEvent) ServiceInfo {
+	serviceInfo := ServiceInfo{Name: "", Version: ""}
+
+	if event.ResourceMetrics != nil && event.ResourceMetrics.Resource != nil {
+		for _, attr := range event.ResourceMetrics.Resource.Attributes {
+			switch attr.Key {
+			case "service.name":
+				if value := attr.Value.GetStringValue(); value != "" {
+					serviceInfo.Name = value
+				}
+			case "service.version":
+				if value := attr.Value.GetStringValue(); value != "" {
+					serviceInfo.Version = value
+				}
+			}
+		}
+	}
+
+	return serviceInfo
+}
+
+// ExtractFromLogsEvent extracts service info from logs event resource attributes
+func (se *ServiceExtractor) ExtractFromLogsEvent(event *streaming.LogsTelemetryEvent) ServiceInfo {
+	serviceInfo := ServiceInfo{Name: "", Version: ""}
+
+	if event.ResourceLogs != nil && event.ResourceLogs.Resource != nil {
+		for _, attr := range event.ResourceLogs.Resource.Attributes {
+			switch attr.Key {
+			case "service.name":
+				if value := attr.Value.GetStringValue(); value != "" {
+					serviceInfo.Name = value
+				}
+			case "service.version":
+				if value := attr.Value.GetStringValue(); value != "" {
+					serviceInfo.Version = value
+				}
+			}
+		}
+	}
+
+	return serviceInfo
+}
+
+// AppendSpanToBatch efficiently appends span data to batch using pre-allocated buffers
+func (bc *BatchContext) AppendSpanToBatch(batch driver.Batch, span interface{}, serviceInfo ServiceInfo, sourceIP string) error {
+	// Type assert to concrete span type for performance
+	concreteSpan, ok := span.(interface {
+		GetTraceId() []byte
+		GetSpanId() []byte
+		GetParentSpanId() []byte
+		GetName() string
+		GetKind() interface{ String() string }
+		GetStartTimeUnixNano() uint64
+		GetEndTimeUnixNano() uint64
+		GetStatus() interface {
+			GetCode() interface{ String() string }
+			GetMessage() string
+		}
+	})
+	if !ok {
+		return fmt.Errorf("span does not implement required interface")
+	}
+
+	// Efficiently encode IDs to hex using pre-allocated buffers
+	traceID := bc.encodeToHex(concreteSpan.GetTraceId(), bc.TraceIDBuffer[:])
+	spanID := bc.encodeToHex(concreteSpan.GetSpanId(), bc.SpanIDBuffer[:])
+	parentSpanID := bc.encodeToHex(concreteSpan.GetParentSpanId(), bc.ParentSpanIDBuffer[:])
+
+	return batch.Append(
+		serviceInfo.Name,
+		serviceInfo.Version,
+		traceID,
+		spanID,
+		parentSpanID,
+		concreteSpan.GetName(),
+		concreteSpan.GetKind().String(),
+		concreteSpan.GetStartTimeUnixNano(),
+		concreteSpan.GetEndTimeUnixNano(),
+		concreteSpan.GetStatus().GetCode().String(),
+		concreteSpan.GetStatus().GetMessage(),
+		bc.IngestedAt,
+		sourceIP,
+		"protobuf",
+	)
+}
+
+// encodeToHex efficiently encodes byte slices to hex using pre-allocated buffer
+func (bc *BatchContext) encodeToHex(data []byte, buffer []byte) string {
+	if len(data) == 0 {
+		return ""
+	}
+
+	// Ensure buffer is large enough
+	needed := len(data) * 2
+	if len(buffer) < needed {
+		return hex.EncodeToString(data) // Fallback for oversized data
+	}
+
+	hex.Encode(buffer[:needed], data)
+	return string(buffer[:needed])
+}
+
+// AppendLogToBatch efficiently appends log record data to batch using consolidated logic
+func (bc *BatchContext) AppendLogToBatch(batch driver.Batch, logRecord interface{}, serviceInfo ServiceInfo, sourceIP string) error {
+	// Type assert to concrete log record type for performance
+	concreteLog, ok := logRecord.(interface {
+		GetTimeUnixNano() uint64
+		GetObservedTimeUnixNano() uint64
+		GetSeverityText() string
+		GetSeverityNumber() int32
+		GetBody() interface{ GetStringValue() string }
+		GetTraceId() []byte
+		GetSpanId() []byte
+		GetAttributes() interface{}
+	})
+	if !ok {
+		return fmt.Errorf("log record does not implement required interface")
+	}
+
+	// Parse timestamps efficiently
+	timestamp := time.Unix(0, int64(concreteLog.GetTimeUnixNano()))
+	observedTimestamp := time.Unix(0, int64(concreteLog.GetObservedTimeUnixNano()))
+
+	// Extract body safely
+	body := ""
+	if bodyValue := concreteLog.GetBody(); bodyValue != nil {
+		body = bodyValue.GetStringValue()
+	}
+
+	// Encode trace/span IDs using pre-allocated buffers
+	traceID := bc.encodeToHex(concreteLog.GetTraceId(), bc.TraceIDBuffer[:])
+	spanID := bc.encodeToHex(concreteLog.GetSpanId(), bc.SpanIDBuffer[:])
+
+	// Parse attributes efficiently using pre-allocated buffer
+	attributes := bc.parseLogAttributes(concreteLog.GetAttributes())
+
+	return batch.Append(
+		timestamp,
+		observedTimestamp,
+		concreteLog.GetSeverityText(),
+		uint8(concreteLog.GetSeverityNumber()),
+		body,
+		serviceInfo.Name,
+		traceID,
+		spanID,
+		attributes,
+		bc.IngestedAt,
+		sourceIP,
+	)
+}
+
+// parseLogAttributes efficiently parses log attributes reusing the buffer
+func (bc *BatchContext) parseLogAttributes(attrs interface{}) map[string]string {
+	// Clear and reuse the pre-allocated buffer
+	for k := range bc.Extractor.attributesBuffer {
+		delete(bc.Extractor.attributesBuffer, k)
+	}
+
+	if attrSlice, ok := attrs.([]interface{}); ok {
+		for _, attr := range attrSlice {
+			if a, ok := attr.(interface{ GetKey() string; GetValue() interface{ GetStringValue() string } }); ok {
+				if key := a.GetKey(); key != "" {
+					if value := a.GetValue().GetStringValue(); value != "" {
+						bc.Extractor.attributesBuffer[key] = value
+					}
+				}
+			}
+		}
+	}
+
+	// Return a copy so the buffer can be reused
+	result := make(map[string]string, len(bc.Extractor.attributesBuffer))
+	for k, v := range bc.Extractor.attributesBuffer {
+		result[k] = v
+	}
+	return result
+}
+
 func (ch *ClickHouseClient) Close() error {
 	return ch.conn.Close()
 }
@@ -109,6 +349,16 @@ func (ch *ClickHouseClient) Close() error {
 // Query executes a raw SQL query (for admin/debug scripts)
 func (ch *ClickHouseClient) Query(ctx context.Context, query string) (driver.Rows, error) {
 	return ch.conn.Query(ctx, query)
+}
+
+// QueryWithArgs executes a query with arguments for parameterized queries
+func (ch *ClickHouseClient) QueryWithArgs(ctx context.Context, query string, args ...interface{}) (driver.Rows, error) {
+	return ch.conn.Query(ctx, query, args...)
+}
+
+// QueryRow executes a query and returns a single row
+func (ch *ClickHouseClient) QueryRow(ctx context.Context, query string, args ...interface{}) driver.Row {
+	return ch.conn.QueryRow(ctx, query, args...)
 }
 
 // InsertTraceProtobuf extracts spans from protobuf and inserts as structured data
@@ -121,27 +371,13 @@ func (ch *ClickHouseClient) InsertTraceProtobuf(ctx context.Context, event *stre
 		zap.String("trace_id", event.GetTraceID()),
 		zap.String("service_name", event.GetServiceName()))
 
-	// Get service name from resource attributes
-	serviceName := ""
-	serviceVersion := ""
-	if event.ResourceSpans.Resource != nil {
-		for _, attr := range event.ResourceSpans.Resource.Attributes {
-			switch attr.Key {
-			case "service.name":
-				if attr.Value.GetStringValue() != "" {
-					serviceName = attr.Value.GetStringValue()
-				}
-			case "service.version":
-				if attr.Value.GetStringValue() != "" {
-					serviceVersion = attr.Value.GetStringValue()
-				}
-			}
-		}
-	}
+	// Create batch context with reusable resources
+	batchCtx := NewBatchContext()
 
-	// Use service name from event metadata if not found in resource attributes
-	if serviceName == "" {
-		serviceName = event.ServiceName
+	// Extract service info using consolidated extractor
+	serviceInfo := batchCtx.Extractor.ExtractFromTraceEvent(event)
+	if serviceInfo.Name == "" {
+		serviceInfo.Name = event.ServiceName
 	}
 
 	// Count spans first to avoid processing if empty
@@ -155,49 +391,20 @@ func (ch *ClickHouseClient) InsertTraceProtobuf(ctx context.Context, event *stre
 		return nil
 	}
 
-	// Prepare batch for direct insertion - avoid intermediate map allocations
+	// Prepare batch for direct insertion
 	batch, err := ch.conn.PrepareBatch(ctx, "INSERT INTO spans_raw")
 	if err != nil {
 		return fmt.Errorf("failed to prepare batch: %w", err)
 	}
 
-	// Pre-allocate hex encoding buffers to avoid repeated allocations
-	traceIDBuf := make([]byte, 32) // 16 bytes * 2 = 32 hex chars
-	spanIDBuf := make([]byte, 16)  // 8 bytes * 2 = 16 hex chars
-	parentSpanIDBuf := make([]byte, 16)
-
-	ingestedAt := time.Now()
+	// Use batch context for consistent resource management
 	sourceIP := event.Metadata.SourceIP
 
-	// Process spans directly into batch
+	// Process spans directly into batch using consolidated logic
 	for _, scopeSpan := range event.ResourceSpans.ScopeSpans {
 		for _, span := range scopeSpan.Spans {
-			// Efficiently encode IDs to hex using pre-allocated buffers
-			hex.Encode(traceIDBuf, span.TraceId)
-			hex.Encode(spanIDBuf, span.SpanId)
-
-			var parentSpanID string
-			if len(span.ParentSpanId) > 0 {
-				hex.Encode(parentSpanIDBuf, span.ParentSpanId)
-				parentSpanID = string(parentSpanIDBuf)
-			}
-
-			if err := batch.Append(
-				serviceName,
-				serviceVersion,
-				string(traceIDBuf),
-				string(spanIDBuf),
-				parentSpanID,
-				span.Name,
-				span.Kind.String(),
-				span.StartTimeUnixNano,
-				span.EndTimeUnixNano,
-				span.Status.GetCode().String(),
-				span.Status.GetMessage(),
-				ingestedAt,
-				sourceIP,
-				"protobuf",
-			); err != nil {
+			// Use batch context for efficient ID encoding and consistent data
+			if err := batchCtx.AppendSpanToBatch(batch, span, serviceInfo, sourceIP); err != nil {
 				return fmt.Errorf("failed to append span to batch: %w", err)
 			}
 		}
@@ -210,7 +417,7 @@ func (ch *ClickHouseClient) InsertTraceProtobuf(ctx context.Context, event *stre
 
 	logger.Debug("Successfully inserted protobuf spans as structured data",
 		zap.String("trace_id", logging.SanitizeTraceID(event.GetTraceID())),
-		zap.String("service_name", logging.SanitizeServiceName(serviceName)),
+		zap.String("service_name", logging.SanitizeServiceName(serviceInfo.Name)),
 		zap.Int("spans_count", spanCount))
 
 	return nil
@@ -266,20 +473,13 @@ func (ch *ClickHouseClient) InsertMetricProtobuf(ctx context.Context, event *str
 		return fmt.Errorf("protobuf ResourceMetrics is nil")
 	}
 
-	// Extract service name from resource attributes
-	serviceName := ""
-	if event.ResourceMetrics.Resource != nil {
-		for _, attr := range event.ResourceMetrics.Resource.Attributes {
-			if attr.Key == "service.name" && attr.Value.GetStringValue() != "" {
-				serviceName = attr.Value.GetStringValue()
-				break
-			}
-		}
-	}
+	// Create batch context with reusable resources
+	batchCtx := NewBatchContext()
 
-	// Use service name from event metadata if not found in resource attributes
-	if serviceName == "" {
-		serviceName = event.ServiceName
+	// Extract service info using consolidated extractor
+	serviceInfo := batchCtx.Extractor.ExtractFromMetricsEvent(event)
+	if serviceInfo.Name == "" {
+		serviceInfo.Name = event.ServiceName
 	}
 
 	// Count metrics for logging
@@ -290,12 +490,12 @@ func (ch *ClickHouseClient) InsertMetricProtobuf(ctx context.Context, event *str
 
 	if metricCount == 0 {
 		logger.Debug("No metrics found in protobuf event - skipping insertion",
-			zap.String("service_name", serviceName))
+			zap.String("service_name", serviceInfo.Name))
 		return nil
 	}
 
 	logger.Debug("Successfully processed metrics protobuf data",
-		zap.String("service_name", serviceName),
+		zap.String("service_name", serviceInfo.Name),
 		zap.Int("metric_count", metricCount))
 
 	// For now, provide basic implementation that processes the data
@@ -359,14 +559,32 @@ func (ch *ClickHouseClient) InsertLogProtobuf(ctx context.Context, event *stream
 	logger.Debug("Inserting log data using native protobuf",
 		zap.String("service_name", logging.SanitizeServiceName(event.GetServiceName())))
 
-	// Skip unnecessary protobuf marshaling - we extract data directly from the protobuf structure
+	// Create batch context with reusable resources
+	batchCtx := NewBatchContext()
+
+	// Extract service info using consolidated extractor
+	serviceInfo := batchCtx.Extractor.ExtractFromLogsEvent(event)
+	if serviceInfo.Name == "" {
+		serviceInfo.Name = event.ServiceName
+	}
+
+	// Count log records for early exit
+	logCount := 0
+	for _, scopeLog := range event.ResourceLogs.ScopeLogs {
+		logCount += len(scopeLog.LogRecords)
+	}
+
+	if logCount == 0 {
+		logger.Debug("No log records found in protobuf event - skipping insertion",
+			zap.String("service_name", serviceInfo.Name))
+		return nil
+	}
 
 	// Insert directly into logs table
-	batch, err := ch.conn.PrepareBatch(ctx, `
-		INSERT INTO logs (
-			timestamp, observed_timestamp, severity_text, severity_number, body,
-			service_name, trace_id, span_id, attributes, ingested_at, source_ip
-		)`)
+	batch, err := ch.conn.PrepareBatch(ctx, `INSERT INTO logs (
+		timestamp, observed_timestamp, severity_text, severity_number, body,
+		service_name, trace_id, span_id, attributes, ingested_at, source_ip
+	)`)
 	if err != nil {
 		return fmt.Errorf("failed to prepare logs protobuf batch: %w", err)
 	}
@@ -374,32 +592,7 @@ func (ch *ClickHouseClient) InsertLogProtobuf(ctx context.Context, event *stream
 	// Extract key log records from protobuf for immediate insertion
 	for _, scopeLog := range event.ResourceLogs.ScopeLogs {
 		for _, logRecord := range scopeLog.LogRecords {
-			timestamp := time.Unix(0, int64(logRecord.TimeUnixNano))
-			observedTimestamp := time.Unix(0, int64(logRecord.ObservedTimeUnixNano))
-
-			attributes := make(map[string]string)
-			for _, attr := range logRecord.Attributes {
-				attributes[attr.Key] = attr.Value.GetStringValue()
-			}
-
-			traceID := hex.EncodeToString(logRecord.TraceId)
-			spanID := hex.EncodeToString(logRecord.SpanId)
-			body := logRecord.Body.GetStringValue()
-
-			err = batch.Append(
-				timestamp,
-				observedTimestamp,
-				logRecord.SeverityText,
-				uint8(logRecord.SeverityNumber),
-				body,
-				event.GetServiceName(),
-				traceID,
-				spanID,
-				attributes,
-				event.GetMetadata().IngestedAt,
-				event.GetMetadata().SourceIP,
-			)
-			if err != nil {
+			if err := batchCtx.AppendLogToBatch(batch, logRecord, serviceInfo, event.GetMetadata().SourceIP); err != nil {
 				return fmt.Errorf("failed to append log record to batch: %w", err)
 			}
 		}
@@ -410,7 +603,8 @@ func (ch *ClickHouseClient) InsertLogProtobuf(ctx context.Context, event *stream
 	}
 
 	logger.Debug("Inserted protobuf logs into ClickHouse",
-		zap.String("service", event.GetServiceName()))
+		zap.String("service", serviceInfo.Name),
+		zap.Int("log_count", logCount))
 
 	return nil
 }
@@ -468,6 +662,144 @@ func (ch *ClickHouseClient) InsertLog(ctx context.Context, event streaming.Telem
 		zap.String("service", event.GetServiceName()),
 		zap.Int("logs", len(logsData)))
 
+	return nil
+}
+
+// InsertTraceProtobufBatch inserts multiple trace events in a single optimized batch operation
+func (ch *ClickHouseClient) InsertTraceProtobufBatch(ctx context.Context, events []*streaming.TraceTelemetryEvent) error {
+	if len(events) == 0 {
+		return nil
+	}
+
+	logger.Debug("Processing optimized batch trace protobuf insertion", zap.Int("events_count", len(events)))
+
+	// Create single batch for all events
+	batch, err := ch.conn.PrepareBatch(ctx, "INSERT INTO spans_raw")
+	if err != nil {
+		return fmt.Errorf("failed to prepare traces batch: %w", err)
+	}
+
+	// Create shared batch context to reuse buffers across all events
+	batchCtx := NewBatchContext()
+	totalSpans := 0
+
+	// Process all events into single batch
+	for _, event := range events {
+		if event.ResourceSpans == nil {
+			continue
+		}
+
+		// Extract service info
+		serviceInfo := batchCtx.Extractor.ExtractFromTraceEvent(event)
+		if serviceInfo.Name == "" {
+			serviceInfo.Name = event.ServiceName
+		}
+
+		sourceIP := event.Metadata.SourceIP
+
+		// Add all spans from this event to the batch
+		for _, scopeSpan := range event.ResourceSpans.ScopeSpans {
+			for _, span := range scopeSpan.Spans {
+				if err := batchCtx.AppendSpanToBatch(batch, span, serviceInfo, sourceIP); err != nil {
+					return fmt.Errorf("failed to append span to batch: %w", err)
+				}
+				totalSpans++
+			}
+		}
+	}
+
+	if totalSpans == 0 {
+		logger.Debug("No spans found in batch events - skipping insertion")
+		return nil
+	}
+
+	// Send single batch operation
+	if err := batch.Send(); err != nil {
+		return fmt.Errorf("failed to send traces batch: %w", err)
+	}
+
+	logger.Debug("Successfully completed optimized batch trace insertion",
+		zap.Int("events_processed", len(events)),
+		zap.Int("total_spans", totalSpans))
+	return nil
+}
+
+// InsertMetricProtobufBatch inserts multiple metric events in a single optimized batch operation
+func (ch *ClickHouseClient) InsertMetricProtobufBatch(ctx context.Context, events []*streaming.MetricsTelemetryEvent) error {
+	if len(events) == 0 {
+		return nil
+	}
+
+	logger.Debug("Processing optimized batch metric protobuf insertion", zap.Int("events_count", len(events)))
+
+	// For now, use individual inserts since metrics table structure may vary
+	// This can be optimized later with dedicated metrics batching
+	for _, event := range events {
+		if err := ch.InsertMetricProtobuf(ctx, event); err != nil {
+			return fmt.Errorf("failed to insert metric protobuf in batch: %w", err)
+		}
+	}
+
+	logger.Debug("Successfully completed batch metric protobuf insertion", zap.Int("events_processed", len(events)))
+	return nil
+}
+
+// InsertLogProtobufBatch inserts multiple log events in a single optimized batch operation
+func (ch *ClickHouseClient) InsertLogProtobufBatch(ctx context.Context, events []*streaming.LogsTelemetryEvent) error {
+	if len(events) == 0 {
+		return nil
+	}
+
+	logger.Debug("Processing optimized batch log protobuf insertion", zap.Int("events_count", len(events)))
+
+	// Create single batch for all log events
+	batch, err := ch.conn.PrepareBatch(ctx, "INSERT INTO logs")
+	if err != nil {
+		return fmt.Errorf("failed to prepare logs batch: %w", err)
+	}
+
+	// Create shared batch context to reuse buffers
+	batchCtx := NewBatchContext()
+	totalLogs := 0
+
+	// Process all events into single batch
+	for _, event := range events {
+		if event.ResourceLogs == nil {
+			continue
+		}
+
+		// Extract service info
+		serviceInfo := batchCtx.Extractor.ExtractFromLogsEvent(event)
+		if serviceInfo.Name == "" {
+			serviceInfo.Name = event.ServiceName
+		}
+
+		sourceIP := event.Metadata.SourceIP
+
+		// Add all log records from this event to the batch
+		for _, scopeLog := range event.ResourceLogs.ScopeLogs {
+			for _, logRecord := range scopeLog.LogRecords {
+				if err := batchCtx.AppendLogToBatch(batch, logRecord, serviceInfo, sourceIP); err != nil {
+					return fmt.Errorf("failed to append log to batch: %w", err)
+				}
+				totalLogs++
+			}
+		}
+	}
+
+	if totalLogs == 0 {
+		logger.Debug("No log records found in batch events - skipping insertion")
+		return nil
+	}
+
+	// Send single batch operation
+	if err := batch.Send(); err != nil {
+		return fmt.Errorf("failed to send logs batch: %w", err)
+	}
+
+	logger.Debug("Successfully completed optimized batch log insertion",
+		zap.Int("events_processed", len(events)),
+		zap.Int("total_logs", totalLogs))
 	return nil
 }
 
@@ -910,278 +1242,11 @@ func (ch *ClickHouseClient) parseLogsData(data interface{}) ([]LogData, error) {
 	return logs, nil
 }
 
-// Batch insert methods for improved performance
 
-// InsertTraceProtobufBatch inserts multiple protobuf trace events in a single batch operation
-func (ch *ClickHouseClient) InsertTraceProtobufBatch(ctx context.Context, events []*streaming.TraceTelemetryEvent) error {
-	if len(events) == 0 {
-		return nil
-	}
 
-	// Prepare batch
-	batch, err := ch.conn.PrepareBatch(ctx, "INSERT INTO spans_raw")
-	if err != nil {
-		return fmt.Errorf("failed to prepare batch: %w", err)
-	}
 
-	// Process all events into batch
-	for _, event := range events {
-		// Use the existing individual insert logic but append to batch instead of sending
-		if err := ch.appendTraceProtobufToBatch(batch, event); err != nil {
-			return fmt.Errorf("failed to append protobuf trace to batch: %w", err)
-		}
-	}
 
-	// Send batch
-	return batch.Send()
-}
 
-// Helper methods to append individual events to batches
-
-// appendTraceProtobufToBatch appends a single trace event to an existing batch
-func (ch *ClickHouseClient) appendTraceProtobufToBatch(batch driver.Batch, event *streaming.TraceTelemetryEvent) error {
-	if event.ResourceSpans == nil {
-		return fmt.Errorf("protobuf ResourceSpans is nil - cannot extract span data")
-	}
-
-	// Extract spans from the protobuf ResourceSpans (same logic as InsertTraceProtobuf)
-	// Get service name from resource attributes
-	serviceName := ""
-	serviceVersion := ""
-	if event.ResourceSpans.Resource != nil {
-		for _, attr := range event.ResourceSpans.Resource.Attributes {
-			switch attr.Key {
-			case "service.name":
-				if attr.Value.GetStringValue() != "" {
-					serviceName = attr.Value.GetStringValue()
-				}
-			case "service.version":
-				if attr.Value.GetStringValue() != "" {
-					serviceVersion = attr.Value.GetStringValue()
-				}
-			}
-		}
-	}
-
-	// Use service name from event metadata if not found in resource attributes
-	if serviceName == "" {
-		serviceName = event.ServiceName
-	}
-
-	ingestedAt := time.Now()
-	sourceIP := event.Metadata.SourceIP
-
-	// Process each span
-	for _, scopeSpan := range event.ResourceSpans.ScopeSpans {
-		for _, span := range scopeSpan.Spans {
-			// Extract span data similar to InsertTraceProtobuf
-			traceID := hex.EncodeToString(span.TraceId)
-			spanID := hex.EncodeToString(span.SpanId)
-			parentSpanID := ""
-			if len(span.ParentSpanId) > 0 {
-				parentSpanID = hex.EncodeToString(span.ParentSpanId)
-			}
-
-			if err := batch.Append(
-				serviceName,
-				serviceVersion,
-				traceID,
-				spanID,
-				parentSpanID,
-				span.Name,
-				span.Kind.String(),
-				span.StartTimeUnixNano,
-				span.EndTimeUnixNano,
-				span.Status.GetCode().String(),
-				span.Status.GetMessage(),
-				ingestedAt,
-				sourceIP,
-				"protobuf",
-			); err != nil {
-				return fmt.Errorf("failed to append span to batch: %w", err)
-			}
-		}
-	}
-
-	return nil
-}
-
-// appendMetricProtobufToBatch appends a single metric event to an existing batch
-func (ch *ClickHouseClient) appendMetricProtobufToBatch(batch driver.Batch, event *streaming.MetricsTelemetryEvent) error {
-	if event.ResourceMetrics == nil {
-		return fmt.Errorf("protobuf ResourceMetrics is nil")
-	}
-
-	// Extract service info similar to InsertMetricProtobuf
-	serviceName := ""
-	serviceVersion := ""
-	if event.ResourceMetrics.Resource != nil {
-		for _, attr := range event.ResourceMetrics.Resource.Attributes {
-			switch attr.Key {
-			case "service.name":
-				if attr.Value.GetStringValue() != "" {
-					serviceName = attr.Value.GetStringValue()
-				}
-			case "service.version":
-				if attr.Value.GetStringValue() != "" {
-					serviceVersion = attr.Value.GetStringValue()
-				}
-			}
-		}
-	}
-
-	if serviceName == "" {
-		serviceName = event.ServiceName
-	}
-
-	ingestedAt := time.Now()
-	sourceIP := event.Metadata.SourceIP
-
-	// Process each metric (simplified - focusing on batch performance)
-	for _, scopeMetric := range event.ResourceMetrics.ScopeMetrics {
-		for _, metric := range scopeMetric.Metrics {
-			if err := batch.Append(
-				serviceName,
-				serviceVersion,
-				metric.Name,
-				"gauge", // Simplified - would need proper type detection in production
-				0.0,     // Simplified - would need proper value extraction
-				"{}",    // Simplified - would need proper labels
-				"{}",    // Simplified - would need proper resource attributes
-				uint64(time.Now().UnixNano()),
-				ingestedAt,
-				sourceIP,
-				"protobuf",
-			); err != nil {
-				return fmt.Errorf("failed to append metric to batch: %w", err)
-			}
-		}
-	}
-
-	return nil
-}
-
-// appendLogProtobufToBatch appends a single log event to an existing batch
-func (ch *ClickHouseClient) appendLogProtobufToBatch(batch driver.Batch, event *streaming.LogsTelemetryEvent) error {
-	if event.ResourceLogs == nil {
-		return fmt.Errorf("protobuf ResourceLogs is nil")
-	}
-
-	// Extract service info similar to InsertLogProtobuf
-	serviceName := ""
-	serviceVersion := ""
-	if event.ResourceLogs.Resource != nil {
-		for _, attr := range event.ResourceLogs.Resource.Attributes {
-			switch attr.Key {
-			case "service.name":
-				if attr.Value.GetStringValue() != "" {
-					serviceName = attr.Value.GetStringValue()
-				}
-			case "service.version":
-				if attr.Value.GetStringValue() != "" {
-					serviceVersion = attr.Value.GetStringValue()
-				}
-			}
-		}
-	}
-
-	if serviceName == "" {
-		serviceName = event.ServiceName
-	}
-
-	ingestedAt := time.Now()
-	sourceIP := event.Metadata.SourceIP
-
-	// Process each log record
-	for _, scopeLog := range event.ResourceLogs.ScopeLogs {
-		for _, logRecord := range scopeLog.LogRecords {
-			traceID := ""
-			spanID := ""
-			if len(logRecord.TraceId) > 0 {
-				traceID = hex.EncodeToString(logRecord.TraceId)
-			}
-			if len(logRecord.SpanId) > 0 {
-				spanID = hex.EncodeToString(logRecord.SpanId)
-			}
-
-			if err := batch.Append(
-				serviceName,
-				serviceVersion,
-				traceID,
-				spanID,
-				logRecord.TimeUnixNano,
-				logRecord.SeverityNumber,
-				logRecord.SeverityText,
-				logRecord.Body.GetStringValue(),
-				"{}", // Simplified - would need proper attributes
-				"{}", // Simplified - would need proper resource attributes
-				ingestedAt,
-				sourceIP,
-				"protobuf",
-			); err != nil {
-				return fmt.Errorf("failed to append log to batch: %w", err)
-			}
-		}
-	}
-
-	return nil
-}
-
-// InsertMetricProtobufBatch inserts multiple protobuf metric events in a single batch operation
-func (ch *ClickHouseClient) InsertMetricProtobufBatch(ctx context.Context, events []*streaming.MetricsTelemetryEvent) error {
-	if len(events) == 0 {
-		return nil
-	}
-
-	// Prepare batch
-	batch, err := ch.conn.PrepareBatch(ctx, `
-		INSERT INTO metrics_raw (
-			service_name, service_version, metric_name, metric_type, metric_value,
-			labels, resource_attributes, timestamp_unix_nano, ingested_at,
-			source_ip, format_type
-		)`)
-	if err != nil {
-		return fmt.Errorf("failed to prepare batch: %w", err)
-	}
-
-	// Process all events into batch
-	for _, event := range events {
-		if err := ch.appendMetricProtobufToBatch(batch, event); err != nil {
-			return fmt.Errorf("failed to append protobuf metric to batch: %w", err)
-		}
-	}
-
-	// Send batch
-	return batch.Send()
-}
-
-// InsertLogProtobufBatch inserts multiple protobuf log events in a single batch operation
-func (ch *ClickHouseClient) InsertLogProtobufBatch(ctx context.Context, events []*streaming.LogsTelemetryEvent) error {
-	if len(events) == 0 {
-		return nil
-	}
-
-	// Prepare batch
-	batch, err := ch.conn.PrepareBatch(ctx, `
-		INSERT INTO logs_raw (
-			service_name, service_version, trace_id, span_id, timestamp_unix_nano,
-			severity_number, severity_text, body, attributes,
-			resource_attributes, ingested_at, source_ip, format_type
-		)`)
-	if err != nil {
-		return fmt.Errorf("failed to prepare batch: %w", err)
-	}
-
-	// Process all events into batch
-	for _, event := range events {
-		if err := ch.appendLogProtobufToBatch(batch, event); err != nil {
-			return fmt.Errorf("failed to append protobuf log to batch: %w", err)
-		}
-	}
-
-	// Send batch
-	return batch.Send()
-}
 
 // TelemetryStoreAdapter wraps ClickHouseClient to implement telemetry.TelemetryStore interface
 type TelemetryStoreAdapter struct {

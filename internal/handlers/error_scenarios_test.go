@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/jamesneb/playback-backend/internal/interfaces"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -33,7 +34,7 @@ func TestHandlerErrorScenarios(t *testing.T) {
 			name: "logs handler - publisher error",
 			handler: func(mockPublisher *MockEventPublisher) http.Handler {
 				router := gin.New()
-				logsHandler := NewLogsHandler(mockPublisher)
+				logsHandler := NewLogsHandler(mockPublisher, &interfaces.ResilienceComponents{})
 				router.POST("/logs", logsHandler.CreateLogs)
 				return router
 			},
@@ -63,13 +64,13 @@ func TestHandlerErrorScenarios(t *testing.T) {
 				},
 			},
 			expectedStatus: http.StatusInternalServerError,
-			expectedError:  "Failed to process logs data",
+			expectedError:  "Failed to process log data",
 		},
 		{
 			name: "metrics handler - invalid JSON",
 			handler: func(mockPublisher *MockEventPublisher) http.Handler {
 				router := gin.New()
-				metricsHandler := NewMetricsHandler(mockPublisher)
+				metricsHandler := NewMetricsHandler(mockPublisher, &interfaces.ResilienceComponents{})
 				router.POST("/metrics", metricsHandler.CreateMetrics)
 				return router
 			},
@@ -78,7 +79,7 @@ func TestHandlerErrorScenarios(t *testing.T) {
 			},
 			requestBody:    "invalid json",
 			expectedStatus: http.StatusBadRequest,
-			expectedError:  "Invalid OTLP metrics data",
+			expectedError:  "Invalid OTLP metric data",
 		},
 		{
 			name: "trace handler - network timeout simulation",
@@ -180,7 +181,7 @@ func TestConcurrentRequests(t *testing.T) {
 		Return(nil).Times(10) // Expect 10 concurrent requests
 
 	router := gin.New()
-	logsHandler := NewLogsHandler(mockPublisher)
+	logsHandler := NewLogsHandler(mockPublisher, &interfaces.ResilienceComponents{})
 	router.POST("/logs", logsHandler.CreateLogs)
 
 	requestBody := map[string]interface{}{
@@ -240,13 +241,13 @@ func TestInputValidation(t *testing.T) {
 			name:           "missing content type",
 			contentType:    "",
 			body:           `{"resourceLogs": []}`,
-			expectedStatus: http.StatusBadRequest,
+			expectedStatus: http.StatusUnsupportedMediaType,
 		},
 		{
 			name:           "wrong content type",
 			contentType:    "text/plain",
 			body:           `{"resourceLogs": []}`,
-			expectedStatus: http.StatusBadRequest,
+			expectedStatus: http.StatusUnsupportedMediaType,
 		},
 		{
 			name:           "empty body",
@@ -274,7 +275,7 @@ func TestInputValidation(t *testing.T) {
 		Return(nil).Maybe() // Maybe() allows the expectation to not be called
 
 	router := gin.New()
-	logsHandler := NewLogsHandler(mockPublisher)
+	logsHandler := NewLogsHandler(mockPublisher, &interfaces.ResilienceComponents{})
 	router.POST("/logs", logsHandler.CreateLogs)
 
 	for _, tt := range tests {

@@ -4,125 +4,88 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/jamesneb/playback-backend/internal/handlers/dto"
 	"github.com/jamesneb/playback-backend/internal/handlers/services"
-	"github.com/jamesneb/playback-backend/internal/logging"
+	"github.com/jamesneb/playback-backend/internal/interfaces"
+	"github.com/jamesneb/playback-backend/internal/metrics"
+	"github.com/jamesneb/playback-backend/internal/storage"
 	"github.com/jamesneb/playback-backend/pkg/logger"
 	"github.com/jamesneb/playback-backend/pkg/telemetry"
 	"go.uber.org/zap"
+	"google.golang.org/protobuf/proto"
+	logscollectorpb "go.opentelemetry.io/proto/otlp/collector/logs/v1"
 )
 
 type LogsHandler struct {
-	eventPublisher telemetry.EventPublisher
-	queryService   services.LogsQueryService
+	*BaseTelemetryHandler
+	queryService services.LogsQueryService
 }
 
-func NewLogsHandler(eventPublisher telemetry.EventPublisher) *LogsHandler {
+func NewLogsHandler(eventPublisher telemetry.EventPublisher, resilienceComponents *interfaces.ResilienceComponents) *LogsHandler {
+	baseHandler := NewBaseTelemetryHandler(
+		eventPublisher,
+		&LogMetadataExtractor{},
+		NewStreamingTelemetryProcessor(eventPublisher, TelemetryLog),
+		TelemetryLog,
+	)
+
 	return &LogsHandler{
-		eventPublisher: eventPublisher,
-		queryService:   services.NewDefaultLogsQueryService(),
+		BaseTelemetryHandler: baseHandler,
+		queryService:         services.NewDefaultLogsQueryService(),
 	}
 }
 
-// CreateLogs receives log data
+func NewLogsHandlerWithClickHouse(eventPublisher telemetry.EventPublisher, clickhouse *storage.ClickHouseClient, resilienceComponents *interfaces.ResilienceComponents) *LogsHandler {
+	baseHandler := NewBaseTelemetryHandler(
+		eventPublisher,
+		&LogMetadataExtractor{},
+		NewStreamingTelemetryProcessor(eventPublisher, TelemetryLog),
+		TelemetryLog,
+	)
+
+	return &LogsHandler{
+		BaseTelemetryHandler: baseHandler,
+		queryService:         services.NewClickHouseLogsQueryService(clickhouse),
+	}
+}
+
+// CreateLogs - hot path HTTP ingestion using consolidated base handler
 // @Summary Receive logs
 // @Description Receive log data from OpenTelemetry
 // @Tags logs
 // @Accept json
 // @Produce json
-// @Param logs body LogsRequest true "Log data"
-// @Success 200 {object} LogsResponse
+// @Param logs body schema.LogsRequest true "Log data"
+// @Success 200 {object} dto.LogsResponse
 // @Failure 400 {object} ErrorResponse
 // @Router /api/v1/logs [post]
 func (h *LogsHandler) CreateLogs(c *gin.Context) {
-	// Validate content type
-	contentType := c.GetHeader("Content-Type")
-	if !strings.Contains(contentType, ContentTypeJSON) {
-		logger.Warn("Invalid content type received",
-			zap.String("content_type", contentType),
-			zap.String("expected", ContentTypeJSON),
-			zap.String("client_ip", logging.SanitizeClientIP(c.ClientIP())),
-			zap.String("user_agent", logging.SanitizeUserAgent(c.GetHeader("User-Agent"))))
-		c.JSON(http.StatusBadRequest, ErrorResponse{
-			Error:   "Invalid content type",
-			Message: "Content-Type must be application/json",
-		})
-		return
+	h.HandleIngestion(c)
+}
+
+// CreateLogsGRPC - zero-allocation gRPC ingestion bypassing JSON entirely
+func (h *LogsHandler) CreateLogsGRPC(ctx context.Context, req *logscollectorpb.ExportLogsServiceRequest) (*logscollectorpb.ExportLogsServiceResponse, error) {
+	// Zero-copy protobuf serialization
+	data, err := proto.Marshal(req)
+	if err != nil {
+		return nil, err
 	}
 
-	// Parse the OTLP logs data (raw JSON)
-	var otlpData json.RawMessage
-	if err := c.ShouldBindJSON(&otlpData); err != nil {
-		logger.Error("Failed to parse OTLP logs data",
-			zap.Error(err),
-			zap.String("client_ip", logging.SanitizeClientIP(c.ClientIP())),
-			zap.String("user_agent", logging.SanitizeUserAgent(c.GetHeader("User-Agent"))),
-		)
-		c.JSON(http.StatusBadRequest, ErrorResponse{
-			Error:   "Invalid OTLP logs data",
-			Message: err.Error(),
-		})
-		return
-	}
+	// Use base handler's metadata extraction (no duplication)
+	metadata := h.extractor.ExtractMetadata(data)
+	metadata.DataSize = int32(len(data))
 
-	// Extract service name, trace ID, and logs count with single parse operation
-	serviceName, traceID, logsCount := extractLogsMetadata(otlpData)
-
-	// Log the ingestion event
-	logger.Debug("Received OTLP logs data",
-		zap.String("service_name", logging.SanitizeServiceName(serviceName)),
-		zap.String("trace_id", logging.SanitizeTraceID(traceID)),
-		zap.Int("logs_count", logsCount),
-		zap.String("client_ip", logging.SanitizeClientIP(c.ClientIP())),
-		zap.String("user_agent", logging.SanitizeUserAgent(c.GetHeader("User-Agent"))),
-		zap.String("data_size", logging.SanitizeDataSize(len(otlpData))),
-	)
-
-	// Publish to Kinesis
-	ctx, cancel := context.WithTimeout(c.Request.Context(), 10*time.Second)
+	// Hot path processing with optimized timeout
+	processCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
-	err := h.eventPublisher.PublishLogs(
-		ctx,
-		otlpData,
-		serviceName,
-		traceID,
-		c.ClientIP(),
-		c.GetHeader("User-Agent"),
-	)
-	if err != nil {
-		logger.Error("Failed to publish logs to Kinesis",
-			zap.Error(err),
-			zap.String("service_name", serviceName),
-			zap.String("trace_id", traceID),
-			zap.Int("logs_count", logsCount),
-		)
-		c.JSON(http.StatusInternalServerError, ErrorResponse{
-			Error:   "Failed to process logs data",
-			Message: "Internal server error",
-		})
-		return
+	if err := h.processor.ProcessTelemetryData(processCtx, data, &metadata); err != nil {
+		return nil, err
 	}
 
-	// Log successful ingestion
-	logger.Debug("Successfully published logs to Kinesis",
-		zap.String("service_name", serviceName),
-		zap.String("trace_id", traceID),
-		zap.Int("logs_count", logsCount),
-	)
-
-	// Return success response
-	response := dto.LogsResponse{
-		Received:  logsCount,
-		Timestamp: time.Now(),
-		Status:    "accepted",
-	}
-
-	c.JSON(http.StatusAccepted, response)
+	return &logscollectorpb.ExportLogsServiceResponse{}, nil
 }
 
 // GetLogs retrieves logs (placeholder for querying)
@@ -135,7 +98,7 @@ func (h *LogsHandler) CreateLogs(c *gin.Context) {
 // @Param from query string false "Start time (RFC3339)"
 // @Param to query string false "End time (RFC3339)"
 // @Param q query string false "Search query"
-// @Success 200 {object} LogsQueryResponse
+// @Success 200 {object} dto.LogsQueryResponse
 // @Router /api/v1/logs [get]
 func (h *LogsHandler) GetLogs(c *gin.Context) {
 	params := services.LogsQueryParams{
@@ -148,8 +111,14 @@ func (h *LogsHandler) GetLogs(c *gin.Context) {
 		Offset:  0,   // Default offset
 	}
 
-	response, err := h.queryService.QueryLogs(params)
+	// Record query metrics
+	queryStart := time.Now()
+	response, err := h.queryService.QueryLogs(c.Request.Context(), params)
+	queryLatency := time.Since(queryStart).Seconds()
+
 	if err != nil {
+		// Record query failure metrics
+		metrics.Global().RecordBusinessError("query", params.Service, "error")
 		logger.Error("Failed to query logs",
 			zap.Error(err),
 			zap.String("service", params.Service),
@@ -162,12 +131,18 @@ func (h *LogsHandler) GetLogs(c *gin.Context) {
 		return
 	}
 
+	// Record successful query metrics - estimate response size for business tracking
+	responseSize := len(response.Logs) * 150 // Rough estimate per log record
+	metricsRegistry := metrics.Global()
+	metricsRegistry.RecordDataQuery("logs", "query", float64(responseSize), queryLatency)
+	metricsRegistry.RecordStorageOperation("read", "success")
+
 	c.JSON(http.StatusOK, response)
 }
 
-// Helper functions for extracting metadata from OTLP logs data
+// Keep existing helper function for backward compatibility
+// The base handler now uses this via LogMetadataExtractor
 func extractLogsMetadata(data json.RawMessage) (string, string, int) {
-	// Parse OTLP logs structure once to extract service name, trace ID, and count
 	var otlp struct {
 		ResourceLogs []struct {
 			Resource struct {
@@ -198,7 +173,6 @@ func extractLogsMetadata(data json.RawMessage) (string, string, int) {
 	logsCount := 0
 
 	for _, rl := range otlp.ResourceLogs {
-		// Extract service name from first ResourceLog with service.name attribute
 		if serviceName == "unknown" {
 			for _, attr := range rl.Resource.Attributes {
 				if attr.Key == "service.name" && attr.Value.StringValue != "" {
@@ -207,8 +181,6 @@ func extractLogsMetadata(data json.RawMessage) (string, string, int) {
 				}
 			}
 		}
-
-		// Extract trace ID from first log record and count all log records
 		for _, sl := range rl.ScopeLogs {
 			for _, logRecord := range sl.LogRecords {
 				if traceID == "" && logRecord.TraceID != "" {

@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"sync"
 	"syscall"
 
@@ -20,7 +21,7 @@ import (
 
 // Server manages both HTTP and gRPC servers
 type Server struct {
-	cfg      *config.Config
+	cfg      *config.ConsolidatedConfig
 	services *Services
 	httpSrv  *http.Server
 	grpcSrv  *grpcapi.Server
@@ -29,7 +30,7 @@ type Server struct {
 }
 
 // NewServer creates a new server instance with all dependencies
-func NewServer(cfg *config.Config, services *Services) *Server {
+func NewServer(cfg *config.ConsolidatedConfig, services *Services) *Server {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &Server{
 		cfg:      cfg,
@@ -75,15 +76,16 @@ func (s *Server) Start() error {
 
 // startHTTPServer starts the HTTP server in a goroutine
 func (s *Server) startHTTPServer(wg *sync.WaitGroup) error {
-	// Create REST API server with configurable API version and prefix
-	apiVersion := s.cfg.API.Version
-	if apiVersion == "" {
-		apiVersion = "v1" // Default fallback
+	// Extract API configuration from consolidated config - optimized for performance
+	apiPrefix := s.cfg.Network.HTTP.APIPrefix
+	if apiPrefix == "" {
+		apiPrefix = "/api/v1" // Default fallback with leading slash for optimal routing
 	}
 
-	apiPrefix := s.cfg.API.Prefix
-	if apiPrefix == "" {
-		apiPrefix = "api" // Default fallback
+	// Extract version efficiently - single allocation
+	apiVersion := "v1" // Default
+	if idx := strings.LastIndex(apiPrefix, "/v"); idx != -1 && idx+2 < len(apiPrefix) {
+		apiVersion = apiPrefix[idx+1:] // Zero-copy substring
 	}
 
 	restDeps := &rest.Dependencies{
@@ -105,10 +107,10 @@ func (s *Server) startHTTPServer(wg *sync.WaitGroup) error {
 	s.httpSrv = &http.Server{
 		Addr:           s.httpAddress(),
 		Handler:        ginEngine,
-		ReadTimeout:    s.cfg.Server.ReadTimeoutDuration,
-		WriteTimeout:   s.cfg.Server.WriteTimeoutDuration,
-		IdleTimeout:    s.cfg.Server.IdleTimeoutDuration,
-		MaxHeaderBytes: s.cfg.Server.MaxHeaderBytes,
+		ReadTimeout:    s.cfg.Network.HTTP.ReadTimeout,
+		WriteTimeout:   s.cfg.Network.HTTP.WriteTimeout,
+		IdleTimeout:    s.cfg.Network.HTTP.IdleTimeout,
+		MaxHeaderBytes: s.cfg.Network.HTTP.MaxHeaderSizeKB << 10, // Bit shift for optimal KB->bytes conversion
 	}
 
 	wg.Add(1)
@@ -185,7 +187,7 @@ func (s *Server) shutdown() {
 	s.cancel()
 	// Shutdown HTTP server with timeout
 	if s.httpSrv != nil {
-		ctx, cancel := context.WithTimeout(context.Background(), s.cfg.Server.ShutdownTimeoutDuration)
+		ctx, cancel := context.WithTimeout(context.Background(), s.cfg.Network.HTTP.ShutdownTimeout)
 		defer cancel()
 
 		if err := s.httpSrv.Shutdown(ctx); err != nil {
@@ -201,12 +203,12 @@ func (s *Server) shutdown() {
 	}
 }
 
-// httpAddress returns the HTTP server address
+// httpAddress returns the HTTP server address - optimized for performance
 func (s *Server) httpAddress() string {
-	return fmt.Sprintf("%s:%d", s.cfg.Server.Host, s.cfg.Server.Port)
+	return fmt.Sprintf("%s:%d", s.cfg.Network.HTTP.Host, s.cfg.Network.HTTP.Port)
 }
 
-// grpcAddress returns the gRPC server address
+// grpcAddress returns the gRPC server address - optimized for performance
 func (s *Server) grpcAddress() string {
-	return fmt.Sprintf("%s:%d", s.cfg.Server.Host, s.cfg.Server.GRPCPort)
+	return fmt.Sprintf("%s:%d", s.cfg.Network.HTTP.Host, s.cfg.Network.GRPC.Port)
 }

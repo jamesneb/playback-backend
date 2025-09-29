@@ -33,7 +33,7 @@ type ConsumerServices struct {
 }
 
 // InitializeCoreServices initializes the shared services (ClickHouse and Kinesis)
-func InitializeCoreServices(cfg *config.Config) (*CoreServices, error) {
+func InitializeCoreServices(cfg *config.ConsolidatedConfig) (*CoreServices, error) {
 	services := &CoreServices{}
 
 	// Initialize ClickHouse client
@@ -53,7 +53,7 @@ func InitializeCoreServices(cfg *config.Config) (*CoreServices, error) {
 	return services, nil
 }
 
-func InitializeConsumerServices(cfg *config.Config) (*ConsumerServices, error) {
+func InitializeConsumerServices(cfg *config.ConsolidatedConfig) (*ConsumerServices, error) {
 	coreServices, err := InitializeCoreServices(cfg)
 	if err != nil {
 		return nil, err
@@ -88,7 +88,7 @@ func (s *ConsumerServices) Close() error {
 }
 
 // InitializeAPIServices creates and initializes all required services for the REST/GRPC servers
-func InitializeAPIServices(cfg *config.Config) (*Services, error) {
+func InitializeAPIServices(cfg *config.ConsolidatedConfig) (*Services, error) {
 	// Initialize shared core services
 	coreServices, err := InitializeCoreServices(cfg)
 	if err != nil {
@@ -100,7 +100,7 @@ func InitializeAPIServices(cfg *config.Config) (*Services, error) {
 	}
 
 	// Initialize S3 client (optional - only if region is configured)
-	if cfg.Streaming.S3.Region != "" {
+	if cfg.Data.S3.Region != "" {
 		s3Client, err := InitializeS3Client(cfg)
 		if err != nil {
 			return nil, err

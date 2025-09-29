@@ -61,7 +61,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/handlers.LogsQueryResponse"
+                            "$ref": "#/definitions/github_com_jamesneb_playback-backend_internal_handlers_dto.LogsQueryResponse"
                         }
                     }
                 }
@@ -85,7 +85,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/handlers.LogsRequest"
+                            "$ref": "#/definitions/github_com_jamesneb_playback-backend_internal_handlers_schema.LogsRequest"
                         }
                     }
                 ],
@@ -93,13 +93,13 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/handlers.LogsResponse"
+                            "$ref": "#/definitions/github_com_jamesneb_playback-backend_internal_handlers_dto.LogsResponse"
                         }
                     },
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/handlers.ErrorResponse"
+                            "$ref": "#/definitions/internal_handlers.ErrorResponse"
                         }
                     }
                 }
@@ -124,6 +124,12 @@ const docTemplate = `{
                     },
                     {
                         "type": "string",
+                        "description": "Specific metric name",
+                        "name": "metric_name",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
                         "description": "Start time (RFC3339)",
                         "name": "from",
                         "in": "query"
@@ -133,13 +139,49 @@ const docTemplate = `{
                         "description": "End time (RFC3339)",
                         "name": "to",
                         "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Aggregation function (sum, avg, count, min, max)",
+                        "name": "aggregation",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Group by field (service, metric_name, time_bucket)",
+                        "name": "group_by",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Limit number of results (default 100, max 10000)",
+                        "name": "limit",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Offset for pagination (default 0)",
+                        "name": "offset",
+                        "in": "query"
                     }
                 ],
                 "responses": {
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/handlers.MetricsQueryResponse"
+                            "$ref": "#/definitions/github_com_jamesneb_playback-backend_internal_handlers_services.MetricsQueryResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.ErrorResponse"
                         }
                     }
                 }
@@ -163,7 +205,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/handlers.MetricsRequest"
+                            "$ref": "#/definitions/internal_handlers.MetricsRequest"
                         }
                     }
                 ],
@@ -171,13 +213,13 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/handlers.MetricsResponse"
+                            "$ref": "#/definitions/internal_handlers.MetricsResponse"
                         }
                     },
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/handlers.ErrorResponse"
+                            "$ref": "#/definitions/internal_handlers.ErrorResponse"
                         }
                     }
                 }
@@ -185,7 +227,7 @@ const docTemplate = `{
         },
         "/api/v1/traces": {
             "post": {
-                "description": "Create a new distributed trace",
+                "description": "Create a new distributed trace\nReceive trace data from OpenTelemetry with optimized processing",
                 "consumes": [
                     "application/json"
                 ],
@@ -195,29 +237,29 @@ const docTemplate = `{
                 "tags": [
                     "traces"
                 ],
-                "summary": "Create trace",
+                "summary": "Receive traces",
                 "parameters": [
                     {
                         "description": "Trace data",
-                        "name": "trace",
+                        "name": "traces",
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/handlers.CreateTraceRequest"
+                            "$ref": "#/definitions/internal_handlers.CreateTraceRequest"
                         }
                     }
                 ],
                 "responses": {
-                    "201": {
-                        "description": "Created",
+                    "200": {
+                        "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/handlers.TraceResponse"
+                            "$ref": "#/definitions/internal_handlers.TraceResponse"
                         }
                     },
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/handlers.ErrorResponse"
+                            "$ref": "#/definitions/internal_handlers.ErrorResponse"
                         }
                     }
                 }
@@ -246,13 +288,93 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/handlers.TraceResponse"
+                            "$ref": "#/definitions/internal_handlers.TraceResponse"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/handlers.ErrorResponse"
+                            "$ref": "#/definitions/internal_handlers.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/replays/download": {
+            "post": {
+                "description": "Stream a specific Arrow IPC replay file directly from S3",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/octet-stream"
+                ],
+                "tags": [
+                    "replays"
+                ],
+                "summary": "Download replay file",
+                "parameters": [
+                    {
+                        "description": "Download request",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.DownloadRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "file"
+                        }
+                    }
+                }
+            }
+        },
+        "/replays/list": {
+            "get": {
+                "description": "List available Arrow IPC replay files from S3 with pagination",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "replays"
+                ],
+                "summary": "List replay files",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Maximum number of files to return (default: 100, max: 1000)",
+                        "name": "limit",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Continuation token for pagination",
+                        "name": "token",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Prefix to filter files",
+                        "name": "prefix",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.ListReplaysResponse"
                         }
                     }
                 }
@@ -260,139 +382,7 @@ const docTemplate = `{
         }
     },
     "definitions": {
-        "handlers.Attribute": {
-            "type": "object",
-            "properties": {
-                "key": {
-                    "type": "string"
-                },
-                "value": {
-                    "$ref": "#/definitions/handlers.AttributeValue"
-                }
-            }
-        },
-        "handlers.AttributeValue": {
-            "type": "object",
-            "properties": {
-                "boolValue": {
-                    "type": "boolean"
-                },
-                "doubleValue": {
-                    "type": "number"
-                },
-                "intValue": {
-                    "type": "integer"
-                },
-                "stringValue": {
-                    "type": "string"
-                }
-            }
-        },
-        "handlers.CreateTraceRequest": {
-            "type": "object",
-            "required": [
-                "span_id",
-                "trace_id"
-            ],
-            "properties": {
-                "span_id": {
-                    "type": "string",
-                    "example": "def456"
-                },
-                "tags": {
-                    "type": "object",
-                    "additionalProperties": {
-                        "type": "string"
-                    },
-                    "example": {
-                        "service": "api",
-                        "version": "1.0"
-                    }
-                },
-                "timestamp": {
-                    "type": "string",
-                    "example": "2023-01-01T00:00:00Z"
-                },
-                "trace_id": {
-                    "type": "string",
-                    "example": "abc123"
-                }
-            }
-        },
-        "handlers.ErrorResponse": {
-            "type": "object",
-            "properties": {
-                "error": {
-                    "type": "string",
-                    "example": "Invalid request"
-                },
-                "message": {
-                    "type": "string",
-                    "example": "Field validation failed"
-                }
-            }
-        },
-        "handlers.Gauge": {
-            "type": "object",
-            "properties": {
-                "dataPoints": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/handlers.NumberDataPoint"
-                    }
-                }
-            }
-        },
-        "handlers.Histogram": {
-            "type": "object",
-            "properties": {
-                "aggregationTemporality": {
-                    "type": "integer"
-                },
-                "dataPoints": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/handlers.HistogramDataPoint"
-                    }
-                }
-            }
-        },
-        "handlers.HistogramDataPoint": {
-            "type": "object",
-            "properties": {
-                "attributes": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/handlers.Attribute"
-                    }
-                },
-                "bucketCounts": {
-                    "type": "array",
-                    "items": {
-                        "type": "integer"
-                    }
-                },
-                "count": {
-                    "type": "integer"
-                },
-                "explicitBounds": {
-                    "type": "array",
-                    "items": {
-                        "type": "number"
-                    }
-                },
-                "startTimeUnixNano": {
-                    "type": "integer"
-                },
-                "sum": {
-                    "type": "number"
-                },
-                "timeUnixNano": {
-                    "type": "integer"
-                }
-            }
-        },
-        "handlers.LogEntry": {
+        "github_com_jamesneb_playback-backend_internal_handlers_dto.LogEntry": {
             "type": "object",
             "properties": {
                 "attributes": {
@@ -425,17 +415,101 @@ const docTemplate = `{
                 }
             }
         },
-        "handlers.LogRecord": {
+        "github_com_jamesneb_playback-backend_internal_handlers_dto.LogsQueryResponse": {
+            "type": "object",
+            "properties": {
+                "level": {
+                    "type": "string",
+                    "example": "INFO"
+                },
+                "logs": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/github_com_jamesneb_playback-backend_internal_handlers_dto.LogEntry"
+                    }
+                },
+                "query": {
+                    "type": "string",
+                    "example": "order failed"
+                },
+                "service": {
+                    "type": "string",
+                    "example": "order-service"
+                },
+                "time_range": {
+                    "$ref": "#/definitions/github_com_jamesneb_playback-backend_internal_handlers_dto.TimeRange"
+                }
+            }
+        },
+        "github_com_jamesneb_playback-backend_internal_handlers_dto.LogsResponse": {
+            "type": "object",
+            "properties": {
+                "received": {
+                    "type": "integer",
+                    "example": 10
+                },
+                "status": {
+                    "type": "string",
+                    "example": "accepted"
+                },
+                "timestamp": {
+                    "type": "string",
+                    "example": "2023-01-01T00:00:00Z"
+                }
+            }
+        },
+        "github_com_jamesneb_playback-backend_internal_handlers_dto.TimeRange": {
+            "type": "object",
+            "properties": {
+                "from": {
+                    "type": "string",
+                    "example": "2023-01-01T00:00:00Z"
+                },
+                "to": {
+                    "type": "string",
+                    "example": "2023-01-01T23:59:59Z"
+                }
+            }
+        },
+        "github_com_jamesneb_playback-backend_internal_handlers_schema.Attribute": {
+            "type": "object",
+            "properties": {
+                "key": {
+                    "type": "string"
+                },
+                "value": {
+                    "$ref": "#/definitions/github_com_jamesneb_playback-backend_internal_handlers_schema.AttributeValue"
+                }
+            }
+        },
+        "github_com_jamesneb_playback-backend_internal_handlers_schema.AttributeValue": {
+            "type": "object",
+            "properties": {
+                "boolValue": {
+                    "type": "boolean"
+                },
+                "doubleValue": {
+                    "type": "number"
+                },
+                "intValue": {
+                    "type": "integer"
+                },
+                "stringValue": {
+                    "type": "string"
+                }
+            }
+        },
+        "github_com_jamesneb_playback-backend_internal_handlers_schema.LogRecord": {
             "type": "object",
             "properties": {
                 "attributes": {
                     "type": "array",
                     "items": {
-                        "$ref": "#/definitions/handlers.Attribute"
+                        "$ref": "#/definitions/github_com_jamesneb_playback-backend_internal_handlers_schema.Attribute"
                     }
                 },
                 "body": {
-                    "$ref": "#/definitions/handlers.LogRecordBody"
+                    "$ref": "#/definitions/github_com_jamesneb_playback-backend_internal_handlers_schema.LogRecordBody"
                 },
                 "droppedAttributesCount": {
                     "type": "integer"
@@ -463,7 +537,7 @@ const docTemplate = `{
                 }
             }
         },
-        "handlers.LogRecordBody": {
+        "github_com_jamesneb_playback-backend_internal_handlers_schema.LogRecordBody": {
             "type": "object",
             "properties": {
                 "stringValue": {
@@ -471,143 +545,341 @@ const docTemplate = `{
                 }
             }
         },
-        "handlers.LogsQueryResponse": {
-            "type": "object",
-            "properties": {
-                "level": {
-                    "type": "string",
-                    "example": "INFO"
-                },
-                "logs": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/handlers.LogEntry"
-                    }
-                },
-                "query": {
-                    "type": "string",
-                    "example": "order failed"
-                },
-                "service": {
-                    "type": "string",
-                    "example": "order-service"
-                },
-                "time_range": {
-                    "$ref": "#/definitions/handlers.TimeRange"
-                }
-            }
-        },
-        "handlers.LogsRequest": {
+        "github_com_jamesneb_playback-backend_internal_handlers_schema.LogsRequest": {
             "type": "object",
             "properties": {
                 "resourceLogs": {
                     "type": "array",
                     "items": {
-                        "$ref": "#/definitions/handlers.ResourceLog"
+                        "$ref": "#/definitions/github_com_jamesneb_playback-backend_internal_handlers_schema.ResourceLog"
                     }
                 }
             }
         },
-        "handlers.LogsResponse": {
+        "github_com_jamesneb_playback-backend_internal_handlers_schema.Resource": {
             "type": "object",
             "properties": {
-                "received": {
-                    "type": "integer",
-                    "example": 10
+                "attributes": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/github_com_jamesneb_playback-backend_internal_handlers_schema.Attribute"
+                    }
                 },
-                "status": {
+                "droppedAttributesCount": {
+                    "type": "integer"
+                }
+            }
+        },
+        "github_com_jamesneb_playback-backend_internal_handlers_schema.ResourceLog": {
+            "type": "object",
+            "properties": {
+                "resource": {
+                    "$ref": "#/definitions/github_com_jamesneb_playback-backend_internal_handlers_schema.Resource"
+                },
+                "schemaUrl": {
+                    "type": "string"
+                },
+                "scopeLogs": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/github_com_jamesneb_playback-backend_internal_handlers_schema.ScopeLog"
+                    }
+                }
+            }
+        },
+        "github_com_jamesneb_playback-backend_internal_handlers_schema.Scope": {
+            "type": "object",
+            "properties": {
+                "attributes": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/github_com_jamesneb_playback-backend_internal_handlers_schema.Attribute"
+                    }
+                },
+                "droppedAttributesCount": {
+                    "type": "integer"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "version": {
+                    "type": "string"
+                }
+            }
+        },
+        "github_com_jamesneb_playback-backend_internal_handlers_schema.ScopeLog": {
+            "type": "object",
+            "properties": {
+                "logRecords": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/github_com_jamesneb_playback-backend_internal_handlers_schema.LogRecord"
+                    }
+                },
+                "scope": {
+                    "$ref": "#/definitions/github_com_jamesneb_playback-backend_internal_handlers_schema.Scope"
+                }
+            }
+        },
+        "github_com_jamesneb_playback-backend_internal_handlers_services.MetricData": {
+            "type": "object",
+            "properties": {
+                "attributes": {
+                    "type": "object",
+                    "additionalProperties": true
+                },
+                "labels": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                },
+                "name": {
+                    "type": "string"
+                },
+                "timestamp": {
+                    "type": "string"
+                },
+                "type": {
+                    "type": "string"
+                },
+                "value": {
+                    "type": "number"
+                }
+            }
+        },
+        "github_com_jamesneb_playback-backend_internal_handlers_services.MetricsQueryResponse": {
+            "type": "object",
+            "properties": {
+                "metrics": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/github_com_jamesneb_playback-backend_internal_handlers_services.MetricData"
+                    }
+                },
+                "query_time_ms": {
+                    "$ref": "#/definitions/time.Duration"
+                },
+                "service": {
+                    "type": "string"
+                },
+                "time_range": {
+                    "$ref": "#/definitions/github_com_jamesneb_playback-backend_internal_handlers_services.TimeRange"
+                }
+            }
+        },
+        "github_com_jamesneb_playback-backend_internal_handlers_services.TimeRange": {
+            "type": "object",
+            "properties": {
+                "from": {
+                    "type": "string"
+                },
+                "to": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_handlers.Attribute": {
+            "type": "object",
+            "properties": {
+                "key": {
+                    "type": "string"
+                },
+                "value": {
+                    "$ref": "#/definitions/internal_handlers.AttributeValue"
+                }
+            }
+        },
+        "internal_handlers.AttributeValue": {
+            "type": "object",
+            "properties": {
+                "boolValue": {
+                    "type": "boolean"
+                },
+                "doubleValue": {
+                    "type": "number"
+                },
+                "intValue": {
+                    "type": "integer"
+                },
+                "stringValue": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_handlers.CreateTraceRequest": {
+            "type": "object",
+            "required": [
+                "span_id",
+                "trace_id"
+            ],
+            "properties": {
+                "span_id": {
                     "type": "string",
-                    "example": "accepted"
+                    "example": "def456"
+                },
+                "tags": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    },
+                    "example": {
+                        "service": "api",
+                        "version": "1.0"
+                    }
                 },
                 "timestamp": {
                     "type": "string",
                     "example": "2023-01-01T00:00:00Z"
+                },
+                "trace_id": {
+                    "type": "string",
+                    "example": "abc123"
                 }
             }
         },
-        "handlers.Metric": {
+        "internal_handlers.DownloadRequest": {
+            "type": "object",
+            "required": [
+                "key"
+            ],
+            "properties": {
+                "key": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_handlers.ErrorResponse": {
+            "type": "object",
+            "properties": {
+                "error": {
+                    "type": "string",
+                    "example": "Invalid request"
+                },
+                "message": {
+                    "type": "string",
+                    "example": "Field validation failed"
+                }
+            }
+        },
+        "internal_handlers.Gauge": {
+            "type": "object",
+            "properties": {
+                "dataPoints": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_handlers.NumberDataPoint"
+                    }
+                }
+            }
+        },
+        "internal_handlers.Histogram": {
+            "type": "object",
+            "properties": {
+                "aggregationTemporality": {
+                    "type": "integer"
+                },
+                "dataPoints": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_handlers.HistogramDataPoint"
+                    }
+                }
+            }
+        },
+        "internal_handlers.HistogramDataPoint": {
+            "type": "object",
+            "properties": {
+                "attributes": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_handlers.Attribute"
+                    }
+                },
+                "bucketCounts": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "count": {
+                    "type": "integer"
+                },
+                "explicitBounds": {
+                    "type": "array",
+                    "items": {
+                        "type": "number"
+                    }
+                },
+                "startTimeUnixNano": {
+                    "type": "integer"
+                },
+                "sum": {
+                    "type": "number"
+                },
+                "timeUnixNano": {
+                    "type": "integer"
+                }
+            }
+        },
+        "internal_handlers.ListReplaysResponse": {
+            "type": "object",
+            "properties": {
+                "files": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_handlers.ReplayFile"
+                    }
+                },
+                "isTruncated": {
+                    "type": "boolean"
+                },
+                "maxKeys": {
+                    "type": "integer"
+                },
+                "nextToken": {
+                    "type": "string"
+                },
+                "totalCount": {
+                    "type": "integer"
+                }
+            }
+        },
+        "internal_handlers.Metric": {
             "type": "object",
             "properties": {
                 "description": {
                     "type": "string"
                 },
                 "gauge": {
-                    "$ref": "#/definitions/handlers.Gauge"
+                    "$ref": "#/definitions/internal_handlers.Gauge"
                 },
                 "histogram": {
-                    "$ref": "#/definitions/handlers.Histogram"
+                    "$ref": "#/definitions/internal_handlers.Histogram"
                 },
                 "name": {
                     "type": "string"
                 },
                 "sum": {
-                    "$ref": "#/definitions/handlers.Sum"
+                    "$ref": "#/definitions/internal_handlers.Sum"
                 },
                 "unit": {
                     "type": "string"
                 }
             }
         },
-        "handlers.MetricData": {
-            "type": "object",
-            "properties": {
-                "labels": {
-                    "type": "object",
-                    "additionalProperties": {
-                        "type": "string"
-                    },
-                    "example": {
-                        "status": "success"
-                    }
-                },
-                "name": {
-                    "type": "string",
-                    "example": "orders_total"
-                },
-                "timestamp": {
-                    "type": "string",
-                    "example": "2023-01-01T00:00:00Z"
-                },
-                "type": {
-                    "type": "string",
-                    "example": "counter"
-                },
-                "value": {
-                    "type": "number",
-                    "example": 156
-                }
-            }
-        },
-        "handlers.MetricsQueryResponse": {
-            "type": "object",
-            "properties": {
-                "metrics": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/handlers.MetricData"
-                    }
-                },
-                "service": {
-                    "type": "string",
-                    "example": "order-service"
-                },
-                "time_range": {
-                    "$ref": "#/definitions/handlers.TimeRange"
-                }
-            }
-        },
-        "handlers.MetricsRequest": {
+        "internal_handlers.MetricsRequest": {
             "type": "object",
             "properties": {
                 "resourceMetrics": {
                     "type": "array",
                     "items": {
-                        "$ref": "#/definitions/handlers.ResourceMetric"
+                        "$ref": "#/definitions/internal_handlers.ResourceMetric"
                     }
                 }
             }
         },
-        "handlers.MetricsResponse": {
+        "internal_handlers.MetricsResponse": {
             "type": "object",
             "properties": {
                 "received": {
@@ -624,7 +896,7 @@ const docTemplate = `{
                 }
             }
         },
-        "handlers.NumberDataPoint": {
+        "internal_handlers.NumberDataPoint": {
             "type": "object",
             "properties": {
                 "asDouble": {
@@ -636,7 +908,7 @@ const docTemplate = `{
                 "attributes": {
                     "type": "array",
                     "items": {
-                        "$ref": "#/definitions/handlers.Attribute"
+                        "$ref": "#/definitions/internal_handlers.Attribute"
                     }
                 },
                 "startTimeUnixNano": {
@@ -647,39 +919,39 @@ const docTemplate = `{
                 }
             }
         },
-        "handlers.Resource": {
+        "internal_handlers.ReplayFile": {
+            "type": "object",
+            "properties": {
+                "jobId": {
+                    "type": "string"
+                },
+                "key": {
+                    "type": "string"
+                },
+                "lastModified": {
+                    "type": "string"
+                },
+                "size": {
+                    "type": "integer"
+                }
+            }
+        },
+        "internal_handlers.Resource": {
             "type": "object",
             "properties": {
                 "attributes": {
                     "type": "array",
                     "items": {
-                        "$ref": "#/definitions/handlers.Attribute"
+                        "$ref": "#/definitions/internal_handlers.Attribute"
                     }
                 }
             }
         },
-        "handlers.ResourceLog": {
+        "internal_handlers.ResourceMetric": {
             "type": "object",
             "properties": {
                 "resource": {
-                    "$ref": "#/definitions/handlers.Resource"
-                },
-                "schemaUrl": {
-                    "type": "string"
-                },
-                "scopeLogs": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/handlers.ScopeLog"
-                    }
-                }
-            }
-        },
-        "handlers.ResourceMetric": {
-            "type": "object",
-            "properties": {
-                "resource": {
-                    "$ref": "#/definitions/handlers.Resource"
+                    "$ref": "#/definitions/internal_handlers.Resource"
                 },
                 "schemaUrl": {
                     "type": "string"
@@ -687,12 +959,12 @@ const docTemplate = `{
                 "scopeMetrics": {
                     "type": "array",
                     "items": {
-                        "$ref": "#/definitions/handlers.ScopeMetric"
+                        "$ref": "#/definitions/internal_handlers.ScopeMetric"
                     }
                 }
             }
         },
-        "handlers.Scope": {
+        "internal_handlers.Scope": {
             "type": "object",
             "properties": {
                 "name": {
@@ -703,35 +975,21 @@ const docTemplate = `{
                 }
             }
         },
-        "handlers.ScopeLog": {
-            "type": "object",
-            "properties": {
-                "logRecords": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/handlers.LogRecord"
-                    }
-                },
-                "scope": {
-                    "$ref": "#/definitions/handlers.Scope"
-                }
-            }
-        },
-        "handlers.ScopeMetric": {
+        "internal_handlers.ScopeMetric": {
             "type": "object",
             "properties": {
                 "metrics": {
                     "type": "array",
                     "items": {
-                        "$ref": "#/definitions/handlers.Metric"
+                        "$ref": "#/definitions/internal_handlers.Metric"
                     }
                 },
                 "scope": {
-                    "$ref": "#/definitions/handlers.Scope"
+                    "$ref": "#/definitions/internal_handlers.Scope"
                 }
             }
         },
-        "handlers.Sum": {
+        "internal_handlers.Sum": {
             "type": "object",
             "properties": {
                 "aggregationTemporality": {
@@ -740,7 +998,7 @@ const docTemplate = `{
                 "dataPoints": {
                     "type": "array",
                     "items": {
-                        "$ref": "#/definitions/handlers.NumberDataPoint"
+                        "$ref": "#/definitions/internal_handlers.NumberDataPoint"
                     }
                 },
                 "isMonotonic": {
@@ -748,20 +1006,7 @@ const docTemplate = `{
                 }
             }
         },
-        "handlers.TimeRange": {
-            "type": "object",
-            "properties": {
-                "from": {
-                    "type": "string",
-                    "example": "2023-01-01T00:00:00Z"
-                },
-                "to": {
-                    "type": "string",
-                    "example": "2023-01-01T01:00:00Z"
-                }
-            }
-        },
-        "handlers.TraceResponse": {
+        "internal_handlers.TraceResponse": {
             "type": "object",
             "properties": {
                 "created_at": {
@@ -772,11 +1017,47 @@ const docTemplate = `{
                     "type": "string",
                     "example": "1"
                 },
+                "message": {
+                    "type": "string",
+                    "example": "Successfully processed"
+                },
+                "service_name": {
+                    "type": "string",
+                    "example": "my-service"
+                },
+                "status": {
+                    "type": "string",
+                    "example": "accepted"
+                },
                 "trace_id": {
                     "type": "string",
                     "example": "abc123"
                 }
             }
+        },
+        "time.Duration": {
+            "type": "integer",
+            "format": "int64",
+            "enum": [
+                -9223372036854775808,
+                9223372036854775807,
+                1,
+                1000,
+                1000000,
+                1000000000,
+                60000000000,
+                3600000000000
+            ],
+            "x-enum-varnames": [
+                "minDuration",
+                "maxDuration",
+                "Nanosecond",
+                "Microsecond",
+                "Millisecond",
+                "Second",
+                "Minute",
+                "Hour"
+            ]
         }
     }
 }`

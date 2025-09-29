@@ -3,19 +3,24 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"sync/atomic"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	pkgerrors "github.com/jamesneb/playback-backend/pkg/errors"
 	"github.com/jamesneb/playback-backend/internal/interfaces"
-	"github.com/jamesneb/playback-backend/internal/logging"
 	"github.com/jamesneb/playback-backend/internal/resilience"
-	"github.com/jamesneb/playback-backend/internal/streaming"
+	"github.com/jamesneb/playback-backend/internal/storage"
+	"github.com/jamesneb/playback-backend/internal/validation"
 	"github.com/jamesneb/playback-backend/pkg/logger"
 	"github.com/jamesneb/playback-backend/pkg/telemetry"
+	tracecollectorpb "go.opentelemetry.io/proto/otlp/collector/trace/v1"
 	"go.uber.org/zap"
+	"google.golang.org/protobuf/proto"
 )
 
 var (
@@ -23,30 +28,101 @@ var (
 	idCounter int64
 )
 
-// TraceHandler handles HTTP trace ingestion requests with comprehensive
-// validation, rate limiting, and resilience patterns.
+// TraceHandler handles HTTP/gRPC trace ingestion with high-performance processing
 type TraceHandler struct {
-	eventPublisher telemetry.EventPublisher
-	validator      *RequestValidator
+	*BaseTelemetryHandler
+	validator         *RequestValidator
+	schemaValidator   *validation.SchemaValidator
+	protobufValidator *validation.ProtobufValidator
+	queryService      *TraceQueryService
 	// Resilience components
 	kinesisBuffer   *resilience.KinesisBuffer
 	rateLimiter     *resilience.TenantRateLimiter
 	deadLetterQueue *resilience.DeadLetterQueue
+	// Pre-allocated buffers for hot path operations
+	logFields []zap.Field
 }
 
-// NewTraceHandler creates a new trace handler with all required dependencies
-// and proper initialization of validation components.
-//
-// Parameters:
-//   - kinesisClient: Configured Kinesis client for stream publishing
-//   - resilienceComponents: Collection of resilience patterns (circuit breaker, rate limiter, etc.)
-//
-// Returns:
-//   - *TraceHandler: Fully initialized trace handler ready for request processing
+// TraceQueryService provides trace querying capabilities
+type TraceQueryService struct {
+	clickhouse *storage.ClickHouseClient
+}
+
+// TraceQueryResponse represents a trace query response
+type TraceQueryResponse struct {
+	TraceID   string    `json:"trace_id"`
+	StartTime time.Time `json:"start_time"`
+	Duration  time.Duration `json:"duration"`
+	SpanCount int       `json:"span_count"`
+	Status    string    `json:"status"`
+}
+
+
+// GetTraceByID retrieves a trace by ID from ClickHouse
+func (tqs *TraceQueryService) GetTraceByID(ctx context.Context, traceID string) (*TraceQueryResponse, error) {
+	const query = `
+		SELECT
+			trace_id,
+			min(start_time) as start_time,
+			max(end_time) - min(start_time) as duration_ns,
+			count(*) as span_count,
+			any(status_code) as status_code
+		FROM traces
+		WHERE trace_id = ?
+		GROUP BY trace_id
+	`
+
+	row := tqs.clickhouse.QueryRow(ctx, query, traceID)
+
+	var result TraceQueryResponse
+	var durationNs int64
+	var statusCode int
+
+	if err := row.Scan(
+		&result.TraceID,
+		&result.StartTime,
+		&durationNs,
+		&result.SpanCount,
+		&statusCode,
+	); err != nil {
+		return nil, fmt.Errorf("trace not found or query failed: %w", err)
+	}
+
+	result.Duration = time.Duration(durationNs)
+	result.Status = convertTraceStatusCode(statusCode)
+
+	return &result, nil
+}
+
+func convertTraceStatusCode(code int) string {
+	switch code {
+	case 0:
+		return "unset"
+	case 1:
+		return "success"
+	case 2:
+		return "error"
+	default:
+		return "unknown"
+	}
+}
+
+// NewTraceHandler creates optimized trace handler with base consolidation
 func NewTraceHandler(eventPublisher telemetry.EventPublisher, resilienceComponents *interfaces.ResilienceComponents) *TraceHandler {
+	// Create high-performance base handler
+	baseHandler := NewBaseTelemetryHandler(
+		eventPublisher,
+		&TraceMetadataExtractor{},
+		NewStreamingTelemetryProcessor(eventPublisher, TelemetryTrace),
+		TelemetryTrace,
+	)
+
 	handler := &TraceHandler{
-		eventPublisher: eventPublisher,
-		validator:      NewRequestValidator(),
+		BaseTelemetryHandler: baseHandler,
+		validator:            NewRequestValidator(),
+		schemaValidator:      validation.NewSchemaValidator(false),
+		protobufValidator:    validation.NewProtobufValidator(),
+		logFields:           make([]zap.Field, 0, 8),
 	}
 
 	// Handle optional resilience components gracefully
@@ -59,242 +135,72 @@ func NewTraceHandler(eventPublisher telemetry.EventPublisher, resilienceComponen
 	return handler
 }
 
+// NewTraceHandlerWithClickHouse creates a trace handler with ClickHouse query capabilities
+func NewTraceHandlerWithClickHouse(eventPublisher telemetry.EventPublisher, resilienceComponents *interfaces.ResilienceComponents, clickhouse *storage.ClickHouseClient) *TraceHandler {
+	handler := NewTraceHandler(eventPublisher, resilienceComponents)
+
+	// Add ClickHouse query service for production trace queries
+	if clickhouse != nil {
+		handler.queryService = &TraceQueryService{
+			clickhouse: clickhouse,
+		}
+	}
+
+	return handler
+}
+
 // CreateTrace creates a new trace
 // @Summary Create trace
 // @Description Create a new distributed trace
+// CreateTrace - consolidated high-performance trace ingestion
+// @Summary Receive traces
+// @Description Receive trace data from OpenTelemetry with optimized processing
 // @Tags traces
 // @Accept json
 // @Produce json
-// @Param trace body CreateTraceRequest true "Trace data"
-// @Success 201 {object} TraceResponse
+// @Param traces body CreateTraceRequest true "Trace data"
+// @Success 200 {object} TraceResponse
 // @Failure 400 {object} ErrorResponse
 // @Router /api/v1/traces [post]
 func (h *TraceHandler) CreateTrace(c *gin.Context) {
-	// Validate and parse request
-	otlpData, err := h.validateAndParseRequest(c)
+	// Use consolidated base handler for HTTP ingestion
+	h.HandleIngestion(c)
+}
+
+// CreateTraceProtobuf handles gRPC protobuf trace ingestion without JSON
+func (h *TraceHandler) CreateTraceProtobuf(ctx context.Context, req *tracecollectorpb.ExportTraceServiceRequest) (*tracecollectorpb.ExportTraceServiceResponse, error) {
+	// Extract metadata directly from protobuf
+	metadata := OTLPMetadata{
+		ServiceName: extractServiceNameFromTraceRequest(req),
+		TraceID:     extractTraceIDFromTraceRequest(req),
+		Count:       int32(countSpansInRequest(req)),
+		DataSize:    int32(proto.Size(req)),
+	}
+
+	// Process without JSON conversion for maximum performance
+	data, err := proto.Marshal(req)
 	if err != nil {
-		return // Response already sent by validation method
+		return nil, fmt.Errorf("failed to marshal protobuf: %w", err)
 	}
 
-	// Extract trace metadata
-	traceMetadata, err := h.extractTraceMetadata(c, otlpData)
-	if err != nil {
-		return // Response already sent
+	// Use streaming processor directly
+	processor := NewStreamingTelemetryProcessor(h.eventPublisher, TelemetryTrace)
+	if err := processor.ProcessTelemetryData(ctx, data, &metadata); err != nil {
+		return nil, fmt.Errorf("failed to process trace data: %w", err)
 	}
 
-	// Apply rate limiting
-	if !h.applyRateLimit(c, traceMetadata.TenantID) {
-		return // Response already sent
-	}
-
-	// Log ingestion event
-	h.logIngestedTrace(c, traceMetadata, len(otlpData))
-
-	// Publish to Kinesis
-	if !h.publishTraceToKinesis(c, otlpData, traceMetadata) {
-		return // Response already sent
-	}
-
-	// Send success response
-	h.sendSuccessResponse(c, traceMetadata)
+	return &tracecollectorpb.ExportTraceServiceResponse{}, nil
 }
 
-type traceMetadata struct {
-	ServiceName string
-	TraceID     string
-	TenantID    string
-}
 
-func (h *TraceHandler) validateAndParseRequest(c *gin.Context) (json.RawMessage, error) {
-	// Perform comprehensive request validation
-	if validationErr := h.validator.ValidateRequest(c); validationErr != nil {
-		logger.Warn("Request validation failed",
-			zap.Error(validationErr),
-			zap.String("client_ip", logging.SanitizeClientIP(c.ClientIP())),
-			zap.String("user_agent", logging.SanitizeUserAgent(c.GetHeader("User-Agent"))))
 
-		h.respondWithValidationError(c, validationErr)
-		return nil, validationErr
-	}
 
-	// Parse the OTLP trace data with size already validated
-	var otlpData json.RawMessage
-	if err := c.ShouldBindJSON(&otlpData); err != nil {
-		logger.Error("Failed to parse JSON payload after validation",
-			zap.Error(err),
-			zap.String("client_ip", logging.SanitizeClientIP(c.ClientIP())),
-			zap.String("user_agent", logging.SanitizeUserAgent(c.GetHeader("User-Agent"))))
 
-		c.JSON(http.StatusBadRequest, ErrorResponse{
-			Error:   ErrInvalidTraceData,
-			Message: "Malformed JSON in request body",
-		})
-		return nil, err
-	}
 
-	// Validate OTLP structure and content
-	if validationErr := h.validator.ValidateOTLPTraceData(otlpData); validationErr != nil {
-		logger.Warn("OTLP data validation failed",
-			zap.Error(validationErr),
-			zap.String("client_ip", logging.SanitizeClientIP(c.ClientIP())),
-			zap.String("data_size", logging.SanitizeDataSize(len(otlpData))))
 
-		h.respondWithValidationError(c, validationErr)
-		return nil, validationErr
-	}
 
-	return otlpData, nil
-}
 
-func (h *TraceHandler) extractTraceMetadata(c *gin.Context, otlpData json.RawMessage) (*traceMetadata, error) {
-	// Single parse operation to extract both service name and trace ID
-	rawServiceName, rawTraceID := h.extractServiceNameAndTraceID(otlpData)
-
-	serviceName := h.validator.ValidateServiceName(rawServiceName)
-	traceID := h.validator.ValidateTraceID(rawTraceID)
-
-	// Use service name as tenant ID with proper fallback
-	tenantID := serviceName
-	if tenantID == DefaultServiceName {
-		tenantID = DefaultTenantID
-	}
-
-	return &traceMetadata{
-		ServiceName: serviceName,
-		TraceID:     traceID,
-		TenantID:    tenantID,
-	}, nil
-}
-
-func (h *TraceHandler) applyRateLimit(c *gin.Context, tenantID string) bool {
-	if h.rateLimiter != nil && !h.rateLimiter.Allow(tenantID) {
-		logger.Warn("HTTP trace request rate limited",
-			zap.String("tenant", logging.SanitizeTenantID(tenantID)),
-			zap.String("client_ip", logging.SanitizeClientIP(c.ClientIP())))
-		c.JSON(http.StatusTooManyRequests, ErrorResponse{
-			Error:   "Rate limit exceeded",
-			Message: "Too many requests for this tenant",
-		})
-		return false
-	}
-	return true
-}
-
-func (h *TraceHandler) logIngestedTrace(c *gin.Context, metadata *traceMetadata, dataSize int) {
-	logger.Debug("Received OTLP trace data",
-		zap.String("service_name", logging.SanitizeServiceName(metadata.ServiceName)),
-		zap.String("trace_id", logging.SanitizeTraceID(metadata.TraceID)),
-		zap.String("tenant", logging.SanitizeTenantID(metadata.TenantID)),
-		zap.String("client_ip", logging.SanitizeClientIP(c.ClientIP())),
-		zap.String("user_agent", logging.SanitizeUserAgent(c.GetHeader("User-Agent"))),
-		zap.String("data_size", logging.SanitizeDataSize(dataSize)),
-	)
-}
-
-func (h *TraceHandler) publishTraceToKinesis(c *gin.Context, otlpData json.RawMessage, metadata *traceMetadata) bool {
-	ctx, cancel := context.WithTimeout(c.Request.Context(), 10*time.Second)
-	defer cancel()
-
-	var err error
-
-	// Use buffer if available for resilience
-	if h.kinesisBuffer != nil {
-		// Create a legacy telemetry event for JSON data
-		event := &streaming.LegacyTelemetryEvent{
-			Type:        string(streaming.TelemetryTypeTraces),
-			ServiceName: metadata.ServiceName,
-			TraceID:     metadata.TraceID,
-			Data:        otlpData,
-			Metadata: streaming.LegacyTelemetryMetadata{
-				IngestedAt: time.Now(),
-				SourceIP:   c.ClientIP(),
-				UserAgent:  c.GetHeader("User-Agent"),
-			},
-		}
-
-		// Buffer the event through the resilience layer
-		err = h.kinesisBuffer.BufferEvent(ctx, event, metadata.TenantID, "http")
-	} else {
-		// Fallback to direct Kinesis (original behavior)
-		err = h.eventPublisher.PublishTrace(
-			ctx,
-			otlpData,
-			metadata.ServiceName,
-			metadata.TraceID,
-			c.ClientIP(),
-			c.GetHeader("User-Agent"),
-		)
-	}
-
-	if err != nil {
-		// Handle DLQ if available
-		if h.deadLetterQueue != nil {
-			h.handlePublishFailure(ctx, otlpData, metadata, err)
-		}
-
-		logger.Error("Failed to publish trace to Kinesis",
-			zap.Error(err),
-			zap.String("service_name", logging.SanitizeServiceName(metadata.ServiceName)),
-			zap.String("trace_id", logging.SanitizeTraceID(metadata.TraceID)),
-			zap.String("tenant", logging.SanitizeTenantID(metadata.TenantID)),
-		)
-
-		status := http.StatusServiceUnavailable
-		errorMsg := "Telemetry pipeline unavailable"
-		if h.kinesisBuffer == nil {
-			status = http.StatusInternalServerError
-			errorMsg = "Failed to process trace data"
-		}
-
-		c.JSON(status, ErrorResponse{
-			Error:   errorMsg,
-			Message: "Please try again later",
-		})
-		return false
-	}
-
-	return true
-}
-
-func (h *TraceHandler) handlePublishFailure(ctx context.Context, otlpData json.RawMessage, metadata *traceMetadata, err error) {
-	// Create a basic telemetry event for DLQ
-	basicEvent := &streaming.TraceTelemetryEvent{
-		BaseTelemetryEvent: streaming.BaseTelemetryEvent{
-			Type:        streaming.TelemetryTypeTraces,
-			ServiceName: metadata.ServiceName,
-			TraceID:     metadata.TraceID,
-			Metadata: streaming.TelemetryMetadata{
-				IngestedAt: time.Now(),
-				SourceIP:   "", // Will be filled by caller
-			},
-		},
-		// Note: ResourceSpans would be nil for JSON data
-	}
-
-	if dlqErr := h.deadLetterQueue.SendToDLQ(ctx, basicEvent, err, metadata.TenantID, "http", "kinesis_publish_failed"); dlqErr != nil {
-		logger.Error("Failed to send to DLQ", zap.Error(dlqErr))
-	}
-}
-
-func (h *TraceHandler) sendSuccessResponse(c *gin.Context, metadata *traceMetadata) {
-	// Log successful ingestion
-	logger.Debug("Successfully processed HTTP trace via Kinesis-first approach",
-		zap.String("service_name", logging.SanitizeServiceName(metadata.ServiceName)),
-		zap.String("trace_id", logging.SanitizeTraceID(metadata.TraceID)),
-		zap.String("tenant", logging.SanitizeTenantID(metadata.TenantID)),
-	)
-
-	// Return success response
-	response := TraceResponse{
-		ID:        generateID(),
-		TraceID:   metadata.TraceID,
-		CreatedAt: time.Now(),
-	}
-
-	c.JSON(http.StatusAccepted, response)
-}
-
-// GetTrace retrieves a trace by ID
+// GetTrace retrieves a trace by ID using ClickHouse
 // @Summary Get trace
 // @Description Get a trace by its ID
 // @Tags traces
@@ -302,14 +208,46 @@ func (h *TraceHandler) sendSuccessResponse(c *gin.Context, metadata *traceMetada
 // @Param id path string true "Trace ID"
 // @Success 200 {object} TraceResponse
 // @Failure 404 {object} ErrorResponse
+// @Failure 500 {object} ErrorResponse
 // @Router /api/v1/traces/{id} [get]
 func (h *TraceHandler) GetTrace(c *gin.Context) {
-	id := c.Param("id")
+	traceID := c.Param("id")
 
+	if traceID == "" {
+		pkgerrors.AbortBadRequest(c, "Trace ID parameter is required")
+		return
+	}
+
+	// If no ClickHouse client available, return error
+	if h.queryService == nil || h.queryService.clickhouse == nil {
+		logger.Error("ClickHouse not available for trace queries",
+			zap.String("trace_id", traceID))
+		pkgerrors.AbortServiceUnavailable(c, "trace-query-service", 120)
+		return
+	}
+
+	// Query trace from ClickHouse
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
+	defer cancel()
+
+	trace, err := h.queryService.GetTraceByID(ctx, traceID)
+	if err != nil {
+		if strings.Contains(err.Error(), "not found") {
+			pkgerrors.AbortNotFound(c, "trace")
+		} else {
+			logger.Error("Failed to query trace",
+				zap.String("trace_id", traceID),
+				zap.Error(err))
+			pkgerrors.AbortDatabaseError(c, "trace_query", err)
+		}
+		return
+	}
+
+	// Convert to response format
 	response := TraceResponse{
-		ID:        id,
-		TraceID:   "sample-trace-" + id,
-		CreatedAt: time.Now(),
+		ID:        trace.TraceID,
+		TraceID:   trace.TraceID,
+		CreatedAt: trace.StartTime,
 	}
 
 	c.JSON(http.StatusOK, response)
@@ -323,9 +261,12 @@ type CreateTraceRequest struct {
 }
 
 type TraceResponse struct {
-	ID        string    `json:"id" example:"1"`
-	TraceID   string    `json:"trace_id" example:"abc123"`
-	CreatedAt time.Time `json:"created_at" example:"2023-01-01T00:00:00Z"`
+	ID          string    `json:"id" example:"1"`
+	TraceID     string    `json:"trace_id" example:"abc123"`
+	CreatedAt   time.Time `json:"created_at" example:"2023-01-01T00:00:00Z"`
+	Status      string    `json:"status,omitempty" example:"accepted"`
+	Message     string    `json:"message,omitempty" example:"Successfully processed"`
+	ServiceName string    `json:"service_name,omitempty" example:"my-service"`
 }
 
 type ErrorResponse struct {
@@ -333,35 +274,7 @@ type ErrorResponse struct {
 	Message string `json:"message" example:"Field validation failed"`
 }
 
-// respondWithValidationError sends a properly formatted validation error response
-// to the client with appropriate HTTP status codes based on the validation error type.
-func (h *TraceHandler) respondWithValidationError(c *gin.Context, validationErr *ValidationError) {
-	statusCode := h.getStatusCodeForValidationError(validationErr)
 
-	c.JSON(statusCode, ErrorResponse{
-		Error:   validationErr.Message,
-		Message: validationErr.Code,
-	})
-}
-
-// getStatusCodeForValidationError maps validation error types to appropriate HTTP status codes.
-func (h *TraceHandler) getStatusCodeForValidationError(validationErr *ValidationError) int {
-	switch validationErr.Type {
-	case ValidationTypeSize:
-		if validationErr.Code == "PAYLOAD_TOO_LARGE" {
-			return http.StatusRequestEntityTooLarge
-		}
-		return http.StatusBadRequest
-	case ValidationTypeFormat:
-		return http.StatusUnsupportedMediaType
-	case ValidationTypeStructure, ValidationTypeContent:
-		return http.StatusBadRequest
-	case ValidationTypeLimit:
-		return http.StatusRequestEntityTooLarge
-	default:
-		return http.StatusBadRequest
-	}
-}
 
 // extractServiceNameAndTraceID performs a single parse to extract both
 // service name and trace ID from OTLP trace data, eliminating repeated unmarshalling.
@@ -506,4 +419,48 @@ func generateID() string {
 	default:
 		return timestampStr + counterStr
 	}
+}
+
+
+// Helper functions for gRPC protobuf handling
+
+// extractServiceNameFromTraceRequest extracts service name from protobuf request
+func extractServiceNameFromTraceRequest(req *tracecollectorpb.ExportTraceServiceRequest) string {
+	for _, resourceSpan := range req.ResourceSpans {
+		if resourceSpan.Resource != nil {
+			for _, attr := range resourceSpan.Resource.Attributes {
+				if attr.Key == "service.name" {
+					if stringValue := attr.Value.GetStringValue(); stringValue != "" {
+						return stringValue
+					}
+				}
+			}
+		}
+	}
+	return "unknown"
+}
+
+// extractTraceIDFromTraceRequest extracts the first trace ID from protobuf request
+func extractTraceIDFromTraceRequest(req *tracecollectorpb.ExportTraceServiceRequest) string {
+	for _, resourceSpan := range req.ResourceSpans {
+		for _, scopeSpan := range resourceSpan.ScopeSpans {
+			for _, span := range scopeSpan.Spans {
+				if len(span.TraceId) > 0 {
+					return fmt.Sprintf("%x", span.TraceId)
+				}
+			}
+		}
+	}
+	return ""
+}
+
+// countSpansInRequest counts total spans in protobuf request
+func countSpansInRequest(req *tracecollectorpb.ExportTraceServiceRequest) int {
+	count := 0
+	for _, resourceSpan := range req.ResourceSpans {
+		for _, scopeSpan := range resourceSpan.ScopeSpans {
+			count += len(scopeSpan.Spans)
+		}
+	}
+	return count
 }

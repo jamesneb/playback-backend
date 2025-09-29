@@ -1,94 +1,6 @@
 basePath: /api/v1
 definitions:
-  handlers.Attribute:
-    properties:
-      key:
-        type: string
-      value:
-        $ref: '#/definitions/handlers.AttributeValue'
-    type: object
-  handlers.AttributeValue:
-    properties:
-      boolValue:
-        type: boolean
-      doubleValue:
-        type: number
-      intValue:
-        type: integer
-      stringValue:
-        type: string
-    type: object
-  handlers.CreateTraceRequest:
-    properties:
-      span_id:
-        example: def456
-        type: string
-      tags:
-        additionalProperties:
-          type: string
-        example:
-          service: api
-          version: "1.0"
-        type: object
-      timestamp:
-        example: "2023-01-01T00:00:00Z"
-        type: string
-      trace_id:
-        example: abc123
-        type: string
-    required:
-    - span_id
-    - trace_id
-    type: object
-  handlers.ErrorResponse:
-    properties:
-      error:
-        example: Invalid request
-        type: string
-      message:
-        example: Field validation failed
-        type: string
-    type: object
-  handlers.Gauge:
-    properties:
-      dataPoints:
-        items:
-          $ref: '#/definitions/handlers.NumberDataPoint'
-        type: array
-    type: object
-  handlers.Histogram:
-    properties:
-      aggregationTemporality:
-        type: integer
-      dataPoints:
-        items:
-          $ref: '#/definitions/handlers.HistogramDataPoint'
-        type: array
-    type: object
-  handlers.HistogramDataPoint:
-    properties:
-      attributes:
-        items:
-          $ref: '#/definitions/handlers.Attribute'
-        type: array
-      bucketCounts:
-        items:
-          type: integer
-        type: array
-      count:
-        type: integer
-      explicitBounds:
-        items:
-          type: number
-        type: array
-      startTimeUnixNano:
-        type: integer
-      sum:
-        type: number
-      timeUnixNano:
-        type: integer
-    type: object
-  handlers.LogEntry:
+  github_com_jamesneb_playback-backend_internal_handlers_dto.LogEntry:
     properties:
       attributes:
         additionalProperties: true
@@ -112,14 +24,71 @@ definitions:
         example: abc123def456
         type: string
     type: object
-  handlers.LogRecord:
+  github_com_jamesneb_playback-backend_internal_handlers_dto.LogsQueryResponse:
+    properties:
+      level:
+        example: INFO
+        type: string
+      logs:
+        items:
+          $ref: '#/definitions/github_com_jamesneb_playback-backend_internal_handlers_dto.LogEntry'
+        type: array
+      query:
+        example: order failed
+        type: string
+      service:
+        example: order-service
+        type: string
+      time_range:
+        $ref: '#/definitions/github_com_jamesneb_playback-backend_internal_handlers_dto.TimeRange'
+    type: object
+  github_com_jamesneb_playback-backend_internal_handlers_dto.LogsResponse:
+    properties:
+      received:
+        example: 10
+        type: integer
+      status:
+        example: accepted
+        type: string
+      timestamp:
+        example: "2023-01-01T00:00:00Z"
+        type: string
+    type: object
+  github_com_jamesneb_playback-backend_internal_handlers_dto.TimeRange:
+    properties:
+      from:
+        example: "2023-01-01T00:00:00Z"
+        type: string
+      to:
+        example: "2023-01-01T23:59:59Z"
+        type: string
+    type: object
+  github_com_jamesneb_playback-backend_internal_handlers_schema.Attribute:
+    properties:
+      key:
+        type: string
+      value:
+        $ref: '#/definitions/github_com_jamesneb_playback-backend_internal_handlers_schema.AttributeValue'
+    type: object
+  github_com_jamesneb_playback-backend_internal_handlers_schema.AttributeValue:
+    properties:
+      boolValue:
+        type: boolean
+      doubleValue:
+        type: number
+      intValue:
+        type: integer
+      stringValue:
+        type: string
+    type: object
+  github_com_jamesneb_playback-backend_internal_handlers_schema.LogRecord:
     properties:
       attributes:
         items:
-          $ref: '#/definitions/handlers.Attribute'
+          $ref: '#/definitions/github_com_jamesneb_playback-backend_internal_handlers_schema.Attribute'
         type: array
       body:
-        $ref: '#/definitions/handlers.LogRecordBody'
+        $ref: '#/definitions/github_com_jamesneb_playback-backend_internal_handlers_schema.LogRecordBody'
       droppedAttributesCount:
         type: integer
       flags:
@@ -137,104 +106,231 @@ definitions:
       traceId:
         type: string
     type: object
-  handlers.LogRecordBody:
+  github_com_jamesneb_playback-backend_internal_handlers_schema.LogRecordBody:
     properties:
       stringValue:
         type: string
     type: object
-  handlers.LogsQueryResponse:
-    properties:
-      level:
-        example: INFO
-        type: string
-      logs:
-        items:
-          $ref: '#/definitions/handlers.LogEntry'
-        type: array
-      query:
-        example: order failed
-        type: string
-      service:
-        example: order-service
-        type: string
-      time_range:
-        $ref: '#/definitions/handlers.TimeRange'
-    type: object
-  handlers.LogsRequest:
+  github_com_jamesneb_playback-backend_internal_handlers_schema.LogsRequest:
     properties:
       resourceLogs:
         items:
-          $ref: '#/definitions/handlers.ResourceLog'
+          $ref: '#/definitions/github_com_jamesneb_playback-backend_internal_handlers_schema.ResourceLog'
         type: array
     type: object
-  handlers.LogsResponse:
+  github_com_jamesneb_playback-backend_internal_handlers_schema.Resource:
     properties:
-      received:
-        example: 10
+      attributes:
+        items:
+          $ref: '#/definitions/github_com_jamesneb_playback-backend_internal_handlers_schema.Attribute'
+        type: array
+      droppedAttributesCount:
         type: integer
-      status:
-        example: accepted
+    type: object
+  github_com_jamesneb_playback-backend_internal_handlers_schema.ResourceLog:
+    properties:
+      resource:
+        $ref: '#/definitions/github_com_jamesneb_playback-backend_internal_handlers_schema.Resource'
+      schemaUrl:
         type: string
+      scopeLogs:
+        items:
+          $ref: '#/definitions/github_com_jamesneb_playback-backend_internal_handlers_schema.ScopeLog'
+        type: array
+    type: object
+  github_com_jamesneb_playback-backend_internal_handlers_schema.Scope:
+    properties:
+      attributes:
+        items:
+          $ref: '#/definitions/github_com_jamesneb_playback-backend_internal_handlers_schema.Attribute'
+        type: array
+      droppedAttributesCount:
+        type: integer
+      name:
+        type: string
+      version:
+        type: string
+    type: object
+  github_com_jamesneb_playback-backend_internal_handlers_schema.ScopeLog:
+    properties:
+      logRecords:
+        items:
+          $ref: '#/definitions/github_com_jamesneb_playback-backend_internal_handlers_schema.LogRecord'
+        type: array
+      scope:
+        $ref: '#/definitions/github_com_jamesneb_playback-backend_internal_handlers_schema.Scope'
+    type: object
+  github_com_jamesneb_playback-backend_internal_handlers_services.MetricData:
+    properties:
+      attributes:
+        additionalProperties: true
+        type: object
+      labels:
+        additionalProperties:
+          type: string
+        type: object
+      name:
+        type: string
+      timestamp:
+        type: string
+      type:
+        type: string
+      value:
+        type: number
+    type: object
+  github_com_jamesneb_playback-backend_internal_handlers_services.MetricsQueryResponse:
+    properties:
+      metrics:
+        items:
+          $ref: '#/definitions/github_com_jamesneb_playback-backend_internal_handlers_services.MetricData'
+        type: array
+      query_time_ms:
+        $ref: '#/definitions/time.Duration'
+      service:
+        type: string
+      time_range:
+        $ref: '#/definitions/github_com_jamesneb_playback-backend_internal_handlers_services.TimeRange'
+    type: object
+  github_com_jamesneb_playback-backend_internal_handlers_services.TimeRange:
+    properties:
+      from:
+        type: string
+      to:
+        type: string
+    type: object
+  internal_handlers.Attribute:
+    properties:
+      key:
+        type: string
+      value:
+        $ref: '#/definitions/internal_handlers.AttributeValue'
+    type: object
+  internal_handlers.AttributeValue:
+    properties:
+      boolValue:
+        type: boolean
+      doubleValue:
+        type: number
+      intValue:
+        type: integer
+      stringValue:
+        type: string
+    type: object
+  internal_handlers.CreateTraceRequest:
+    properties:
+      span_id:
+        example: def456
+        type: string
+      tags:
+        additionalProperties:
+          type: string
+        example:
+          service: api
+          version: "1.0"
+        type: object
       timestamp:
         example: "2023-01-01T00:00:00Z"
         type: string
+      trace_id:
+        example: abc123
+        type: string
+    required:
+    - span_id
+    - trace_id
     type: object
-  handlers.Metric:
+  internal_handlers.DownloadRequest:
+    properties:
+      key:
+        type: string
+    required:
+    - key
+    type: object
+  internal_handlers.ErrorResponse:
+    properties:
+      error:
+        example: Invalid request
+        type: string
+      message:
+        example: Field validation failed
+        type: string
+    type: object
+  internal_handlers.Gauge:
+    properties:
+      dataPoints:
+        items:
+          $ref: '#/definitions/internal_handlers.NumberDataPoint'
+        type: array
+    type: object
+  internal_handlers.Histogram:
+    properties:
+      aggregationTemporality:
+        type: integer
+      dataPoints:
+        items:
+          $ref: '#/definitions/internal_handlers.HistogramDataPoint'
+        type: array
+    type: object
+  internal_handlers.HistogramDataPoint:
+    properties:
+      attributes:
+        items:
+          $ref: '#/definitions/internal_handlers.Attribute'
+        type: array
+      bucketCounts:
+        items:
+          type: integer
+        type: array
+      count:
+        type: integer
+      explicitBounds:
+        items:
+          type: number
+        type: array
+      startTimeUnixNano:
+        type: integer
+      sum:
+        type: number
+      timeUnixNano:
+        type: integer
+    type: object
+  internal_handlers.ListReplaysResponse:
+    properties:
+      files:
+        items:
+          $ref: '#/definitions/internal_handlers.ReplayFile'
+        type: array
+      isTruncated:
+        type: boolean
+      maxKeys:
+        type: integer
+      nextToken:
+        type: string
+      totalCount:
+        type: integer
+    type: object
+  internal_handlers.Metric:
     properties:
       description:
         type: string
       gauge:
-        $ref: '#/definitions/handlers.Gauge'
+        $ref: '#/definitions/internal_handlers.Gauge'
       histogram:
-        $ref: '#/definitions/handlers.Histogram'
+        $ref: '#/definitions/internal_handlers.Histogram'
       name:
         type: string
       sum:
-        $ref: '#/definitions/handlers.Sum'
+        $ref: '#/definitions/internal_handlers.Sum'
       unit:
         type: string
     type: object
-  handlers.MetricData:
-    properties:
-      labels:
-        additionalProperties:
-          type: string
-        example:
-          status: success
-        type: object
-      name:
-        example: orders_total
-        type: string
-      timestamp:
-        example: "2023-01-01T00:00:00Z"
-        type: string
-      type:
-        example: counter
-        type: string
-      value:
-        example: 156
-        type: number
-    type: object
-  handlers.MetricsQueryResponse:
-    properties:
-      metrics:
-        items:
-          $ref: '#/definitions/handlers.MetricData'
-        type: array
-      service:
-        example: order-service
-        type: string
-      time_range:
-        $ref: '#/definitions/handlers.TimeRange'
-    type: object
-  handlers.MetricsRequest:
+  internal_handlers.MetricsRequest:
     properties:
       resourceMetrics:
         items:
-          $ref: '#/definitions/handlers.ResourceMetric'
+          $ref: '#/definitions/internal_handlers.ResourceMetric'
         type: array
     type: object
-  handlers.MetricsResponse:
+  internal_handlers.MetricsResponse:
     properties:
       received:
         example: 5
@@ -246,7 +342,7 @@ definitions:
         example: "2023-01-01T00:00:00Z"
         type: string
     type: object
-  handlers.NumberDataPoint:
+  internal_handlers.NumberDataPoint:
     properties:
       asDouble:
         type: number
@@ -254,88 +350,70 @@ definitions:
         type: integer
       attributes:
         items:
-          $ref: '#/definitions/handlers.Attribute'
+          $ref: '#/definitions/internal_handlers.Attribute'
         type: array
       startTimeUnixNano:
         type: integer
       timeUnixNano:
         type: integer
     type: object
-  handlers.Resource:
+  internal_handlers.ReplayFile:
+    properties:
+      jobId:
+        type: string
+      key:
+        type: string
+      lastModified:
+        type: string
+      size:
+        type: integer
+    type: object
+  internal_handlers.Resource:
     properties:
       attributes:
         items:
-          $ref: '#/definitions/handlers.Attribute'
+          $ref: '#/definitions/internal_handlers.Attribute'
         type: array
     type: object
-  handlers.ResourceLog:
+  internal_handlers.ResourceMetric:
     properties:
       resource:
-        $ref: '#/definitions/handlers.Resource'
-      schemaUrl:
-        type: string
-      scopeLogs:
-        items:
-          $ref: '#/definitions/handlers.ScopeLog'
-        type: array
-    type: object
-  handlers.ResourceMetric:
-    properties:
-      resource:
-        $ref: '#/definitions/handlers.Resource'
+        $ref: '#/definitions/internal_handlers.Resource'
       schemaUrl:
         type: string
       scopeMetrics:
         items:
-          $ref: '#/definitions/handlers.ScopeMetric'
+          $ref: '#/definitions/internal_handlers.ScopeMetric'
         type: array
     type: object
-  handlers.Scope:
+  internal_handlers.Scope:
     properties:
       name:
         type: string
       version:
         type: string
     type: object
-  handlers.ScopeLog:
-    properties:
-      logRecords:
-        items:
-          $ref: '#/definitions/handlers.LogRecord'
-        type: array
-      scope:
-        $ref: '#/definitions/handlers.Scope'
-    type: object
-  handlers.ScopeMetric:
+  internal_handlers.ScopeMetric:
     properties:
       metrics:
         items:
-          $ref: '#/definitions/handlers.Metric'
+          $ref: '#/definitions/internal_handlers.Metric'
         type: array
       scope:
-        $ref: '#/definitions/handlers.Scope'
+        $ref: '#/definitions/internal_handlers.Scope'
     type: object
-  handlers.Sum:
+  internal_handlers.Sum:
     properties:
       aggregationTemporality:
         type: integer
       dataPoints:
         items:
-          $ref: '#/definitions/handlers.NumberDataPoint'
+          $ref: '#/definitions/internal_handlers.NumberDataPoint'
         type: array
       isMonotonic:
         type: boolean
     type: object
-  handlers.TimeRange:
-    properties:
-      from:
-        example: "2023-01-01T00:00:00Z"
-        type: string
-      to:
-        example: "2023-01-01T01:00:00Z"
-        type: string
-    type: object
-  handlers.TraceResponse:
+  internal_handlers.TraceResponse:
     properties:
       created_at:
         example: "2023-01-01T00:00:00Z"
@@ -343,16 +421,46 @@ definitions:
       id:
         example: "1"
         type: string
+      message:
+        example: Successfully processed
+        type: string
+      service_name:
+        example: my-service
+        type: string
+      status:
+        example: accepted
+        type: string
       trace_id:
         example: abc123
         type: string
     type: object
-host: localhost:8080
+  time.Duration:
+    enum:
+    - -9223372036854775808
+    - 9223372036854775807
+    - 1
+    - 1000
+    - 1000000
+    - 1000000000
+    - 60000000000
+    - 3600000000000
+    format: int64
+    type: integer
+    x-enum-varnames:
+    - minDuration
+    - maxDuration
+    - Nanosecond
+    - Microsecond
+    - Millisecond
+    - Second
+    - Minute
+    - Hour
+host: '{{.Host}}'
 info:
   contact: {}
   description: Distributed systems event replay backend
   title: Playback Backend API
-  version: "1.0"
+  version: '{{.Version}}'
 paths:
   /api/v1/logs:
     get:
@@ -384,7 +492,7 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/handlers.LogsQueryResponse'
+            $ref: '#/definitions/github_com_jamesneb_playback-backend_internal_handlers_dto.LogsQueryResponse'
       summary: Get logs
       tags:
       - logs
@@ -398,18 +506,18 @@ paths:
         name: logs
         required: true
         schema:
-          $ref: '#/definitions/handlers.LogsRequest'
+          $ref: '#/definitions/github_com_jamesneb_playback-backend_internal_handlers_schema.LogsRequest'
       produces:
       - application/json
       responses:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/handlers.LogsResponse'
+            $ref: '#/definitions/github_com_jamesneb_playback-backend_internal_handlers_dto.LogsResponse'
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/handlers.ErrorResponse'
+            $ref: '#/definitions/internal_handlers.ErrorResponse'
       summary: Receive logs
       tags:
       - logs
@@ -421,6 +529,10 @@ paths:
         in: query
         name: service
         type: string
+      - description: Specific metric name
+        in: query
+        name: metric_name
+        type: string
       - description: Start time (RFC3339)
         in: query
         name: from
@@ -429,13 +541,37 @@ paths:
         in: query
         name: to
         type: string
+      - description: Aggregation function (sum, avg, count, min, max)
+        in: query
+        name: aggregation
+        type: string
+      - description: Group by field (service, metric_name, time_bucket)
+        in: query
+        name: group_by
+        type: string
+      - description: Limit number of results (default 100, max 10000)
+        in: query
+        name: limit
+        type: integer
+      - description: Offset for pagination (default 0)
+        in: query
+        name: offset
+        type: integer
       produces:
       - application/json
       responses:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/handlers.MetricsQueryResponse'
+            $ref: '#/definitions/github_com_jamesneb_playback-backend_internal_handlers_services.MetricsQueryResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/internal_handlers.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/internal_handlers.ErrorResponse'
       summary: Get metrics
       tags:
       - metrics
@@ -449,18 +585,18 @@ paths:
         name: metrics
         required: true
         schema:
-          $ref: '#/definitions/handlers.MetricsRequest'
+          $ref: '#/definitions/internal_handlers.MetricsRequest'
       produces:
       - application/json
       responses:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/handlers.MetricsResponse'
+            $ref: '#/definitions/internal_handlers.MetricsResponse'
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/handlers.ErrorResponse'
+            $ref: '#/definitions/internal_handlers.ErrorResponse'
       summary: Receive metrics
       tags:
       - metrics
@@ -468,26 +604,28 @@ paths:
     post:
       consumes:
       - application/json
-      description: Create a new distributed trace
+      description: |-
+        Create a new distributed trace
+        Receive trace data from OpenTelemetry with optimized processing
       parameters:
       - description: Trace data
         in: body
-        name: trace
+        name: traces
         required: true
         schema:
-          $ref: '#/definitions/handlers.CreateTraceRequest'
+          $ref: '#/definitions/internal_handlers.CreateTraceRequest'
       produces:
       - application/json
       responses:
-        "201":
-          description: Created
+        "200":
+          description: OK
           schema:
-            $ref: '#/definitions/handlers.TraceResponse'
+            $ref: '#/definitions/internal_handlers.TraceResponse'
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/handlers.ErrorResponse'
-      summary: Create trace
+            $ref: '#/definitions/internal_handlers.ErrorResponse'
+      summary: Receive traces
       tags:
       - traces
   /api/v1/traces/{id}:
@@ -505,12 +643,64 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/handlers.TraceResponse'
+            $ref: '#/definitions/internal_handlers.TraceResponse'
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/handlers.ErrorResponse'
+            $ref: '#/definitions/internal_handlers.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/internal_handlers.ErrorResponse'
       summary: Get trace
       tags:
       - traces
+  /replays/download:
+    post:
+      consumes:
+      - application/json
+      description: Stream a specific Arrow IPC replay file directly from S3
+      parameters:
+      - description: Download request
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/internal_handlers.DownloadRequest'
+      produces:
+      - application/octet-stream
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: file
+      summary: Download replay file
+      tags:
+      - replays
+  /replays/list:
+    get:
+      description: List available Arrow IPC replay files from S3 with pagination
+      parameters:
+      - description: 'Maximum number of files to return (default: 100, max: 1000)'
+        in: query
+        name: limit
+        type: integer
+      - description: Continuation token for pagination
+        in: query
+        name: token
+        type: string
+      - description: Prefix to filter files
+        in: query
+        name: prefix
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_handlers.ListReplaysResponse'
+      summary: List replay files
+      tags:
+      - replays
 swagger: "2.0"

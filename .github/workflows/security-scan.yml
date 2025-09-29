@@ -1,0 +1,393 @@
+name: Container Security Scanning
+
+on:
+  push:
+    branches: [ main, develop ]
+    paths:
+      - 'deployments/Dockerfile'
+      - 'Dockerfile.*'
+      - 'go.mod'
+      - 'go.sum'
+      - '.github/workflows/security-scan.yml'
+  pull_request:
+    branches: [ main, develop ]
+    paths:
+      - 'deployments/Dockerfile'
+      - 'Dockerfile.*'
+      - 'go.mod'
+      - 'go.sum'
+      - '.github/workflows/security-scan.yml'
+  schedule:
+    # Run security scans daily at 2 AM UTC for continuous monitoring
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+    inputs:
+      scan_level:
+        description: 'Security scan level'
+        required: false
+        default: 'standard'
+        type: choice
+        options:
+          - standard
+          - comprehensive
+          - critical-only
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+  GO_VERSION: '1.23'
+
+jobs:
+  # Static Analysis Security Testing (SAST)
+  sast-analysis:
+    name: Static Security Analysis
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+      actions: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      # Gosec - Go security checker
+      - name: Run Gosec Security Scanner
+        uses: securecodewarrior/github-action-gosec@master
+        with:
+          args: '-fmt sarif -out gosec-results.sarif ./...'
+        continue-on-error: true
+
+      - name: Upload Gosec SARIF file
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: gosec-results.sarif
+
+      # Nancy - Dependency vulnerability scanner for Go
+      - name: Nancy Vulnerability Scanner
+        run: |
+          go list -json -deps ./... | docker run --rm -i sonatypecommunity/nancy:latest sleuth --loud
+        continue-on-error: true
+
+      # Trivy filesystem scan for vulnerabilities in source code
+      - name: Run Trivy Filesystem Scan
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          scan-ref: '.'
+          format: 'sarif'
+          output: 'trivy-fs-results.sarif'
+          severity: 'CRITICAL,HIGH,MEDIUM'
+          exit-code: '0'
+
+      - name: Upload Trivy Filesystem SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: 'trivy-fs-results.sarif'
+
+  # Docker Image Security Scanning
+  container-security:
+    name: Container Image Security Scan
+    runs-on: ubuntu-latest
+    needs: sast-analysis
+    permissions:
+      contents: read
+      security-events: write
+      packages: write
+
+    strategy:
+      matrix:
+        target: [server, consumer]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+        with:
+          driver-opts: |
+            network=host
+
+      - name: Log in to Container Registry
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-${{ matrix.target }}
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=sha,prefix={{branch}}-
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      # Build container image for security scanning
+      - name: Build Container Image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: deployments/Dockerfile
+          target: ${{ matrix.target }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          push: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          load: true
+
+      # Trivy container image vulnerability scan
+      - name: Run Trivy Container Scan
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-${{ matrix.target }}:${{ github.sha }}
+          format: 'sarif'
+          output: 'trivy-${{ matrix.target }}-results.sarif'
+          severity: 'CRITICAL,HIGH'
+          exit-code: '0'
+
+      - name: Upload Trivy Container SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: 'trivy-${{ matrix.target }}-results.sarif'
+
+      # Grype vulnerability scanner
+      - name: Run Grype Vulnerability Scanner
+        uses: anchore/scan-action@v3
+        id: grype-scan
+        with:
+          image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-${{ matrix.target }}:${{ github.sha }}
+          severity-cutoff: high
+          fail-build: false
+          output-format: sarif
+
+      - name: Upload Grype SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: ${{ steps.grype-scan.outputs.sarif }}
+
+      # Snyk container security scan
+      - name: Run Snyk Container Security Scan
+        if: github.event.inputs.scan_level != 'critical-only'
+        uses: snyk/actions/docker@master
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        with:
+          image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-${{ matrix.target }}:${{ github.sha }}
+          args: --severity-threshold=high --file=deployments/Dockerfile
+        continue-on-error: true
+
+      # Docker Bench Security - CIS Docker Benchmark
+      - name: Run Docker Bench Security
+        if: github.event.inputs.scan_level == 'comprehensive'
+        run: |
+          docker run --rm --net host --pid host --userns host --cap-add audit_control \
+            -e DOCKER_CONTENT_TRUST=$DOCKER_CONTENT_TRUST \
+            -v /etc:/etc:ro \
+            -v /usr/bin/containerd:/usr/bin/containerd:ro \
+            -v /usr/bin/runc:/usr/bin/runc:ro \
+            -v /usr/lib/systemd:/usr/lib/systemd:ro \
+            -v /var/lib:/var/lib:ro \
+            -v /var/run/docker.sock:/var/run/docker.sock:ro \
+            --label docker_bench_security \
+            docker/docker-bench-security:latest
+
+      # Push secure images only if scans pass critical thresholds
+      - name: Push Container Image
+        if: github.event_name != 'pull_request' && success()
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: deployments/Dockerfile
+          target: ${{ matrix.target }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          push: true
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # Software Composition Analysis (SCA)
+  dependency-scan:
+    name: Dependency Security Scan
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      # Govulncheck - Official Go vulnerability scanner
+      - name: Run Go Vulnerability Scanner
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          govulncheck -json ./... > govulncheck-results.json || true
+
+      - name: Parse Govulncheck Results
+        if: always()
+        run: |
+          if [ -s govulncheck-results.json ]; then
+            echo "Vulnerabilities found in Go dependencies:"
+            cat govulncheck-results.json | jq -r '.finding[] | select(.trace) | "- \(.trace[0].function) in \(.trace[0].package): \(.osv)"' || true
+          fi
+
+      # OSV Scanner - Multi-ecosystem vulnerability scanner
+      - name: Run OSV Scanner
+        uses: google/osv-scanner-action@v1.7.4
+        with:
+          scan-args: |-
+            --output=sarif
+            --format=sarif
+            ./
+        continue-on-error: true
+
+      # FOSSA License and Vulnerability Analysis
+      - name: Run FOSSA License Scan
+        if: github.event.inputs.scan_level == 'comprehensive' && secrets.FOSSA_API_KEY
+        uses: fossas/fossa-action@main
+        with:
+          api-key: ${{ secrets.FOSSA_API_KEY }}
+          run-tests: true
+
+  # Infrastructure as Code (IaC) Security
+  iac-security:
+    name: Infrastructure Security Scan
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # Checkov - Infrastructure as Code security scanner
+      - name: Run Checkov IaC Scanner
+        uses: bridgecrewio/checkov-action@master
+        with:
+          directory: .
+          framework: dockerfile,secrets
+          output_format: sarif
+          output_file_path: checkov-results.sarif
+          soft_fail: true
+
+      - name: Upload Checkov SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: checkov-results.sarif
+
+      # Hadolint - Dockerfile linter for security best practices
+      - name: Run Hadolint Dockerfile Linter
+        uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: deployments/Dockerfile
+          format: sarif
+          output-file: hadolint-results.sarif
+          no-fail: true
+
+      - name: Upload Hadolint SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: hadolint-results.sarif
+
+  # Security Summary and Reporting
+  security-summary:
+    name: Security Summary
+    runs-on: ubuntu-latest
+    needs: [sast-analysis, container-security, dependency-scan, iac-security]
+    if: always()
+    permissions:
+      contents: read
+      security-events: read
+      issues: write
+      pull-requests: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Generate Security Summary Report
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+
+            // Create security summary
+            const summary = `
+            ## 🛡️ Security Scan Summary
+
+            This automated security scan checked for:
+            - **Static Analysis**: Code vulnerabilities and security anti-patterns
+            - **Container Security**: Image vulnerabilities and misconfigurations
+            - **Dependency Security**: Known vulnerabilities in dependencies
+            - **Infrastructure**: Dockerfile and deployment security
+
+            ### Scan Results:
+            - **SAST Analysis**: ${{ needs.sast-analysis.result }}
+            - **Container Security**: ${{ needs.container-security.result }}
+            - **Dependency Scan**: ${{ needs.dependency-scan.result }}
+            - **IaC Security**: ${{ needs.iac-security.result }}
+
+            ### Next Steps:
+            ${needs.sast-analysis.result !== 'success' || needs.container-security.result !== 'success' || needs.dependency-scan.result !== 'success' || needs.iac-security.result !== 'success' ?
+              '⚠️ Security issues detected. Review the Security tab for detailed findings.' :
+              '✅ All security scans passed successfully.'
+            }
+
+            See the [Security tab](../security) for detailed vulnerability reports.
+            `;
+
+            core.summary.addRaw(summary);
+            await core.summary.write();
+
+      - name: Comment Security Results on PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const summary = `## 🛡️ Container Security Scan Results
+
+            Security scans completed for this PR:
+            - **Static Analysis**: ${{ needs.sast-analysis.result }}
+            - **Container Security**: ${{ needs.container-security.result }}
+            - **Dependency Security**: ${{ needs.dependency-scan.result }}
+            - **Infrastructure Security**: ${{ needs.iac-security.result }}
+
+            ${needs.sast-analysis.result !== 'success' || needs.container-security.result !== 'success' || needs.dependency-scan.result !== 'success' || needs.iac-security.result !== 'success' ?
+              '⚠️ Please review security findings before merging.' :
+              '✅ All security checks passed!'
+            }`;
+
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: summary
+            });

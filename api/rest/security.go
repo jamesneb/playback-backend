@@ -10,7 +10,7 @@ import (
 )
 
 // securityHeadersMiddleware adds comprehensive security headers
-func securityHeadersMiddleware(cfg *config.Config) gin.HandlerFunc {
+func securityHeadersMiddleware(cfg *config.ConsolidatedConfig) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		// Prevent XSS attacks
 		c.Header(string(constants.HeaderXSSProtection), constants.XSSProtectionValue)
@@ -47,7 +47,7 @@ func securityHeadersMiddleware(cfg *config.Config) gin.HandlerFunc {
 }
 
 // buildContentSecurityPolicy creates context-aware CSP
-func buildContentSecurityPolicy(cfg *config.Config, c *gin.Context) string {
+func buildContentSecurityPolicy(cfg *config.ConsolidatedConfig, c *gin.Context) string {
 	baseCSP := string(constants.CSPDefaultSrcSelf)
 
 	// Script sources

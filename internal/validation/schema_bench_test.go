@@ -76,16 +76,16 @@ func createBenchmarkMetricsData(metricCount int) *metricspb.MetricsData {
 			Unit: "count",
 			Data: &metricspb.Metric_Sum{
 				Sum: &metricspb.Sum{
-				AggregationTemporality: metricspb.AggregationTemporality_AGGREGATION_TEMPORALITY_CUMULATIVE,
-				IsMonotonic:           true,
-				DataPoints: []*metricspb.NumberDataPoint{
-					{
-						TimeUnixNano: 1640995200000000000,
-						Value: &metricspb.NumberDataPoint_AsInt{
-							AsInt: int64(i + 1),
+					AggregationTemporality: metricspb.AggregationTemporality_AGGREGATION_TEMPORALITY_CUMULATIVE,
+					IsMonotonic:            true,
+					DataPoints: []*metricspb.NumberDataPoint{
+						{
+							TimeUnixNano: 1640995200000000000,
+							Value: &metricspb.NumberDataPoint_AsInt{
+								AsInt: int64(i + 1),
+							},
 						},
 					},
-				},
 				},
 			},
 		}

@@ -71,13 +71,12 @@ func isProductionEnvironment(env string) bool {
 	return isProduction
 }
 
-
 // KinesisClient provides thread-safe, resource-managed Kinesis streaming functionality
 // with proper lifecycle management and memory leak prevention.
 type KinesisClient struct {
-	client        *kinesis.Client
-	streamManager *StreamManager
-	publisher     *Publisher
+	client         *kinesis.Client
+	streamManager  *StreamManager
+	publisher      *Publisher
 	batchProcessor *BatchProcessor
 
 	// Resource management
@@ -215,7 +214,6 @@ func NewKinesisClient(cfg *config.KinesisConfig, environment string) (*KinesisCl
 	return kc, nil
 }
 
-
 func (kc *KinesisClient) PublishTrace(ctx context.Context, traceData json.RawMessage, serviceName, traceID, sourceIP, userAgent string) error {
 	return kc.publisher.PublishTrace(ctx, traceData, serviceName, traceID, sourceIP, userAgent)
 }
@@ -227,7 +225,6 @@ func (kc *KinesisClient) PublishMetrics(ctx context.Context, metricsData json.Ra
 func (kc *KinesisClient) PublishLogs(ctx context.Context, logsData json.RawMessage, serviceName, traceID, sourceIP, userAgent string) error {
 	return kc.publisher.PublishLogs(ctx, logsData, serviceName, traceID, sourceIP, userAgent)
 }
-
 
 // PublishBatch publishes multiple events in a single batch operation
 func (kc *KinesisClient) PublishBatch(ctx context.Context, streamType string, events []LegacyTelemetryEvent) error {
@@ -244,7 +241,6 @@ func (kc *KinesisClient) PublishAsync(streamType string, event LegacyTelemetryEv
 	return kc.batchProcessor.PublishAsync(streamType, event)
 }
 
-
 // PublishTraceProtobuf publishes a protobuf trace event
 func (kc *KinesisClient) PublishTraceProtobuf(ctx context.Context, resourceSpans *tracepb.ResourceSpans, serviceName, traceID, sourceIP string) error {
 	return kc.publisher.PublishTraceProtobuf(ctx, resourceSpans, serviceName, traceID, sourceIP)
@@ -259,8 +255,6 @@ func (kc *KinesisClient) PublishMetricsProtobuf(ctx context.Context, resourceMet
 func (kc *KinesisClient) PublishLogsProtobuf(ctx context.Context, resourceLogs *logspb.ResourceLogs, serviceName, traceID, sourceIP string) error {
 	return kc.publisher.PublishLogsProtobuf(ctx, resourceLogs, serviceName, traceID, sourceIP)
 }
-
-
 
 // Close performs graceful shutdown of the Kinesis client with proper resource cleanup.
 // This method is thread-safe and can be called multiple times safely.
@@ -292,7 +286,6 @@ func (kc *KinesisClient) Close() error {
 
 	return shutdownError
 }
-
 
 // EventPublisherAdapter wraps KinesisClient to implement telemetry.EventPublisher interface
 type EventPublisherAdapter struct {

@@ -50,12 +50,12 @@ type ExpectedRoute struct {
 
 // RouteVerificationResult represents the result of route verification
 type RouteVerificationResult struct {
-	TotalRoutes      int             `json:"total_routes"`
-	ExpectedRoutes   []ExpectedRoute `json:"expected_routes"`
-	MissingRoutes    []ExpectedRoute `json:"missing_routes"`
-	VerifiedRoutes   []ExpectedRoute `json:"verified_routes"`
-	VerificationOK   bool            `json:"verification_ok"`
-	RoutesByMethod   map[string]int  `json:"routes_by_method"`
+	TotalRoutes    int             `json:"total_routes"`
+	ExpectedRoutes []ExpectedRoute `json:"expected_routes"`
+	MissingRoutes  []ExpectedRoute `json:"missing_routes"`
+	VerifiedRoutes []ExpectedRoute `json:"verified_routes"`
+	VerificationOK bool            `json:"verification_ok"`
+	RoutesByMethod map[string]int  `json:"routes_by_method"`
 }
 
 // NewRouteVerificationService creates a new route verification service
@@ -210,7 +210,6 @@ func (rvs *RouteVerificationService) countRoutesByMethod(routes gin.RoutesInfo) 
 	return methodCounts
 }
 
-
 // logVerificationResults logs the results of route verification
 func (rvs *RouteVerificationService) logVerificationResults(result *RouteVerificationResult) {
 	if result.VerificationOK {
@@ -257,8 +256,8 @@ func (rvs *RouteVerificationService) GetRouteStats(engine *gin.Engine) map[strin
 	}
 
 	return map[string]interface{}{
-		"total_routes":   len(routes),
-		"method_counts":  methodCounts,
-		"gin_mode":       gin.Mode(),
+		"total_routes":  len(routes),
+		"method_counts": methodCounts,
+		"gin_mode":      gin.Mode(),
 	}
 }

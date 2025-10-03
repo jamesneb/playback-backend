@@ -324,7 +324,10 @@ func (bc *BatchContext) parseLogAttributes(attrs interface{}) map[string]string 
 
 	if attrSlice, ok := attrs.([]interface{}); ok {
 		for _, attr := range attrSlice {
-			if a, ok := attr.(interface{ GetKey() string; GetValue() interface{ GetStringValue() string } }); ok {
+			if a, ok := attr.(interface {
+				GetKey() string
+				GetValue() interface{ GetStringValue() string }
+			}); ok {
 				if key := a.GetKey(); key != "" {
 					if value := a.GetValue().GetStringValue(); value != "" {
 						bc.Extractor.attributesBuffer[key] = value
@@ -1241,12 +1244,6 @@ func (ch *ClickHouseClient) parseLogsData(data interface{}) ([]LogData, error) {
 
 	return logs, nil
 }
-
-
-
-
-
-
 
 // TelemetryStoreAdapter wraps ClickHouseClient to implement telemetry.TelemetryStore interface
 type TelemetryStoreAdapter struct {

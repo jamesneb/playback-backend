@@ -30,11 +30,11 @@ type AWSIntegrationTestSuite struct {
 	kinesisClient *kinesis.Client
 
 	// Test configuration
-	testBucket      string
-	testStreamTrace string
+	testBucket        string
+	testStreamTrace   string
 	testStreamMetrics string
-	testStreamLogs   string
-	testRegion       string
+	testStreamLogs    string
+	testRegion        string
 
 	// Test data
 	testData       *IntegrationTestData
@@ -121,9 +121,9 @@ func (suite *AWSIntegrationTestSuite) TestS3Operations() {
 	// Upload to S3
 	uploader := manager.NewUploader(suite.s3Client)
 	_, err = uploader.Upload(ctx, &s3.PutObjectInput{
-		Bucket: &suite.testBucket,
-		Key:    &testKey,
-		Body:   bytes.NewReader(jsonData),
+		Bucket:      &suite.testBucket,
+		Key:         &testKey,
+		Body:        bytes.NewReader(jsonData),
 		ContentType: aws.String("application/json"),
 	})
 	require.NoError(suite.T(), err, "Failed to upload to S3")
@@ -295,9 +295,9 @@ func (suite *AWSIntegrationTestSuite) TestConcurrentOperations() {
 		go func(index int) {
 			testKey := fmt.Sprintf("concurrent-test/upload-%d-%d.json", index, time.Now().Unix())
 			testData := map[string]interface{}{
-				"index": index,
+				"index":     index,
 				"timestamp": time.Now().Unix(),
-				"data": suite.testData.Traces[index%len(suite.testData.Traces)],
+				"data":      suite.testData.Traces[index%len(suite.testData.Traces)],
 			}
 
 			jsonData, err := json.Marshal(testData)
@@ -393,14 +393,14 @@ func (suite *AWSIntegrationTestSuite) generateIntegrationTestData() *Integration
 	traces := make([]map[string]interface{}, 10)
 	for i := 0; i < 10; i++ {
 		traces[i] = map[string]interface{}{
-			"traceId": fmt.Sprintf("trace-%d-%d", i, now.Unix()),
-			"spanId":  fmt.Sprintf("span-%d", i),
-			"service": "integration-test-service",
+			"traceId":   fmt.Sprintf("trace-%d-%d", i, now.Unix()),
+			"spanId":    fmt.Sprintf("span-%d", i),
+			"service":   "integration-test-service",
 			"operation": fmt.Sprintf("test-operation-%d", i%3),
-			"startTime": now.Add(-time.Duration(i)*time.Second).Unix(),
-			"duration": (100 + i*10), // milliseconds
+			"startTime": now.Add(-time.Duration(i) * time.Second).Unix(),
+			"duration":  (100 + i*10), // milliseconds
 			"status": map[string]interface{}{
-				"code": 0,
+				"code":    0,
 				"message": "OK",
 			},
 		}
@@ -410,9 +410,9 @@ func (suite *AWSIntegrationTestSuite) generateIntegrationTestData() *Integration
 	metrics := make([]map[string]interface{}, 10)
 	for i := 0; i < 10; i++ {
 		metrics[i] = map[string]interface{}{
-			"name": fmt.Sprintf("integration_test_metric_%d", i%5),
-			"value": float64(100 + i*5),
-			"timestamp": now.Add(-time.Duration(i)*time.Minute).Unix(),
+			"name":      fmt.Sprintf("integration_test_metric_%d", i%5),
+			"value":     float64(100 + i*5),
+			"timestamp": now.Add(-time.Duration(i) * time.Minute).Unix(),
 			"labels": map[string]string{
 				"environment": "integration-test",
 				"service":     "test-service",
@@ -426,12 +426,12 @@ func (suite *AWSIntegrationTestSuite) generateIntegrationTestData() *Integration
 	logLevels := []string{"INFO", "WARN", "ERROR", "DEBUG"}
 	for i := 0; i < 10; i++ {
 		logs[i] = map[string]interface{}{
-			"timestamp": now.Add(-time.Duration(i)*time.Second).Unix(),
+			"timestamp": now.Add(-time.Duration(i) * time.Second).Unix(),
 			"level":     logLevels[i%len(logLevels)],
 			"message":   fmt.Sprintf("Integration test log message %d", i),
 			"service":   "integration-test-service",
 			"attributes": map[string]interface{}{
-				"thread_id": i % 5,
+				"thread_id":  i % 5,
 				"request_id": fmt.Sprintf("req-%d", i),
 			},
 		}

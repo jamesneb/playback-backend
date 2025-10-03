@@ -17,7 +17,6 @@ import (
 	tracepb "go.opentelemetry.io/proto/otlp/trace/v1"
 )
 
-
 // MockKinesisAPI implements the Kinesis API interface for testing
 type MockKinesisAPI struct {
 	mock.Mock

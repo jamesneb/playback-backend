@@ -94,12 +94,12 @@ type TenantBuffer struct {
 
 // BufferConfig holds configuration for the Kinesis buffer
 type BufferConfig struct {
-	MaxBatchSize     int
-	MaxBatchWait     time.Duration
-	MaxBufferSize    int
-	FlushInterval    time.Duration
-	MaxTenantBuffer  int
-	WorkerPoolSize   int // Number of worker goroutines for async flush operations
+	MaxBatchSize    int
+	MaxBatchWait    time.Duration
+	MaxBufferSize   int
+	FlushInterval   time.Duration
+	MaxTenantBuffer int
+	WorkerPoolSize  int // Number of worker goroutines for async flush operations
 }
 
 // BufferHealthMetrics tracks buffer health and performance

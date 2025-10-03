@@ -33,9 +33,9 @@ func TestHTTPServerIntegration(t *testing.T) {
 		},
 		Network: config.NetworkSettings{
 			HTTP: config.HTTPSettings{
-				Mode: gin.TestMode,
-				Host: "localhost",
-				Port: 8080,
+				Mode:       gin.TestMode,
+				Host:       "localhost",
+				Port:       8080,
 				EnableCORS: true,
 				CORS: config.CORSSettings{
 					AllowedOrigins: []string{"*"},
@@ -295,9 +295,9 @@ func TestHTTPRoutingIntegration(t *testing.T) {
 		},
 		Network: config.NetworkSettings{
 			HTTP: config.HTTPSettings{
-				Mode: gin.TestMode,
-				Host: "localhost",
-				Port: 8080,
+				Mode:       gin.TestMode,
+				Host:       "localhost",
+				Port:       8080,
 				EnableCORS: true,
 				CORS: config.CORSSettings{
 					AllowedOrigins: []string{"*"},
@@ -318,8 +318,8 @@ func TestHTTPRoutingIntegration(t *testing.T) {
 	// Use simple mock dependencies without real connections
 	deps := &Dependencies{
 		Config:           cfg,
-		KinesisClient:    &internalstreaming.KinesisClient{},  // Empty mock
-		ClickHouseClient: &storage.ClickHouseClient{}, // Empty mock
+		KinesisClient:    &internalstreaming.KinesisClient{}, // Empty mock
+		ClickHouseClient: &storage.ClickHouseClient{},        // Empty mock
 		S3Client:         nil,
 		Endpoints:        api.NewEndpointCollectionWithConfig("", "v1", "api"),
 		ResilienceComponents: &interfaces.ResilienceComponents{
@@ -424,7 +424,7 @@ func TestServerShutdownIntegration(t *testing.T) {
 	cfg := &config.ConsolidatedConfig{
 		Network: config.NetworkSettings{
 			HTTP: config.HTTPSettings{
-				Mode: gin.TestMode,
+				Mode:           gin.TestMode,
 				RateLimitRPS:   100,
 				RateLimitBurst: 200,
 			},
@@ -479,7 +479,7 @@ func TestMiddlewareIntegration(t *testing.T) {
 	cfg := &config.ConsolidatedConfig{
 		Network: config.NetworkSettings{
 			HTTP: config.HTTPSettings{
-				Mode: gin.TestMode,
+				Mode:           gin.TestMode,
 				RateLimitRPS:   100,
 				RateLimitBurst: 200,
 			},

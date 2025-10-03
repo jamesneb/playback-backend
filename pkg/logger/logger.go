@@ -11,20 +11,20 @@ import (
 
 // LoggerConfig holds configuration for logger creation
 type LoggerConfig struct {
-	Level        zapcore.Level
-	OutputPaths  []string
-	ErrorPaths   []string
-	Development  bool
+	Level         zapcore.Level
+	OutputPaths   []string
+	ErrorPaths    []string
+	Development   bool
 	DisableCaller bool
 }
 
 // DefaultConfig returns a sensible default configuration
 func DefaultConfig() *LoggerConfig {
 	return &LoggerConfig{
-		Level:        zapcore.InfoLevel,
-		OutputPaths:  []string{"stdout"},
-		ErrorPaths:   []string{"stderr"},
-		Development:  false,
+		Level:         zapcore.InfoLevel,
+		OutputPaths:   []string{"stdout"},
+		ErrorPaths:    []string{"stderr"},
+		Development:   false,
 		DisableCaller: false,
 	}
 }
@@ -32,10 +32,10 @@ func DefaultConfig() *LoggerConfig {
 // DevelopmentConfig returns configuration suitable for development
 func DevelopmentConfig() *LoggerConfig {
 	return &LoggerConfig{
-		Level:        zapcore.DebugLevel,
-		OutputPaths:  []string{"stdout"},
-		ErrorPaths:   []string{"stderr"},
-		Development:  true,
+		Level:         zapcore.DebugLevel,
+		OutputPaths:   []string{"stdout"},
+		ErrorPaths:    []string{"stderr"},
+		Development:   true,
 		DisableCaller: false,
 	}
 }
@@ -43,10 +43,10 @@ func DevelopmentConfig() *LoggerConfig {
 // ProductionConfig returns configuration suitable for production
 func ProductionConfig() *LoggerConfig {
 	return &LoggerConfig{
-		Level:        zapcore.InfoLevel,
-		OutputPaths:  []string{"stdout"},
-		ErrorPaths:   []string{"stderr"},
-		Development:  false,
+		Level:         zapcore.InfoLevel,
+		OutputPaths:   []string{"stdout"},
+		ErrorPaths:    []string{"stderr"},
+		Development:   false,
 		DisableCaller: false,
 	}
 }

@@ -106,8 +106,8 @@ func TestDependenciesWithFullConfiguration(t *testing.T) {
 	cfg := &config.ConsolidatedConfig{
 		Network: config.NetworkSettings{
 			HTTP: config.HTTPSettings{
-				Host: "localhost",
-				Port: 8080,
+				Host:       "localhost",
+				Port:       8080,
 				EnableCORS: true,
 			},
 		},

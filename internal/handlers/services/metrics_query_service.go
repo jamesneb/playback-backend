@@ -13,9 +13,9 @@ import (
 
 const (
 	// Query constants to eliminate magic strings
-	DefaultMetricsLimit     = 100
-	MaxMetricsLimit        = 10000
-	DefaultMetricsOffset   = 0
+	DefaultMetricsLimit  = 100
+	MaxMetricsLimit      = 10000
+	DefaultMetricsOffset = 0
 
 	// ClickHouse table name for metrics
 	MetricsTableName = "metrics"
@@ -40,20 +40,20 @@ type MetricsQueryParams struct {
 
 // MetricsQueryResponse represents metrics query response
 type MetricsQueryResponse struct {
-	Service   string       `json:"service"`
-	TimeRange TimeRange    `json:"time_range"`
-	Metrics   []MetricData `json:"metrics"`
+	Service   string        `json:"service"`
+	TimeRange TimeRange     `json:"time_range"`
+	Metrics   []MetricData  `json:"metrics"`
 	QueryTime time.Duration `json:"query_time_ms"`
 }
 
 // MetricData represents a single metric data point
 type MetricData struct {
-	Name        string                 `json:"name"`
-	Type        string                 `json:"type"`
-	Value       float64                `json:"value"`
-	Labels      map[string]string      `json:"labels,omitempty"`
-	Timestamp   time.Time              `json:"timestamp"`
-	Attributes  map[string]interface{} `json:"attributes,omitempty"`
+	Name       string                 `json:"name"`
+	Type       string                 `json:"type"`
+	Value      float64                `json:"value"`
+	Labels     map[string]string      `json:"labels,omitempty"`
+	Timestamp  time.Time              `json:"timestamp"`
+	Attributes map[string]interface{} `json:"attributes,omitempty"`
 }
 
 // TimeRange represents a time range for queries

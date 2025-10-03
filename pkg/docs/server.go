@@ -353,7 +353,7 @@ func (s *Server) serveRateLimits(c *gin.Context) {
 // serveErrorCodes serves error codes reference
 func (s *Server) serveErrorCodes(c *gin.Context) {
 	data := map[string]interface{}{
-		"Title": "Error Codes Reference",
+		"Title":      "Error Codes Reference",
 		"ErrorCodes": s.generateErrorCodesData(),
 	}
 
@@ -646,7 +646,7 @@ func (s *Server) generateErrorCodesData() []map[string]interface{} {
 
 func (s *Server) getGoSDKData() map[string]interface{} {
 	return map[string]interface{}{
-		"Title": "Go SDK Documentation",
+		"Title":        "Go SDK Documentation",
 		"Installation": `go get github.com/playback/playback-go`,
 		"QuickStart": `package main
 
@@ -668,14 +668,14 @@ func main() {
 
 func (s *Server) getJavaScriptSDKData() map[string]interface{} {
 	return map[string]interface{}{
-		"Title": "JavaScript SDK Documentation",
+		"Title":        "JavaScript SDK Documentation",
 		"Installation": `npm install @playback/playback-js`,
 	}
 }
 
 func (s *Server) getPythonSDKData() map[string]interface{} {
 	return map[string]interface{}{
-		"Title": "Python SDK Documentation",
+		"Title":        "Python SDK Documentation",
 		"Installation": `pip install playback-python`,
 	}
 }

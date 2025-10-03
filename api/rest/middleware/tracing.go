@@ -18,16 +18,16 @@ import (
 
 // Context key types to avoid collisions with other packages
 type (
-	traceIDKey    struct{}
-	spanIDKey     struct{}
-	requestIDKey  struct{}
+	traceIDKey   struct{}
+	spanIDKey    struct{}
+	requestIDKey struct{}
 )
 
 // Context key instances
 var (
-	TraceIDContextKey    = traceIDKey{}
-	SpanIDContextKey     = spanIDKey{}
-	RequestIDContextKey  = requestIDKey{}
+	TraceIDContextKey   = traceIDKey{}
+	SpanIDContextKey    = spanIDKey{}
+	RequestIDContextKey = requestIDKey{}
 )
 
 // Distributed tracing constants following W3C Trace Context specification
@@ -37,9 +37,9 @@ const (
 	TraceStateHeader  = "tracestate"
 
 	// Common trace headers for backwards compatibility
-	XTraceIDHeader     = "X-Trace-Id"
-	XSpanIDHeader      = "X-Span-Id"
-	XRequestIDHeader   = "X-Request-Id"
+	XTraceIDHeader   = "X-Trace-Id"
+	XSpanIDHeader    = "X-Span-Id"
+	XRequestIDHeader = "X-Request-Id"
 
 	// Trace ID formats
 	TraceIDLength = 32 // 16 bytes as 32 hex chars
@@ -49,9 +49,9 @@ const (
 	TraceParentFormat = "00-%s-%s-%02x"
 
 	// Context keys for trace correlation
-	TraceIDKey    = "trace_id"
-	SpanIDKey     = "span_id"
-	RequestIDKey  = "request_id"
+	TraceIDKey     = "trace_id"
+	SpanIDKey      = "span_id"
+	RequestIDKey   = "request_id"
 	TraceParentKey = "traceparent"
 
 	// Trace flags
@@ -62,7 +62,6 @@ const (
 var (
 	// Pre-compiled regex for traceparent validation
 	traceParentRegex = regexp.MustCompile(`^[0-9a-f]{2}-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}$`)
-
 )
 
 // TraceContext holds distributed tracing correlation information

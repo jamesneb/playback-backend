@@ -11,11 +11,11 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	pkgerrors "github.com/jamesneb/playback-backend/pkg/errors"
 	"github.com/jamesneb/playback-backend/internal/interfaces"
 	"github.com/jamesneb/playback-backend/internal/resilience"
 	"github.com/jamesneb/playback-backend/internal/storage"
 	"github.com/jamesneb/playback-backend/internal/validation"
+	pkgerrors "github.com/jamesneb/playback-backend/pkg/errors"
 	"github.com/jamesneb/playback-backend/pkg/logger"
 	"github.com/jamesneb/playback-backend/pkg/telemetry"
 	tracecollectorpb "go.opentelemetry.io/proto/otlp/collector/trace/v1"
@@ -50,13 +50,12 @@ type TraceQueryService struct {
 
 // TraceQueryResponse represents a trace query response
 type TraceQueryResponse struct {
-	TraceID   string    `json:"trace_id"`
-	StartTime time.Time `json:"start_time"`
+	TraceID   string        `json:"trace_id"`
+	StartTime time.Time     `json:"start_time"`
 	Duration  time.Duration `json:"duration"`
-	SpanCount int       `json:"span_count"`
-	Status    string    `json:"status"`
+	SpanCount int           `json:"span_count"`
+	Status    string        `json:"status"`
 }
-
 
 // GetTraceByID retrieves a trace by ID from ClickHouse
 func (tqs *TraceQueryService) GetTraceByID(ctx context.Context, traceID string) (*TraceQueryResponse, error) {
@@ -122,7 +121,7 @@ func NewTraceHandler(eventPublisher telemetry.EventPublisher, resilienceComponen
 		validator:            NewRequestValidator(),
 		schemaValidator:      validation.NewSchemaValidator(false),
 		protobufValidator:    validation.NewProtobufValidator(),
-		logFields:           make([]zap.Field, 0, 8),
+		logFields:            make([]zap.Field, 0, 8),
 	}
 
 	// Handle optional resilience components gracefully
@@ -191,14 +190,6 @@ func (h *TraceHandler) CreateTraceProtobuf(ctx context.Context, req *tracecollec
 
 	return &tracecollectorpb.ExportTraceServiceResponse{}, nil
 }
-
-
-
-
-
-
-
-
 
 // GetTrace retrieves a trace by ID using ClickHouse
 // @Summary Get trace
@@ -273,8 +264,6 @@ type ErrorResponse struct {
 	Error   string `json:"error" example:"Invalid request"`
 	Message string `json:"message" example:"Field validation failed"`
 }
-
-
 
 // extractServiceNameAndTraceID performs a single parse to extract both
 // service name and trace ID from OTLP trace data, eliminating repeated unmarshalling.
@@ -420,7 +409,6 @@ func generateID() string {
 		return timestampStr + counterStr
 	}
 }
-
 
 // Helper functions for gRPC protobuf handling
 

@@ -14,8 +14,8 @@ type Size int64
 // Size constants using type aliases for clarity
 const (
 	// Base size units
-	KB Size = 1 << 10  // 1 KB
-	MB Size = 1 << 20  // 1 MB
+	KB Size = 1 << 10 // 1 KB
+	MB Size = 1 << 20 // 1 MB
 
 	// Payload size limits to prevent DoS attacks
 	DefaultMaxRequestSize Size = 10 * MB // 10 MB

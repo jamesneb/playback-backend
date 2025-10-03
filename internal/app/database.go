@@ -29,16 +29,16 @@ func InitializeClickHouseClient(cfg *config.ConsolidatedConfig) (*storage.ClickH
 func InitializeKinesisClient(cfg *config.ConsolidatedConfig) (*streaming.KinesisClient, error) {
 	// Convert ConsolidatedConfig KinesisSettings to legacy KinesisConfig
 	kinesisConfig := &config.KinesisConfig{
-		Region:             cfg.Data.Kinesis.Region,
-		AccessKeyID:        cfg.Data.Kinesis.AccessKeyID,
-		SecretAccessKey:    cfg.Data.Kinesis.SecretAccessKey,
-		EndpointURL:        cfg.Data.Kinesis.EndpointURL,
-		TracesStreamName:   cfg.Data.Kinesis.TracesStream,
-		MetricsStreamName:  cfg.Data.Kinesis.MetricsStream,
-		LogsStreamName:     cfg.Data.Kinesis.LogsStream,
-		BatchSize:          cfg.Data.Kinesis.BatchSize,
-		RetryAttempts:      cfg.Data.Kinesis.MaxRetries,
-		RetryDelay:         cfg.Data.Kinesis.RetryDelay,
+		Region:            cfg.Data.Kinesis.Region,
+		AccessKeyID:       cfg.Data.Kinesis.AccessKeyID,
+		SecretAccessKey:   cfg.Data.Kinesis.SecretAccessKey,
+		EndpointURL:       cfg.Data.Kinesis.EndpointURL,
+		TracesStreamName:  cfg.Data.Kinesis.TracesStream,
+		MetricsStreamName: cfg.Data.Kinesis.MetricsStream,
+		LogsStreamName:    cfg.Data.Kinesis.LogsStream,
+		BatchSize:         cfg.Data.Kinesis.BatchSize,
+		RetryAttempts:     cfg.Data.Kinesis.MaxRetries,
+		RetryDelay:        cfg.Data.Kinesis.RetryDelay,
 	}
 
 	kinesisClient, err := streaming.NewKinesisClient(kinesisConfig, cfg.App.Environment)

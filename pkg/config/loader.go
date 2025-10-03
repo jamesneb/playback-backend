@@ -75,19 +75,19 @@ func applyConsolidatedEnvironmentOverrides(config *ConsolidatedConfig) {
 		"APP_LOG_LEVEL":   &config.App.LogLevel,
 
 		// Network settings
-		"HTTP_HOST":         &config.Network.HTTP.Host,
-		"HTTP_PORT":         &config.Network.HTTP.Port,
-		"HTTP_MODE":         &config.Network.HTTP.Mode,
-		"GRPC_PORT":         &config.Network.GRPC.Port,
-		"API_PREFIX":        &config.Network.HTTP.APIPrefix,
-		"JWT_SECRET":        &config.Network.HTTP.JWTSecret,
+		"HTTP_HOST":  &config.Network.HTTP.Host,
+		"HTTP_PORT":  &config.Network.HTTP.Port,
+		"HTTP_MODE":  &config.Network.HTTP.Mode,
+		"GRPC_PORT":  &config.Network.GRPC.Port,
+		"API_PREFIX": &config.Network.HTTP.APIPrefix,
+		"JWT_SECRET": &config.Network.HTTP.JWTSecret,
 
 		// Data settings
-		"CLICKHOUSE_HOST":     &config.Data.ClickHouse.Host,
+		"CLICKHOUSE_HOST":      &config.Data.ClickHouse.Host,
 		"CLICKHOUSE_HTTP_HOST": &config.Data.ClickHouse.HTTPHost,
-		"CLICKHOUSE_DATABASE": &config.Data.ClickHouse.Database,
-		"CLICKHOUSE_USERNAME": &config.Data.ClickHouse.Username,
-		"CLICKHOUSE_PASSWORD": &config.Data.ClickHouse.Password,
+		"CLICKHOUSE_DATABASE":  &config.Data.ClickHouse.Database,
+		"CLICKHOUSE_USERNAME":  &config.Data.ClickHouse.Username,
+		"CLICKHOUSE_PASSWORD":  &config.Data.ClickHouse.Password,
 
 		"REDIS_HOST":     &config.Data.Redis.Host,
 		"REDIS_PASSWORD": &config.Data.Redis.Password,

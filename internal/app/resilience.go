@@ -32,7 +32,7 @@ func InitializeResilienceComponents(cfg *config.ConsolidatedConfig, services *Se
 	// Initialize circuit breaker from Operations config
 	circuitBreaker := resilience.NewCircuitBreaker(resilience.Settings{
 		Name:        "api-circuit-breaker",
-		MaxRequests: 100, // Sensible default
+		MaxRequests: 100,              // Sensible default
 		Interval:    30 * time.Second, // Sensible default
 		Timeout:     cfg.Operations.CircuitBreakerTimeout,
 		ReadyToTrip: func(counts resilience.Counts) bool {

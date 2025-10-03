@@ -47,7 +47,7 @@ func (app *ConsumerApp) Initialize() error {
 			"metrics": app.cfg.Data.Kinesis.MetricsStream,
 			"logs":    app.cfg.Data.Kinesis.LogsStream,
 		},
-		PollInterval:    5 * time.Second, // Default poll interval
+		PollInterval: 5 * time.Second, // Default poll interval
 	}, app.services.ClickHouseClient)
 
 	if err != nil {

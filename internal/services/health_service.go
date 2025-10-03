@@ -35,12 +35,12 @@ const (
 
 	// Health check field keys
 	HealthFieldDependencies = "dependencies"
-	HealthFieldSystem      = "system"
-	HealthFieldMode        = "mode"
-	HealthFieldAppVersion  = "app_version"
-	HealthFieldRuntime     = "runtime_version"
-	HealthFieldProtocols   = "protocols"
-	HealthFieldTimestamp   = "timestamp"
+	HealthFieldSystem       = "system"
+	HealthFieldMode         = "mode"
+	HealthFieldAppVersion   = "app_version"
+	HealthFieldRuntime      = "runtime_version"
+	HealthFieldProtocols    = "protocols"
+	HealthFieldTimestamp    = "timestamp"
 
 	// System metrics field keys
 	SystemFieldGoroutines = "goroutines"
@@ -52,14 +52,14 @@ const (
 	// Error messages
 	ErrClickHouseHostNotConfigured = "ClickHouse host not configured"
 	ErrNoKinesisStreamsConfigured  = "no Kinesis streams configured"
-	ErrHealthCheckPanic           = "health check panic"
-	ErrHealthCheckTimeout         = "health check timeout"
+	ErrHealthCheckPanic            = "health check panic"
+	ErrHealthCheckTimeout          = "health check timeout"
 )
 
 // HealthService provides comprehensive health checking capabilities
 type HealthService struct {
-	config         *config.ConsolidatedConfig
-	clickHouseClient interface{
+	config           *config.ConsolidatedConfig
+	clickHouseClient interface {
 		CheckConnectionPoolHealth(ctx context.Context) error
 		GetConnectionPoolStats(ctx context.Context) (*ConnectionPoolStats, error)
 	}
@@ -67,15 +67,15 @@ type HealthService struct {
 
 // ConnectionPoolStats represents connection pool statistics (imported from storage package)
 type ConnectionPoolStats struct {
-	MaxOpenConnections     int     `json:"max_open_connections"`
-	OpenConnections        int     `json:"open_connections"`
-	InUseConnections       int     `json:"in_use_connections"`
-	IdleConnections        int     `json:"idle_connections"`
-	UtilizationPercent     float64 `json:"utilization_percent"`
-	HealthStatus           string  `json:"health_status"`
-	ConnectionsWaiting     int64   `json:"connections_waiting"`
-	MaxIdleConnections     int     `json:"max_idle_connections"`
-	ConnectionMaxLifetime  string  `json:"connection_max_lifetime"`
+	MaxOpenConnections    int     `json:"max_open_connections"`
+	OpenConnections       int     `json:"open_connections"`
+	InUseConnections      int     `json:"in_use_connections"`
+	IdleConnections       int     `json:"idle_connections"`
+	UtilizationPercent    float64 `json:"utilization_percent"`
+	HealthStatus          string  `json:"health_status"`
+	ConnectionsWaiting    int64   `json:"connections_waiting"`
+	MaxIdleConnections    int     `json:"max_idle_connections"`
+	ConnectionMaxLifetime string  `json:"connection_max_lifetime"`
 }
 
 // HealthCheckResult represents the result of a health check
@@ -86,14 +86,14 @@ type HealthCheckResult struct {
 
 // HealthResponse represents the complete health check response
 type HealthResponse struct {
-	OverallStatus    string            `json:"status"`
-	Mode             string            `json:"mode"`
-	AppVersion       string            `json:"app_version"`
-	RuntimeVersion   string            `json:"runtime_version"`
-	Protocols        []string          `json:"protocols"`
-	Timestamp        string            `json:"timestamp"`
-	Dependencies     map[string]gin.H  `json:"dependencies"`
-	System           gin.H             `json:"system"`
+	OverallStatus  string           `json:"status"`
+	Mode           string           `json:"mode"`
+	AppVersion     string           `json:"app_version"`
+	RuntimeVersion string           `json:"runtime_version"`
+	Protocols      []string         `json:"protocols"`
+	Timestamp      string           `json:"timestamp"`
+	Dependencies   map[string]gin.H `json:"dependencies"`
+	System         gin.H            `json:"system"`
 }
 
 // NewHealthService creates a new health service
@@ -104,7 +104,7 @@ func NewHealthService(cfg *config.ConsolidatedConfig) *HealthService {
 }
 
 // NewHealthServiceWithClickHouse creates a new health service with ClickHouse client for connection pool monitoring
-func NewHealthServiceWithClickHouse(cfg *config.ConsolidatedConfig, clickHouseClient interface{
+func NewHealthServiceWithClickHouse(cfg *config.ConsolidatedConfig, clickHouseClient interface {
 	CheckConnectionPoolHealth(ctx context.Context) error
 	GetConnectionPoolStats(ctx context.Context) (*ConnectionPoolStats, error)
 }) *HealthService {
@@ -129,13 +129,13 @@ func (hs *HealthService) PerformHealthCheck(ctx context.Context) (*HealthRespons
 
 	// Initialize response
 	response := &HealthResponse{
-		OverallStatus:    constants.HealthStatusOK,
-		Mode:             hs.config.Network.HTTP.Mode,
-		AppVersion:       appVersion,
-		RuntimeVersion:   runtimeVersion,
-		Protocols:        []string{constants.ProtocolHTTPJSON, constants.ProtocolGRPCOTLP},
-		Timestamp:        time.Now().Format(constants.StandardTimeFormat),
-		Dependencies:     make(map[string]gin.H),
+		OverallStatus:  constants.HealthStatusOK,
+		Mode:           hs.config.Network.HTTP.Mode,
+		AppVersion:     appVersion,
+		RuntimeVersion: runtimeVersion,
+		Protocols:      []string{constants.ProtocolHTTPJSON, constants.ProtocolGRPCOTLP},
+		Timestamp:      time.Now().Format(constants.StandardTimeFormat),
+		Dependencies:   make(map[string]gin.H),
 		System: gin.H{
 			SystemFieldGoroutines: runtime.NumGoroutine(),
 			SystemFieldMemoryMB:   getMemoryUsageMB(),
@@ -394,7 +394,6 @@ func getMemoryUsageMB() float64 {
 	runtime.ReadMemStats(&m)
 	return float64(m.Alloc) / float64(BytesPerMegabyte)
 }
-
 
 // checkConnectionPoolHealth performs connection pool health check
 func (hs *HealthService) checkConnectionPoolHealth(ctx context.Context, resultsChan chan<- HealthCheckResult) {

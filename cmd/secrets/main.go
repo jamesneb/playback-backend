@@ -107,9 +107,9 @@ func createSetCommand() *cobra.Command {
 	var generatePassword bool
 
 	cmd := &cobra.Command{
-		Use:     "set <secret-key> [secret-value]",
-		Short:   "Set a secret value",
-		Args:    cobra.RangeArgs(1, 2),
+		Use:   "set <secret-key> [secret-value]",
+		Short: "Set a secret value",
+		Args:  cobra.RangeArgs(1, 2),
 		Example: `  secrets set CLICKHOUSE_PASSWORD mypassword
   secrets set JWT_SECRET --generate
   secrets set TLS_CERT --from-file ./cert.pem`,
@@ -597,7 +597,7 @@ func initializeManager() (*secrets.Manager, error) {
 
 	managerConfig := &secrets.Config{
 		DefaultProvider: config.DefaultProvider,
-		CacheTTL:       time.Duration(5) * time.Minute,
+		CacheTTL:        time.Duration(5) * time.Minute,
 	}
 
 	// Configure providers based on environment
@@ -687,35 +687,35 @@ type SecretsConfig struct {
 }
 
 type SecretDef struct {
-	Key           string   `yaml:"key"`
-	Description   string   `yaml:"description"`
-	RotationDays  int      `yaml:"rotation_days"`
-	Required      bool     `yaml:"required"`
-	RequiredEnvs  []string `yaml:"required_envs"`
-	Default       string   `yaml:"default"`
-	MinLength     int      `yaml:"min_length"`
-	Sensitive     bool     `yaml:"sensitive"`
+	Key          string   `yaml:"key"`
+	Description  string   `yaml:"description"`
+	RotationDays int      `yaml:"rotation_days"`
+	Required     bool     `yaml:"required"`
+	RequiredEnvs []string `yaml:"required_envs"`
+	Default      string   `yaml:"default"`
+	MinLength    int      `yaml:"min_length"`
+	Sensitive    bool     `yaml:"sensitive"`
 }
 
 type SecurityConfig struct {
-	EnforceRotation       bool   `yaml:"enforce_rotation"`
-	MaxAgeDays           int    `yaml:"max_age_days"`
-	EnableAuditLog       bool   `yaml:"enable_audit_log"`
-	AuditLogPath         string `yaml:"audit_log_path"`
-	ValidateOnLoad       bool   `yaml:"validate_on_load"`
+	EnforceRotation bool   `yaml:"enforce_rotation"`
+	MaxAgeDays      int    `yaml:"max_age_days"`
+	EnableAuditLog  bool   `yaml:"enable_audit_log"`
+	AuditLogPath    string `yaml:"audit_log_path"`
+	ValidateOnLoad  bool   `yaml:"validate_on_load"`
 }
 
 type PerformanceConfig struct {
-	CacheEnabled     bool   `yaml:"cache_enabled"`
-	CacheSize        int    `yaml:"cache_size"`
-	CacheTTL         string `yaml:"cache_ttl"`
-	PreloadSecrets   bool   `yaml:"preload_secrets"`
-	BatchOperations  bool   `yaml:"batch_operations"`
+	CacheEnabled    bool   `yaml:"cache_enabled"`
+	CacheSize       int    `yaml:"cache_size"`
+	CacheTTL        string `yaml:"cache_ttl"`
+	PreloadSecrets  bool   `yaml:"preload_secrets"`
+	BatchOperations bool   `yaml:"batch_operations"`
 }
 
 type DevelopmentConfig struct {
-	AllowPlaintext  bool `yaml:"allow_plaintext"`
-	MockProviders   bool `yaml:"mock_providers"`
-	DebugLogging    bool `yaml:"debug_logging"`
+	AllowPlaintext   bool `yaml:"allow_plaintext"`
+	MockProviders    bool `yaml:"mock_providers"`
+	DebugLogging     bool `yaml:"debug_logging"`
 	ValidateRequired bool `yaml:"validate_required"`
 }

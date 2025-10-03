@@ -16,7 +16,6 @@ import (
 	"go.uber.org/zap"
 )
 
-
 func TestNewTraceHandler(t *testing.T) {
 	mockPublisher := &MockEventPublisher{}
 	handler := NewTraceHandler(mockPublisher, &interfaces.ResilienceComponents{})

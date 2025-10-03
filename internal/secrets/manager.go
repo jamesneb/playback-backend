@@ -47,13 +47,13 @@ type cachedSecret struct {
 // Config holds secrets manager configuration
 type Config struct {
 	DefaultProvider string        `json:"default_provider"`
-	CacheTTL       time.Duration `json:"cache_ttl"`
-	EncryptionKey  string        `json:"encryption_key,omitempty"`
+	CacheTTL        time.Duration `json:"cache_ttl"`
+	EncryptionKey   string        `json:"encryption_key,omitempty"`
 
 	// Provider-specific configs
-	AWSConfig   *AWSSecretsConfig   `json:"aws,omitempty"`
-	VaultConfig *VaultConfig       `json:"vault,omitempty"`
-	FileConfig  *FileConfig        `json:"file,omitempty"`
+	AWSConfig   *AWSSecretsConfig `json:"aws,omitempty"`
+	VaultConfig *VaultConfig      `json:"vault,omitempty"`
+	FileConfig  *FileConfig       `json:"file,omitempty"`
 }
 
 // AWSSecretsConfig for AWS Secrets Manager
@@ -509,7 +509,7 @@ func (p *VaultProvider) RotateSecret(ctx context.Context, key string) error {
 type FileProvider struct {
 	storePath     string
 	encryptionKey []byte
-	mu           sync.RWMutex
+	mu            sync.RWMutex
 }
 
 func NewFileProvider(cfg *FileConfig) (*FileProvider, error) {

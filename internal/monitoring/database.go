@@ -19,44 +19,44 @@ type DatabasePerformanceMonitor struct {
 	logger *zap.Logger
 
 	// Metrics
-	queryDuration        *prometheus.HistogramVec
-	queryErrorsTotal     *prometheus.CounterVec
-	connectionPoolGauge  *prometheus.GaugeVec
-	slowQueryCounter     *prometheus.CounterVec
-	batchOperations      *prometheus.HistogramVec
-	tableMetrics         *prometheus.GaugeVec
-	queryComplexity      *prometheus.HistogramVec
-	memoryUsage          *prometheus.GaugeVec
+	queryDuration       *prometheus.HistogramVec
+	queryErrorsTotal    *prometheus.CounterVec
+	connectionPoolGauge *prometheus.GaugeVec
+	slowQueryCounter    *prometheus.CounterVec
+	batchOperations     *prometheus.HistogramVec
+	tableMetrics        *prometheus.GaugeVec
+	queryComplexity     *prometheus.HistogramVec
+	memoryUsage         *prometheus.GaugeVec
 
 	// Configuration
-	slowQueryThreshold   time.Duration
-	metricsInterval      time.Duration
-	enableQueryLogging   bool
-	enableSlowQueryLog   bool
-	maxQueryLogLength    int
+	slowQueryThreshold time.Duration
+	metricsInterval    time.Duration
+	enableQueryLogging bool
+	enableSlowQueryLog bool
+	maxQueryLogLength  int
 
 	// State
-	mu                   sync.RWMutex
-	connectionStats      ConnectionStats
-	queryCache           map[string]*QueryStats
-	currentQueries       map[string]*ActiveQuery
-	tableSizeCache       map[string]TableSize
-	lastMetricsUpdate    time.Time
+	mu                sync.RWMutex
+	connectionStats   ConnectionStats
+	queryCache        map[string]*QueryStats
+	currentQueries    map[string]*ActiveQuery
+	tableSizeCache    map[string]TableSize
+	lastMetricsUpdate time.Time
 
 	// Background monitoring
-	stopCh               chan struct{}
-	wg                   sync.WaitGroup
+	stopCh chan struct{}
+	wg     sync.WaitGroup
 }
 
 // ConnectionStats holds connection pool statistics
 type ConnectionStats struct {
-	OpenConnections    int32
-	InUseConnections   int32
-	IdleConnections    int32
-	WaitCount          int64
-	WaitDuration       time.Duration
-	MaxIdleClosed      int64
-	MaxLifetimeClosed  int64
+	OpenConnections   int32
+	InUseConnections  int32
+	IdleConnections   int32
+	WaitCount         int64
+	WaitDuration      time.Duration
+	MaxIdleClosed     int64
+	MaxLifetimeClosed int64
 }
 
 // QueryStats tracks performance metrics for specific queries
@@ -75,21 +75,21 @@ type QueryStats struct {
 
 // ActiveQuery represents a currently running query
 type ActiveQuery struct {
-	QueryID     string
-	Query       string
-	StartTime   time.Time
-	Duration    time.Duration
-	User        string
-	Database    string
-	ClientIP    string
-	ThreadID    uint64
+	QueryID   string
+	Query     string
+	StartTime time.Time
+	Duration  time.Duration
+	User      string
+	Database  string
+	ClientIP  string
+	ThreadID  uint64
 }
 
 // TableSize holds table size information
 type TableSize struct {
-	Database        string
-	Table           string
-	Rows            uint64
+	Database          string
+	Table             string
+	Rows              uint64
 	UncompressedBytes uint64
 	CompressedBytes   uint64
 	CompressionRatio  float64
@@ -99,13 +99,13 @@ type TableSize struct {
 
 // Config holds database monitoring configuration
 type Config struct {
-	SlowQueryThreshold   time.Duration `json:"slow_query_threshold"`
-	MetricsInterval      time.Duration `json:"metrics_interval"`
-	EnableQueryLogging   bool          `json:"enable_query_logging"`
-	EnableSlowQueryLog   bool          `json:"enable_slow_query_log"`
-	MaxQueryLogLength    int           `json:"max_query_log_length"`
-	EnableTableMetrics   bool          `json:"enable_table_metrics"`
-	EnableActiveQueries  bool          `json:"enable_active_queries"`
+	SlowQueryThreshold  time.Duration `json:"slow_query_threshold"`
+	MetricsInterval     time.Duration `json:"metrics_interval"`
+	EnableQueryLogging  bool          `json:"enable_query_logging"`
+	EnableSlowQueryLog  bool          `json:"enable_slow_query_log"`
+	MaxQueryLogLength   int           `json:"max_query_log_length"`
+	EnableTableMetrics  bool          `json:"enable_table_metrics"`
+	EnableActiveQueries bool          `json:"enable_active_queries"`
 }
 
 // NewDatabasePerformanceMonitor creates a new database performance monitor
@@ -121,13 +121,13 @@ func NewDatabasePerformanceMonitorForTest(conn driver.Conn, logger *zap.Logger, 
 func newDatabasePerformanceMonitor(conn driver.Conn, logger *zap.Logger, cfg *Config, testSuffix string) *DatabasePerformanceMonitor {
 	if cfg == nil {
 		cfg = &Config{
-			SlowQueryThreshold:   time.Second,
-			MetricsInterval:      30 * time.Second,
-			EnableQueryLogging:   true,
-			EnableSlowQueryLog:   true,
-			MaxQueryLogLength:    1000,
-			EnableTableMetrics:   true,
-			EnableActiveQueries:  true,
+			SlowQueryThreshold:  time.Second,
+			MetricsInterval:     30 * time.Second,
+			EnableQueryLogging:  true,
+			EnableSlowQueryLog:  true,
+			MaxQueryLogLength:   1000,
+			EnableTableMetrics:  true,
+			EnableActiveQueries: true,
 		}
 	}
 
@@ -369,7 +369,7 @@ func (m *DatabasePerformanceMonitor) updateConnectionStats() {
 	defer m.mu.Unlock()
 
 	// These would be populated from actual connection pool stats
-	m.connectionStats.OpenConnections = 10  // Example values
+	m.connectionStats.OpenConnections = 10 // Example values
 	m.connectionStats.InUseConnections = 2
 	m.connectionStats.IdleConnections = 8
 
@@ -434,14 +434,14 @@ func (m *DatabasePerformanceMonitor) updateTableMetrics(ctx context.Context) {
 
 		key := fmt.Sprintf("%s.%s", database, table)
 		m.tableSizeCache[key] = TableSize{
-			Database:         database,
-			Table:           table,
-			Rows:            totalRows,
+			Database:          database,
+			Table:             table,
+			Rows:              totalRows,
 			UncompressedBytes: uncompressedBytes,
-			CompressedBytes:  compressedBytes,
-			CompressionRatio: compressionRatio,
-			PartCount:       partCount,
-			LastUpdated:     time.Now(),
+			CompressedBytes:   compressedBytes,
+			CompressionRatio:  compressionRatio,
+			PartCount:         partCount,
+			LastUpdated:       time.Now(),
 		}
 
 		// Update Prometheus metrics

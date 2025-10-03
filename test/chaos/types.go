@@ -34,29 +34,29 @@ type ChaosTarget interface {
 
 // ChaosResult contains the results of a chaos experiment
 type ChaosResult struct {
-	ExperimentName   string            `json:"experiment_name"`
-	Duration         time.Duration     `json:"duration"`
-	StartTime        time.Time         `json:"start_time"`
-	EndTime          time.Time         `json:"end_time"`
-	Success          bool              `json:"success"`
-	ErrorRate        float64           `json:"error_rate"`
-	AvgResponseTime  time.Duration     `json:"avg_response_time"`
-	P99ResponseTime  time.Duration     `json:"p99_response_time"`
-	RequestCount     int64             `json:"request_count"`
-	FailedRequests   int64             `json:"failed_requests"`
-	RecoveryTime     time.Duration     `json:"recovery_time"`
-	SteadyStateOK    bool              `json:"steady_state_ok"`
-	Observations     []string          `json:"observations"`
-	Metrics          map[string]string `json:"metrics"`
+	ExperimentName  string            `json:"experiment_name"`
+	Duration        time.Duration     `json:"duration"`
+	StartTime       time.Time         `json:"start_time"`
+	EndTime         time.Time         `json:"end_time"`
+	Success         bool              `json:"success"`
+	ErrorRate       float64           `json:"error_rate"`
+	AvgResponseTime time.Duration     `json:"avg_response_time"`
+	P99ResponseTime time.Duration     `json:"p99_response_time"`
+	RequestCount    int64             `json:"request_count"`
+	FailedRequests  int64             `json:"failed_requests"`
+	RecoveryTime    time.Duration     `json:"recovery_time"`
+	SteadyStateOK   bool              `json:"steady_state_ok"`
+	Observations    []string          `json:"observations"`
+	Metrics         map[string]string `json:"metrics"`
 }
 
 // BaselineMetrics stores system baseline performance
 type BaselineMetrics struct {
-	AvgResponseTime  time.Duration
-	P99ResponseTime  time.Duration
-	ErrorRate        float64
-	RequestCount     int64
-	Timestamp        time.Time
+	AvgResponseTime time.Duration
+	P99ResponseTime time.Duration
+	ErrorRate       float64
+	RequestCount    int64
+	Timestamp       time.Time
 }
 
 // ChaosRunner orchestrates chaos engineering experiments
@@ -65,16 +65,16 @@ type ChaosRunner struct {
 	experiments []ChaosExperiment
 
 	// Configuration
-	experimentInterval   time.Duration
-	steadyStateTimeout   time.Duration
-	maxExperimentTime    time.Duration
-	baselineRequests     int
-	baselineRPS          int
+	experimentInterval time.Duration
+	steadyStateTimeout time.Duration
+	maxExperimentTime  time.Duration
+	baselineRequests   int
+	baselineRPS        int
 
 	// State tracking
-	baselineMetrics      *BaselineMetrics
-	results              []*ChaosResult
-	isRunning            int32
+	baselineMetrics *BaselineMetrics
+	results         []*ChaosResult
+	isRunning       int32
 
 	// Synchronization
 	mu sync.RWMutex
@@ -83,14 +83,14 @@ type ChaosRunner struct {
 // NewChaosRunner creates a new chaos engineering test runner
 func NewChaosRunner(target ChaosTarget) *ChaosRunner {
 	return &ChaosRunner{
-		target:               target,
-		experiments:          make([]ChaosExperiment, 0, 10),
-		experimentInterval:   2 * time.Minute,
-		steadyStateTimeout:   30 * time.Second,
-		maxExperimentTime:    5 * time.Minute,
-		baselineRequests:     1000,
-		baselineRPS:          20,
-		results:              make([]*ChaosResult, 0),
+		target:             target,
+		experiments:        make([]ChaosExperiment, 0, 10),
+		experimentInterval: 2 * time.Minute,
+		steadyStateTimeout: 30 * time.Second,
+		maxExperimentTime:  5 * time.Minute,
+		baselineRequests:   1000,
+		baselineRPS:        20,
+		results:            make([]*ChaosResult, 0),
 	}
 }
 
@@ -293,4 +293,3 @@ func (cr *ChaosRunner) countSuccessfulExperiments(results []*ChaosResult) int {
 	}
 	return count
 }
-

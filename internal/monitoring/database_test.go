@@ -411,13 +411,13 @@ func TestTableSize_Structure(t *testing.T) {
 	now := time.Now()
 	tableSize := TableSize{
 		Database:          "test_db",
-		Table:            "users",
-		Rows:             1000,
+		Table:             "users",
+		Rows:              1000,
 		UncompressedBytes: 10000,
-		CompressedBytes:  5000,
-		CompressionRatio: 2.0,
-		PartCount:        5,
-		LastUpdated:      now,
+		CompressedBytes:   5000,
+		CompressionRatio:  2.0,
+		PartCount:         5,
+		LastUpdated:       now,
 	}
 
 	assert.Equal(t, "test_db", tableSize.Database)

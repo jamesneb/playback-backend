@@ -150,16 +150,16 @@ func TestPayloadSizeLimit_BoundaryCondition(t *testing.T) {
 
 func TestContentLengthHandling(t *testing.T) {
 	tests := []struct {
-		name           string
-		contentLength  string
-		payload        string
-		limit          Size
-		shouldPass     bool
+		name          string
+		contentLength string
+		payload       string
+		limit         Size
+		shouldPass    bool
 	}{
-		{"valid content length under limit", "1024", strings.Repeat("a", 1024), 2*KB, true},
-		{"valid content length over limit", "2048", strings.Repeat("a", 2048), 1*KB, false},
-		{"zero content length", "0", "", 1*KB, true},
-		{"missing content length header", "", "test", 1*KB, true},
+		{"valid content length under limit", "1024", strings.Repeat("a", 1024), 2 * KB, true},
+		{"valid content length over limit", "2048", strings.Repeat("a", 2048), 1 * KB, false},
+		{"zero content length", "0", "", 1 * KB, true},
+		{"missing content length header", "", "test", 1 * KB, true},
 	}
 
 	for _, tt := range tests {
@@ -253,22 +253,22 @@ func TestSpecificPayloadLimitFunctions(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	tests := []struct {
-		name            string
-		middlewareFunc  func() gin.HandlerFunc
-		expectedLimit   Size
-		payloadSize     int
-		shouldPass      bool
+		name           string
+		middlewareFunc func() gin.HandlerFunc
+		expectedLimit  Size
+		payloadSize    int
+		shouldPass     bool
 	}{
-		{"TracePayloadLimit under limit", TracePayloadLimit, TraceMaxRequestSize, 20*1024*1024, true},
-		{"TracePayloadLimit over limit", TracePayloadLimit, TraceMaxRequestSize, 30*1024*1024, false},
-		{"MetricsPayloadLimit under limit", MetricsPayloadLimit, MetricsMaxRequestSize, 8*1024*1024, true},
-		{"MetricsPayloadLimit over limit", MetricsPayloadLimit, MetricsMaxRequestSize, 12*1024*1024, false},
-		{"LogsPayloadLimit under limit", LogsPayloadLimit, LogsMaxRequestSize, 10*1024*1024, true},
-		{"LogsPayloadLimit over limit", LogsPayloadLimit, LogsMaxRequestSize, 18*1024*1024, false},
+		{"TracePayloadLimit under limit", TracePayloadLimit, TraceMaxRequestSize, 20 * 1024 * 1024, true},
+		{"TracePayloadLimit over limit", TracePayloadLimit, TraceMaxRequestSize, 30 * 1024 * 1024, false},
+		{"MetricsPayloadLimit under limit", MetricsPayloadLimit, MetricsMaxRequestSize, 8 * 1024 * 1024, true},
+		{"MetricsPayloadLimit over limit", MetricsPayloadLimit, MetricsMaxRequestSize, 12 * 1024 * 1024, false},
+		{"LogsPayloadLimit under limit", LogsPayloadLimit, LogsMaxRequestSize, 10 * 1024 * 1024, true},
+		{"LogsPayloadLimit over limit", LogsPayloadLimit, LogsMaxRequestSize, 18 * 1024 * 1024, false},
 		{"ReplayPayloadLimit under limit", ReplayPayloadLimit, ReplayMaxRequestSize, 512, true},
 		{"ReplayPayloadLimit over limit", ReplayPayloadLimit, ReplayMaxRequestSize, 2048, false},
-		{"DefaultPayloadLimit under limit", DefaultPayloadLimit, DefaultMaxRequestSize, 8*1024*1024, true},
-		{"DefaultPayloadLimit over limit", DefaultPayloadLimit, DefaultMaxRequestSize, 12*1024*1024, false},
+		{"DefaultPayloadLimit under limit", DefaultPayloadLimit, DefaultMaxRequestSize, 8 * 1024 * 1024, true},
+		{"DefaultPayloadLimit over limit", DefaultPayloadLimit, DefaultMaxRequestSize, 12 * 1024 * 1024, false},
 	}
 
 	for _, tt := range tests {

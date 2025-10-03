@@ -15,6 +15,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/secretsmanager v1.39.6
 	github.com/aws/aws-sdk-go-v2/service/sqs v1.42.3
 	github.com/gin-gonic/gin v1.9.1
+	github.com/mitchellh/mapstructure v1.5.0
 	github.com/prometheus/client_golang v1.23.2
 	github.com/spf13/cobra v1.10.1
 	github.com/srikanthccv/ClickHouse-go-mock v0.12.0

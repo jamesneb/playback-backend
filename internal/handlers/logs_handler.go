@@ -13,9 +13,9 @@ import (
 	"github.com/jamesneb/playback-backend/internal/storage"
 	"github.com/jamesneb/playback-backend/pkg/logger"
 	"github.com/jamesneb/playback-backend/pkg/telemetry"
+	logscollectorpb "go.opentelemetry.io/proto/otlp/collector/logs/v1"
 	"go.uber.org/zap"
 	"google.golang.org/protobuf/proto"
-	logscollectorpb "go.opentelemetry.io/proto/otlp/collector/logs/v1"
 )
 
 type LogsHandler struct {

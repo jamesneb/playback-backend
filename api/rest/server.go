@@ -9,8 +9,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/jamesneb/playback-backend/api/rest/constants"
-	pkgerrors "github.com/jamesneb/playback-backend/pkg/errors"
 	"github.com/jamesneb/playback-backend/pkg/config"
+	pkgerrors "github.com/jamesneb/playback-backend/pkg/errors"
 	"github.com/jamesneb/playback-backend/pkg/logger"
 	"go.uber.org/zap"
 )

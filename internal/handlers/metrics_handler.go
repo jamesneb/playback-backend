@@ -15,9 +15,9 @@ import (
 	"github.com/jamesneb/playback-backend/internal/storage"
 	"github.com/jamesneb/playback-backend/pkg/logger"
 	"github.com/jamesneb/playback-backend/pkg/telemetry"
+	metricscollectorpb "go.opentelemetry.io/proto/otlp/collector/metrics/v1"
 	"go.uber.org/zap"
 	"google.golang.org/protobuf/proto"
-	metricscollectorpb "go.opentelemetry.io/proto/otlp/collector/metrics/v1"
 )
 
 type MetricsHandler struct {

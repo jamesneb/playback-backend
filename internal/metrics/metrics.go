@@ -22,26 +22,26 @@ type Registry struct {
 	systemInfo prometheus.Gauge
 
 	// Business metrics - Customer Usage
-	activeServices        *prometheus.GaugeVec
-	dataVolumeIngested    *prometheus.CounterVec
-	dataVolumeQueried     *prometheus.CounterVec
-	retentionDays         *prometheus.GaugeVec
+	activeServices     *prometheus.GaugeVec
+	dataVolumeIngested *prometheus.CounterVec
+	dataVolumeQueried  *prometheus.CounterVec
+	retentionDays      *prometheus.GaugeVec
 
 	// Business metrics - Service Quality
-	dataIngestionLatency  *prometheus.HistogramVec
+	dataIngestionLatency *prometheus.HistogramVec
 	queryLatency         *prometheus.HistogramVec
 	errorRate            *prometheus.CounterVec
 	availabilityUptime   prometheus.Gauge
 
 	// Business metrics - Resource Utilization
-	storageUsage         *prometheus.GaugeVec
-	throughputPeakRPS    *prometheus.GaugeVec
+	storageUsage          *prometheus.GaugeVec
+	throughputPeakRPS     *prometheus.GaugeVec
 	concurrentConnections *prometheus.GaugeVec
 
 	// Business metrics - Cost Optimization
-	computeResources     *prometheus.GaugeVec
-	networkBandwidth     *prometheus.CounterVec
-	storageOperations    *prometheus.CounterVec
+	computeResources  *prometheus.GaugeVec
+	networkBandwidth  *prometheus.CounterVec
+	storageOperations *prometheus.CounterVec
 }
 
 // NewRegistry creates a new metrics registry with standard application and business metrics

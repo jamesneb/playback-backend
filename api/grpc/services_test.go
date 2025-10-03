@@ -53,7 +53,7 @@ func TestNewServiceCollection_ValidationErrors(t *testing.T) {
 		{
 			name: "invalid_server_port",
 			deps: &ServiceDependencies{
-				Config: &config.ConsolidatedConfig{Network: config.NetworkSettings{GRPC: config.GRPCSettings{Port: 0}}},
+				Config:               &config.ConsolidatedConfig{Network: config.NetworkSettings{GRPC: config.GRPCSettings{Port: 0}}},
 				KinesisClient:        &streaming.KinesisClient{},
 				ClickHouseClient:     &storage.ClickHouseClient{},
 				ResilienceComponents: &interfaces.ResilienceComponents{},

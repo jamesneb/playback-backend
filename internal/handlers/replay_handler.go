@@ -35,9 +35,9 @@ const (
 	MimeOctetStream = "application/octet-stream"
 
 	// Cache control values
-	NoCacheValue = "no-cache, no-store, must-revalidate"
+	NoCacheValue  = "no-cache, no-store, must-revalidate"
 	PragmaNoCache = "no-cache"
-	ExpiresZero  = "0"
+	ExpiresZero   = "0"
 
 	// Path validation
 	PathTraversalPattern = ".."
@@ -64,11 +64,11 @@ type ReplayFile struct {
 }
 
 type ListReplaysResponse struct {
-	Files           []ReplayFile `json:"files"`
-	IsTruncated     bool         `json:"isTruncated"`
-	NextToken       *string      `json:"nextToken,omitempty"`
-	TotalCount      int          `json:"totalCount"`
-	MaxKeys         int          `json:"maxKeys"`
+	Files       []ReplayFile `json:"files"`
+	IsTruncated bool         `json:"isTruncated"`
+	NextToken   *string      `json:"nextToken,omitempty"`
+	TotalCount  int          `json:"totalCount"`
+	MaxKeys     int          `json:"maxKeys"`
 }
 
 type DownloadRequest struct {

@@ -68,7 +68,7 @@ type BaseTelemetryHandler struct {
 	telemetryType  TelemetryType
 
 	// Pre-allocated buffers for hot path operations
-	logFields      []zap.Field // Reused log field slice
+	logFields []zap.Field // Reused log field slice
 }
 
 // NewBaseTelemetryHandler creates optimized base handler

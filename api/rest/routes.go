@@ -117,12 +117,11 @@ func healthHandler(cfg *config.ConsolidatedConfig) gin.HandlerFunc {
 	}
 }
 
-
 // setupTraceRoutes configures trace-related routes with rate limiting and payload limits
 func setupTraceRoutes(api *gin.RouterGroup, handler *handlers.TraceHandler, endpoints *api.EndpointCollection) {
 	// Add path-specific rate limiting for trace ingestion (high volume)
 	api.POST(endpoints.TracesRelative(),
-		middleware.TracePayloadLimit(),          // 25 MB limit for traces
+		middleware.TracePayloadLimit(),           // 25 MB limit for traces
 		PathSpecificRateLimitMiddleware(50, 100), // 50 RPS, 100 burst
 		SizeBasedRateLimitMiddleware(),           // Different limits for large payloads
 		handler.CreateTrace)
@@ -268,4 +267,3 @@ func setupDocumentationRoutes(r *gin.Engine, cfg *config.ConsolidatedConfig, end
 
 	return nil
 }
-

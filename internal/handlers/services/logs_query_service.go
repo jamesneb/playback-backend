@@ -14,7 +14,7 @@ import (
 
 const (
 	// Query constants to eliminate magic strings
-	DefaultLogsLimit     = 100
+	DefaultLogsLimit    = 100
 	MaxLogsLimit        = 10000
 	DefaultLogsOffset   = 0
 	DefaultQueryTimeout = 30 * time.Second

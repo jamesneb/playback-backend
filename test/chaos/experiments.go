@@ -14,8 +14,8 @@ import (
 
 // DatabaseLatencyExperiment injects latency into database operations
 type DatabaseLatencyExperiment struct {
-	latencyMs   int
-	duration    time.Duration
+	latencyMs int
+	duration  time.Duration
 }
 
 func NewDatabaseLatencyExperiment(latencyMs int, duration time.Duration) *DatabaseLatencyExperiment {
@@ -219,13 +219,13 @@ func (cee *CacheEvictionExperiment) Cleanup(ctx context.Context, target ChaosTar
 // StreamingThrottleExperiment simulates streaming service throttling
 type StreamingThrottleExperiment struct {
 	throttlePercentage int
-	duration          time.Duration
+	duration           time.Duration
 }
 
 func NewStreamingThrottleExperiment(throttlePercentage int, duration time.Duration) *StreamingThrottleExperiment {
 	return &StreamingThrottleExperiment{
 		throttlePercentage: throttlePercentage,
-		duration:          duration,
+		duration:           duration,
 	}
 }
 
@@ -281,13 +281,13 @@ func (ste *StreamingThrottleExperiment) Cleanup(ctx context.Context, target Chao
 // MemoryPressureExperiment simulates memory pressure conditions
 type MemoryPressureExperiment struct {
 	memoryPercentage int
-	duration        time.Duration
+	duration         time.Duration
 }
 
 func NewMemoryPressureExperiment(memoryPercentage int, duration time.Duration) *MemoryPressureExperiment {
 	return &MemoryPressureExperiment{
 		memoryPercentage: memoryPercentage,
-		duration:        duration,
+		duration:         duration,
 	}
 }
 

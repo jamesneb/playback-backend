@@ -8,11 +8,10 @@ import (
 	"unsafe"
 )
 
-// Code represents high-performance error codes using string constants
 type Code string
 
 const (
-	// Client errors (4xx) - most common first for branch prediction optimization
+	// Client errors (4xx)
 	CodeBadRequest       Code = "BAD_REQUEST"
 	CodeValidationFailed Code = "VALIDATION_FAILED"
 	CodeNotFound         Code = "NOT_FOUND"
@@ -23,7 +22,7 @@ const (
 	CodeRequestTooLarge  Code = "REQUEST_TOO_LARGE"
 	CodeUnsupportedMedia Code = "UNSUPPORTED_MEDIA_TYPE"
 
-	// Server errors (5xx) - ordered by frequency in production
+	// Server errors (5xx)
 	CodeInternalServer     Code = "INTERNAL_SERVER_ERROR"
 	CodeServiceUnavailable Code = "SERVICE_UNAVAILABLE"
 	CodeDatabaseError      Code = "DATABASE_ERROR"
@@ -32,7 +31,7 @@ const (
 	CodeCircuitOpen        Code = "CIRCUIT_BREAKER_OPEN"
 )
 
-// Category represents error categories with single-byte enum for performance
+// Category represents error categories
 type Category uint8
 
 const (
@@ -52,7 +51,6 @@ func (c Category) String() string {
 }
 
 // Response represents the standardized error response format
-// Optimized field ordering for memory alignment
 type Response struct {
 	Error     Details   `json:"error"`
 	Timestamp time.Time `json:"timestamp"`
@@ -61,7 +59,6 @@ type Response struct {
 }
 
 // Details contains detailed error information
-// Fields ordered by frequency of access and memory alignment
 type Details struct {
 	Code       Code                   `json:"code"`
 	Message    string                 `json:"message"`
@@ -74,7 +71,6 @@ type Details struct {
 }
 
 // ValidationError represents field-specific validation errors
-// Optimized for JSON marshaling performance
 type ValidationError struct {
 	Field   string      `json:"field"`
 	Rule    string      `json:"rule"`
@@ -82,16 +78,13 @@ type ValidationError struct {
 	Value   interface{} `json:"value,omitempty"`
 }
 
-// Error represents high-performance standardized error
-// Memory layout optimized for 64-bit architectures
+// Error represents standardized error
 type Error struct {
-	// Hot path fields first (8-byte aligned)
 	code       Code
 	message    string
 	httpStatus int
 	category   Category
 
-	// Cold path fields
 	details       map[string]interface{}
 	validation    []ValidationError
 	cause         error
@@ -118,7 +111,7 @@ var (
 	}
 )
 
-// New creates a new error with zero allocations for common cases
+// New creates a new error
 func New(code Code) *Error {
 	e := errorPool.Get().(*Error)
 	e.reset()
@@ -156,39 +149,33 @@ func (e *Error) Release() {
 	errorPool.Put(e)
 }
 
-// Error implements error interface with zero allocation string building
 func (e *Error) Error() string {
 	if e.cause != nil {
-		// Use unsafe string concatenation for performance
 		return unsafeStringConcat(e.message, ": ", e.cause.Error())
 	}
 	return e.message
 }
 
-// Unwrap returns underlying cause for error unwrapping
 func (e *Error) Unwrap() error {
 	return e.cause
 }
 
-// Message sets error message (fluent interface)
 func (e *Error) Message(msg string) *Error {
 	e.message = msg
 	return e
 }
 
-// Messagef sets formatted message with zero allocation string building
 func (e *Error) Messagef(format string, args ...interface{}) *Error {
 	e.message = fmt.Sprintf(format, args...)
 	return e
 }
 
-// HTTPStatus overrides default HTTP status
 func (e *Error) HTTPStatus(status int) *Error {
 	e.httpStatus = status
 	return e
 }
 
-// Detail adds detail with key interning for common keys
+// Detail adds detail
 func (e *Error) Detail(key string, value interface{}) *Error {
 	e.details[internKey(key)] = value
 	return e
@@ -200,7 +187,6 @@ func (e *Error) Details(details map[string]interface{}) *Error {
 	return e
 }
 
-// Validation adds validation error with pool reuse
 func (e *Error) Validation(field, rule, message string, value interface{}) *Error {
 	if e.validation == nil {
 		e.validation = validationPool.Get().([]ValidationError)
@@ -215,19 +201,16 @@ func (e *Error) Validation(field, rule, message string, value interface{}) *Erro
 	return e
 }
 
-// ValidationErrors sets multiple validation errors
 func (e *Error) ValidationErrors(errs []ValidationError) *Error {
 	e.validation = errs
 	return e
 }
 
-// Cause sets underlying error cause
 func (e *Error) Cause(err error) *Error {
 	e.cause = err
 	return e
 }
 
-// Retryable marks error as retryable
 func (e *Error) Retryable() *Error {
 	e.retryable = true
 	return e
@@ -401,7 +384,7 @@ func getHTTPStatus(code Code) int {
 func getCategory(code Code) Category {
 	switch code {
 	case CodeBadRequest, CodeUnauthorized, CodeForbidden, CodeNotFound,
-		 CodeConflict, CodeValidationFailed, CodeRequestTooLarge, CodeUnsupportedMedia:
+		CodeConflict, CodeValidationFailed, CodeRequestTooLarge, CodeUnsupportedMedia:
 		return CategoryClient
 	case CodeDatabaseError, CodeExternalService, CodeTimeout, CodeCircuitOpen:
 		return CategorySystem

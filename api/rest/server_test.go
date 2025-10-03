@@ -40,8 +40,8 @@ func TestValidateDependencies(t *testing.T) {
 			deps: &Dependencies{
 				Config: &config.ConsolidatedConfig{
 					Network: config.NetworkSettings{
-					HTTP: config.HTTPSettings{Mode: gin.ReleaseMode},
-				},
+						HTTP: config.HTTPSettings{Mode: gin.ReleaseMode},
+					},
 				},
 				Endpoints: nil,
 			},
@@ -53,8 +53,8 @@ func TestValidateDependencies(t *testing.T) {
 			deps: &Dependencies{
 				Config: &config.ConsolidatedConfig{
 					Network: config.NetworkSettings{
-					HTTP: config.HTTPSettings{Mode: "invalid"},
-				},
+						HTTP: config.HTTPSettings{Mode: "invalid"},
+					},
 				},
 				Endpoints: &api.EndpointCollection{},
 			},
@@ -66,8 +66,8 @@ func TestValidateDependencies(t *testing.T) {
 			deps: &Dependencies{
 				Config: &config.ConsolidatedConfig{
 					Network: config.NetworkSettings{
-					HTTP: config.HTTPSettings{Mode: gin.ReleaseMode},
-				},
+						HTTP: config.HTTPSettings{Mode: gin.ReleaseMode},
+					},
 				},
 				Endpoints: &api.EndpointCollection{},
 			},
@@ -78,8 +78,8 @@ func TestValidateDependencies(t *testing.T) {
 			deps: &Dependencies{
 				Config: &config.ConsolidatedConfig{
 					Network: config.NetworkSettings{
-					HTTP: config.HTTPSettings{Mode: gin.DebugMode},
-				},
+						HTTP: config.HTTPSettings{Mode: gin.DebugMode},
+					},
 				},
 				Endpoints: &api.EndpointCollection{},
 			},
@@ -90,8 +90,8 @@ func TestValidateDependencies(t *testing.T) {
 			deps: &Dependencies{
 				Config: &config.ConsolidatedConfig{
 					Network: config.NetworkSettings{
-					HTTP: config.HTTPSettings{Mode: gin.TestMode},
-				},
+						HTTP: config.HTTPSettings{Mode: gin.TestMode},
+					},
 				},
 				Endpoints: &api.EndpointCollection{},
 			},

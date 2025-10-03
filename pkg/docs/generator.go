@@ -10,12 +10,12 @@ import (
 
 // OpenAPISpec represents a complete OpenAPI 3.0 specification
 type OpenAPISpec struct {
-	OpenAPI    string                `json:"openapi"`
-	Info       Info                  `json:"info"`
-	Servers    []APIServer           `json:"servers"`
-	Paths      map[string]PathItem   `json:"paths"`
-	Components Components            `json:"components"`
-	Tags       []Tag                 `json:"tags"`
+	OpenAPI    string              `json:"openapi"`
+	Info       Info                `json:"info"`
+	Servers    []APIServer         `json:"servers"`
+	Paths      map[string]PathItem `json:"paths"`
+	Components Components          `json:"components"`
+	Tags       []Tag               `json:"tags"`
 }
 
 // Info contains API metadata
@@ -68,15 +68,15 @@ type PathItem struct {
 
 // Operation represents an API operation
 type Operation struct {
-	Tags         []string              `json:"tags,omitempty"`
-	Summary      string                `json:"summary,omitempty"`
-	Description  string                `json:"description,omitempty"`
-	OperationID  string                `json:"operationId,omitempty"`
-	Parameters   []Parameter           `json:"parameters,omitempty"`
-	RequestBody  *RequestBody          `json:"requestBody,omitempty"`
-	Responses    map[string]Response   `json:"responses"`
-	Security     []SecurityRequirement `json:"security,omitempty"`
-	Deprecated   bool                  `json:"deprecated,omitempty"`
+	Tags        []string              `json:"tags,omitempty"`
+	Summary     string                `json:"summary,omitempty"`
+	Description string                `json:"description,omitempty"`
+	OperationID string                `json:"operationId,omitempty"`
+	Parameters  []Parameter           `json:"parameters,omitempty"`
+	RequestBody *RequestBody          `json:"requestBody,omitempty"`
+	Responses   map[string]Response   `json:"responses"`
+	Security    []SecurityRequirement `json:"security,omitempty"`
+	Deprecated  bool                  `json:"deprecated,omitempty"`
 }
 
 // Parameter represents an operation parameter
@@ -93,9 +93,9 @@ type Parameter struct {
 
 // RequestBody represents a request body
 type RequestBody struct {
-	Description string                `json:"description,omitempty"`
-	Content     map[string]MediaType  `json:"content"`
-	Required    bool                  `json:"required,omitempty"`
+	Description string               `json:"description,omitempty"`
+	Content     map[string]MediaType `json:"content"`
+	Required    bool                 `json:"required,omitempty"`
 }
 
 // Response represents an API response
@@ -122,12 +122,12 @@ type Header struct {
 
 // Components holds reusable components
 type Components struct {
-	Schemas         map[string]Schema           `json:"schemas,omitempty"`
-	Responses       map[string]Response         `json:"responses,omitempty"`
-	Parameters      map[string]Parameter        `json:"parameters,omitempty"`
-	RequestBodies   map[string]RequestBody      `json:"requestBodies,omitempty"`
-	Headers         map[string]Header           `json:"headers,omitempty"`
-	SecuritySchemes map[string]SecurityScheme   `json:"securitySchemes,omitempty"`
+	Schemas         map[string]Schema         `json:"schemas,omitempty"`
+	Responses       map[string]Response       `json:"responses,omitempty"`
+	Parameters      map[string]Parameter      `json:"parameters,omitempty"`
+	RequestBodies   map[string]RequestBody    `json:"requestBodies,omitempty"`
+	Headers         map[string]Header         `json:"headers,omitempty"`
+	SecuritySchemes map[string]SecurityScheme `json:"securitySchemes,omitempty"`
 }
 
 // Schema represents a JSON Schema
@@ -211,7 +211,7 @@ func NewGenerator(cfg *config.ConsolidatedConfig) *Generator {
 					URL:  "https://opensource.org/licenses/MIT",
 				},
 			},
-			Paths:      make(map[string]PathItem),
+			Paths: make(map[string]PathItem),
 			Components: Components{
 				Schemas:         make(map[string]Schema),
 				Responses:       make(map[string]Response),
@@ -418,7 +418,7 @@ func (g *Generator) generateErrorSchema() Schema {
 						Description:          "Additional error details",
 						AdditionalProperties: true,
 						Example: map[string]interface{}{
-							"field": "email",
+							"field":          "email",
 							"provided_value": "invalid-email",
 						},
 					},
@@ -466,10 +466,10 @@ func (g *Generator) generateErrorSchema() Schema {
 		Required: []string{"error", "timestamp"},
 		Example: map[string]interface{}{
 			"error": map[string]interface{}{
-				"code":       "VALIDATION_FAILED",
-				"message":    "Request validation failed",
-				"category":   "client",
-				"retryable":  false,
+				"code":      "VALIDATION_FAILED",
+				"message":   "Request validation failed",
+				"category":  "client",
+				"retryable": false,
 				"validation": []map[string]interface{}{
 					{
 						"field":   "email",
@@ -631,11 +631,11 @@ func (g *Generator) addTracePaths() {
 							Schema: &Schema{
 								Type: "object",
 								Properties: map[string]*Schema{
-									"trace_id": {Type: "string"},
+									"trace_id":   {Type: "string"},
 									"start_time": {Type: "string", Format: "date-time"},
-									"duration": {Type: "integer", Description: "Duration in nanoseconds"},
+									"duration":   {Type: "integer", Description: "Duration in nanoseconds"},
 									"span_count": {Type: "integer"},
-									"status": {Type: "string"},
+									"status":     {Type: "string"},
 								},
 							},
 						},
@@ -663,7 +663,7 @@ func (g *Generator) addMetricsPaths() {
 				Content: map[string]MediaType{
 					"application/json": {
 						Schema: &Schema{
-							Type: "object",
+							Type:        "object",
 							Description: "OTLP metrics payload",
 						},
 					},
@@ -788,15 +788,15 @@ func (g *Generator) addHealthPaths() {
 							Schema: &Schema{
 								Type: "object",
 								Properties: map[string]*Schema{
-									"status": {Type: "string", Example: "healthy"},
-									"version": {Type: "string"},
+									"status":      {Type: "string", Example: "healthy"},
+									"version":     {Type: "string"},
 									"environment": {Type: "string"},
 									"dependencies": {
 										Type: "object",
 										AdditionalProperties: &Schema{
 											Type: "object",
 											Properties: map[string]*Schema{
-												"status": {Type: "string"},
+												"status":  {Type: "string"},
 												"latency": {Type: "string"},
 											},
 										},

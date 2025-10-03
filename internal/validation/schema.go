@@ -49,7 +49,6 @@ var (
 			}
 		},
 	}
-
 )
 
 // SchemaValidator provides zero-allocation OpenTelemetry validation
@@ -68,7 +67,6 @@ type hotPathValidator struct {
 	traceIDSet map[uint64]struct{}
 	spanCount  int
 }
-
 
 // getValidator retrieves validator from pool and resets state
 func getValidator() *hotPathValidator {
@@ -370,7 +368,7 @@ func isValidHexBytesFast(data []byte) bool {
 	i := 0
 	for i+3 < dataLen {
 		if !hexLookup[data[i]] || !hexLookup[data[i+1]] ||
-		   !hexLookup[data[i+2]] || !hexLookup[data[i+3]] {
+			!hexLookup[data[i+2]] || !hexLookup[data[i+3]] {
 			return false
 		}
 		i += 4

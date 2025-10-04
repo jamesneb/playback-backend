@@ -88,12 +88,28 @@ func TestSecretsIntegration_GetRequiredSecretsForEnvironment(t *testing.T) {
 		{
 			"production",
 			"production",
-			[]string{"CLICKHOUSE_PASSWORD", "REDIS_PASSWORD", "JWT_SECRET", "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "TLS_CERT_FILE", "TLS_KEY_FILE", "CLICKHOUSE_USERNAME"},
+			[]string{
+				"CLICKHOUSE_PASSWORD",
+				"REDIS_PASSWORD",
+				"JWT_SECRET",
+				"AWS_ACCESS_KEY_ID",
+				"AWS_SECRET_ACCESS_KEY",
+				"TLS_CERT_FILE",
+				"TLS_KEY_FILE",
+				"CLICKHOUSE_USERNAME",
+			},
 		},
 		{
 			"staging",
 			"staging",
-			[]string{"CLICKHOUSE_PASSWORD", "REDIS_PASSWORD", "JWT_SECRET", "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "CLICKHOUSE_USERNAME"},
+			[]string{
+				"CLICKHOUSE_PASSWORD",
+				"REDIS_PASSWORD",
+				"JWT_SECRET",
+				"AWS_ACCESS_KEY_ID",
+				"AWS_SECRET_ACCESS_KEY",
+				"CLICKHOUSE_USERNAME",
+			},
 		},
 		{
 			"local",

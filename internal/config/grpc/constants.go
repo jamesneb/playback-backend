@@ -27,6 +27,18 @@ const (
 	MAX_BURST_MULTIPLIER           = 2
 )
 
+// Default TLS values
+const (
+	DEFAULT_TLS_ENABLED     = false
+	DEFAULT_TLS_MIN_VERSION = base.TLS_1_2
+	DEFAULT_TLS_MAX_VERSION = base.TLS_1_3
+)
+
+// Default token authentication values
+const (
+	DEFAULT_ENABLE_TOKEN_AUTH = false
+)
+
 // Config key names
 const (
 	GRPC_PREFIX string = "GRPC_"

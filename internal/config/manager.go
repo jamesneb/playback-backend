@@ -8,10 +8,22 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/jamesneb/playback-backend/internal/config/app"
 	"github.com/jamesneb/playback-backend/internal/config/base"
+	"github.com/jamesneb/playback-backend/internal/config/circuitbreaker"
+	"github.com/jamesneb/playback-backend/internal/config/clickhouse"
+	"github.com/jamesneb/playback-backend/internal/config/data"
+	"github.com/jamesneb/playback-backend/internal/config/dlq"
+	"github.com/jamesneb/playback-backend/internal/config/features"
 	"github.com/jamesneb/playback-backend/internal/config/grpc"
+	"github.com/jamesneb/playback-backend/internal/config/http"
+	"github.com/jamesneb/playback-backend/internal/config/kinesis"
+	"github.com/jamesneb/playback-backend/internal/config/monitoring"
 	resolver "github.com/jamesneb/playback-backend/internal/config/propertyresolver"
 	"github.com/jamesneb/playback-backend/internal/config/provider"
+	"github.com/jamesneb/playback-backend/internal/config/redis"
+	"github.com/jamesneb/playback-backend/internal/config/s3"
+	"github.com/jamesneb/playback-backend/internal/config/testing"
 )
 
 const (
@@ -20,7 +32,19 @@ const (
 
 // Snapshot is a typed, immutable collection of Config sections
 type Snapshot struct {
-	GRPCServer *grpc.Config
+	GRPCServer     *grpc.Config
+	APP            *app.Config
+	HTTP           *http.Config
+	Data           *data.Config
+	ClickHouse     *clickhouse.Config
+	Redis          *redis.Config
+	S3             *s3.Config
+	Kinesis        *kinesis.Config
+	Monitoring     *monitoring.Config
+	CircuitBreaker *circuitbreaker.Config
+	DLQ            *dlq.Config
+	Testing        *testing.Config
+	Features       *features.Config
 }
 
 // Plan returns a plan for a snapshot to be committed to the configuration manager
@@ -75,11 +99,42 @@ func (d Dict) WithPrefix(prefix string) resolver.PropertyResolver {
 func validateAll(s Snapshot) error {
 	var errs []error
 
-	if err := s.GRPCServer.Validate(); err != nil {
-		errs = append(errs, fmt.Errorf("grpc: %w", err))
-	}
+	// Per-section validation
+	base.Add(&errs, "grpc", s.GRPCServer.Validate)
+	base.Add(&errs, "app", s.APP.Validate)
+	base.Add(&errs, "http", s.HTTP.Validate)
+	base.Add(&errs, "data", s.Data.Validate)
+	base.Add(&errs, "clickhouse", s.ClickHouse.Validate)
+	base.Add(&errs, "redis", s.Redis.Validate)
+	base.Add(&errs, "s3", s.S3.Validate)
+	base.Add(&errs, "kinesis", s.Kinesis.Validate)
+	base.Add(&errs, "monitoring", s.Monitoring.Validate)
+	base.Add(&errs, "circuitbreaker", s.CircuitBreaker.Validate)
+	base.Add(&errs, "dlq", s.DLQ.Validate)
+	base.Add(&errs, "testing", s.Testing.Validate)
+	base.Add(&errs, "features", s.Features.Validate)
 
-	// if err := s.Server.Validate(); err != nil { errs = append(errs, fmt.Errorf("server: %w", err)) }
+	// Cross-section validation using Validator pattern
+	v := base.NewValidator("CROSS")
+
+	// Port uniqueness across all sections
+	base.AllUnique(v, "ports", []base.Port{
+		s.HTTP.Port,
+		s.GRPCServer.Port,
+		s.Monitoring.MetricsPort,
+	})
+
+	// Path uniqueness across all HTTP-exposed endpoints
+	paths := []base.Path{
+		s.Monitoring.MetricsPath,
+		s.Monitoring.HealthCheckPath,
+	}
+	if s.HTTP.EnableSwagger {
+		paths = append(paths, s.HTTP.SwaggerPath)
+	}
+	base.AllUnique(v, "http_paths", paths)
+
+	base.Add(&errs, "cross-validation", v.Err)
 
 	if len(errs) == 0 {
 		return nil
@@ -153,6 +208,78 @@ func (m *Manager) decode(resolver resolver.PropertyResolver) (Snapshot, error) {
 		return Snapshot{}, fmt.Errorf("grpc decode: %w", err)
 	}
 	cand.GRPCServer = &grpcCfg
+
+	appCfg, err := app.FromResolver(resolver)
+	if err != nil {
+		return Snapshot{}, fmt.Errorf("app decode: %w", err)
+	}
+	cand.APP = &appCfg
+
+	httpCfg, err := http.FromResolver(resolver)
+	if err != nil {
+		return Snapshot{}, fmt.Errorf("http decode: %w", err)
+	}
+	cand.HTTP = &httpCfg
+
+	dataCfg, err := data.FromResolver(resolver)
+	if err != nil {
+		return Snapshot{}, fmt.Errorf("data decode: %w", err)
+	}
+	cand.Data = &dataCfg
+
+	clickhouseCfg, err := clickhouse.FromResolver(resolver)
+	if err != nil {
+		return Snapshot{}, fmt.Errorf("clickhouse decode: %w", err)
+	}
+	cand.ClickHouse = &clickhouseCfg
+
+	redisCfg, err := redis.FromResolver(resolver)
+	if err != nil {
+		return Snapshot{}, fmt.Errorf("redis decode: %w", err)
+	}
+	cand.Redis = &redisCfg
+
+	s3Cfg, err := s3.FromResolver(resolver)
+	if err != nil {
+		return Snapshot{}, fmt.Errorf("s3 decode: %w", err)
+	}
+	cand.S3 = &s3Cfg
+
+	kinesisCfg, err := kinesis.FromResolver(resolver)
+	if err != nil {
+		return Snapshot{}, fmt.Errorf("kinesis decode: %w", err)
+	}
+	cand.Kinesis = &kinesisCfg
+
+	monitoringCfg, err := monitoring.FromResolver(resolver)
+	if err != nil {
+		return Snapshot{}, fmt.Errorf("monitoring decode: %w", err)
+	}
+	cand.Monitoring = &monitoringCfg
+
+	circuitbreakerCfg, err := circuitbreaker.FromResolver(resolver)
+	if err != nil {
+		return Snapshot{}, fmt.Errorf("circuitbreaker decode: %w", err)
+	}
+	cand.CircuitBreaker = &circuitbreakerCfg
+
+	dlqCfg, err := dlq.FromResolver(resolver)
+	if err != nil {
+		return Snapshot{}, fmt.Errorf("dlq decode: %w", err)
+	}
+	cand.DLQ = &dlqCfg
+
+	testingCfg, err := testing.FromResolver(resolver)
+	if err != nil {
+		return Snapshot{}, fmt.Errorf("testing decode: %w", err)
+	}
+	cand.Testing = &testingCfg
+
+	featuresCfg, err := features.FromResolver(resolver)
+	if err != nil {
+		return Snapshot{}, fmt.Errorf("features decode: %w", err)
+	}
+	cand.Features = &featuresCfg
 
 	return cand, nil
 }

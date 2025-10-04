@@ -1,10 +1,3 @@
-// internal/config/decodeutil/decode.go
-//
-// Package decodeutil provides utility functions for working efficiently with property resolvers.
-//
-// We map PREFIX_FOO_BAR → struct fields via mapstructure tags (defaulting to snake of the field),
-// with these hooks (duration, bool, int, CSV, Port, Byte).
-// Unknown keys are ignored; missing keys are defaults; we don’t fetch from external sources
 package decodeutil
 
 import (
@@ -14,10 +7,10 @@ import (
 	"time"
 	"unicode"
 
-	"github.com/mitchellh/mapstructure"
-
+	"github.com/Masterminds/semver/v3"
 	"github.com/jamesneb/playback-backend/internal/config/base"
 	resolver "github.com/jamesneb/playback-backend/internal/config/propertyresolver"
+	"github.com/mitchellh/mapstructure"
 )
 
 var baseDecoderCfg mapstructure.DecoderConfig
@@ -33,6 +26,14 @@ func init() {
 			CSVToStringSliceHook(),
 			StringToPortHook(),
 			StringToByteHook(),
+			StringToSemverHook(),
+			StringToLogLevelHook(),
+			StringToEnvironmentHook(),
+			StringToLogFormatHook(),
+			StringToAWSRegionHook(),
+			StringToPercentageHook(),
+			StringToTLSVersionHook(),
+			StringToDataExportFormatHook(),
 		),
 		// Result is set per call
 	}
@@ -297,7 +298,8 @@ func StringToBoolHook() mapstructure.DecodeHookFunc {
 
 func StringToIntHook() mapstructure.DecodeHookFunc {
 	return func(f, t reflect.Type, data any) (any, error) {
-		if f.Kind() != reflect.String || (t.Kind() != reflect.Int && t.Kind() != reflect.Int64 && t.Kind() != reflect.Int32) {
+		if f.Kind() != reflect.String ||
+			(t.Kind() != reflect.Int && t.Kind() != reflect.Int64 && t.Kind() != reflect.Int32) {
 			return data, nil
 		}
 		s := strings.TrimSpace(data.(string))
@@ -363,5 +365,182 @@ func StringToByteHook() mapstructure.DecodeHookFunc {
 			return nil, err
 		}
 		return base.Byte(i * mult), nil
+	}
+}
+
+func StringToSemverHook() mapstructure.DecodeHookFunc {
+	tSem := reflect.TypeOf((*semver.Version)(nil)) // *semver.Version
+	return func(f, t reflect.Type, data any) (any, error) {
+		if f.Kind() != reflect.String || t != tSem {
+			return data, nil
+		}
+		s := strings.TrimSpace(data.(string))
+		v, err := semver.NewVersion(s)
+		if err != nil {
+			return nil, err
+		}
+		return v, nil
+	}
+}
+
+func StringToLogLevelHook() mapstructure.DecodeHookFunc {
+	return func(f, t reflect.Type, data any) (any, error) {
+		if f.Kind() != reflect.String || t != reflect.TypeOf(base.LogLevel(0)) {
+			return data, nil
+		}
+		switch strings.ToLower(strings.TrimSpace(data.(string))) {
+		case "debug":
+			return base.LOG_DEBUG, nil
+		case "info":
+			return base.LOG_INFO, nil
+		case "warn", "warning":
+			return base.LOG_WARN, nil
+		case "error", "err":
+			return base.LOG_ERR, nil
+		case "fatal":
+			return base.LOG_FATAL, nil
+		default:
+			// keep mapstructure’s style
+			return nil, &mapstructure.Error{Errors: []string{"invalid log_level"}}
+		}
+	}
+}
+
+// Converts strings like "prod" / "production" → base.EnvProd.
+func StringToEnvironmentHook() mapstructure.DecodeHookFunc {
+	tEnv := reflect.TypeOf(base.Environment(0))
+	return func(f, t reflect.Type, data any) (any, error) {
+		if f.Kind() != reflect.String || t != tEnv {
+			return data, nil
+		}
+		s := strings.ToLower(strings.TrimSpace(data.(string)))
+		switch s {
+		case "local":
+			return base.LOCAL_ENV, nil
+		case "dev", "development":
+			return base.DEV_ENV, nil
+		case "staging":
+			return base.STAGE_ENV, nil
+		case "prod", "production":
+			return base.PROD_ENV, nil
+		case "test", "testing":
+			return base.TEST_ENV, nil
+		default:
+			return nil, &mapstructure.Error{Errors: []string{"invalid environment: " + s}}
+		}
+	}
+}
+
+// Converts "json"/"console"/"text" → base.LogFormat.
+func StringToLogFormatHook() mapstructure.DecodeHookFunc {
+	tFmt := reflect.TypeOf(base.LogFormat(0))
+	return func(f, t reflect.Type, data any) (any, error) {
+		if f.Kind() != reflect.String || t != tFmt {
+			return data, nil
+		}
+		s := strings.ToLower(strings.TrimSpace(data.(string)))
+		switch s {
+		case "json", "structured":
+			return base.LOG_JSON, nil
+		case "console", "text":
+			return base.LOG_CONSOLE, nil
+		default:
+			return nil, &mapstructure.Error{Errors: []string{"invalid log_format: " + s}}
+		}
+	}
+}
+
+// Converts AWS region strings like "us-east-1" → base.AWSRegion.
+func StringToAWSRegionHook() mapstructure.DecodeHookFunc {
+	tRegion := reflect.TypeOf(base.AWSRegion(0))
+	return func(f, t reflect.Type, data any) (any, error) {
+		if f.Kind() != reflect.String || t != tRegion {
+			return data, nil
+		}
+		s := strings.ToLower(strings.TrimSpace(data.(string)))
+		switch s {
+		case "us-east-1":
+			return base.AWS_US_EAST_1, nil
+		case "us-east-2":
+			return base.AWS_US_EAST_2, nil
+		case "us-west-1":
+			return base.AWS_US_WEST_1, nil
+		case "us-west-2":
+			return base.AWS_US_WEST_2, nil
+		case "eu-west-1":
+			return base.AWS_EU_WEST_1, nil
+		case "eu-west-2":
+			return base.AWS_EU_WEST_2, nil
+		case "eu-central-1":
+			return base.AWS_EU_CENTRAL_1, nil
+		case "ap-southeast-1":
+			return base.AWS_AP_SOUTHEAST_1, nil
+		case "ap-southeast-2":
+			return base.AWS_AP_SOUTHEAST_2, nil
+		case "ap-northeast-1":
+			return base.AWS_AP_NORTHEAST_1, nil
+		default:
+			return nil, &mapstructure.Error{Errors: []string{"invalid aws_region: " + s}}
+		}
+	}
+}
+
+// Converts strings like "50" or "75" → base.Percentage with validation.
+func StringToPercentageHook() mapstructure.DecodeHookFunc {
+	tPercentage := reflect.TypeOf(base.Percentage{})
+	return func(f, t reflect.Type, data any) (any, error) {
+		if f.Kind() != reflect.String || t != tPercentage {
+			return data, nil
+		}
+		s := strings.TrimSpace(data.(string))
+		i, err := strconv.ParseUint(s, 10, 8)
+		if err != nil {
+			return nil, &mapstructure.Error{Errors: []string{"invalid percentage: " + s}}
+		}
+		return base.NewPercentage(uint8(i))
+	}
+}
+
+// Converts TLS version strings like "1.2", "1.3" → base.TLSVersion.
+func StringToTLSVersionHook() mapstructure.DecodeHookFunc {
+	tVersion := reflect.TypeOf(base.TLSVersion(0))
+	return func(f, t reflect.Type, data any) (any, error) {
+		if f.Kind() != reflect.String || t != tVersion {
+			return data, nil
+		}
+		s := strings.TrimSpace(data.(string))
+		switch s {
+		case "1.0":
+			return base.TLS_1_0, nil
+		case "1.1":
+			return base.TLS_1_1, nil
+		case "1.2":
+			return base.TLS_1_2, nil
+		case "1.3":
+			return base.TLS_1_3, nil
+		default:
+			return nil, &mapstructure.Error{Errors: []string{"invalid tls_version: " + s}}
+		}
+	}
+}
+
+// Converts data export format strings like "json", "csv", "parquet" → base.DataExportFormat.
+func StringToDataExportFormatHook() mapstructure.DecodeHookFunc {
+	exportFormat := reflect.TypeOf(base.DataExportFormat(0))
+	return func(f, t reflect.Type, data any) (any, error) {
+		if f.Kind() != reflect.String || t != exportFormat {
+			return data, nil
+		}
+		s := strings.ToLower(strings.TrimSpace(data.(string)))
+		switch s {
+		case "json":
+			return base.DATA_EXPORT_JSON, nil
+		case "csv":
+			return base.DATA_EXPORT_CSV, nil
+		case "parquet":
+			return base.DATA_EXPORT_PARQUET, nil
+		default:
+			return nil, &mapstructure.Error{Errors: []string{"invalid data_export_format: " + s}}
+		}
 	}
 }

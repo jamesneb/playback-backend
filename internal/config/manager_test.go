@@ -4,10 +4,9 @@ import (
 	"context"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
-
 	"github.com/jamesneb/playback-backend/internal/config/grpc"
 	"github.com/jamesneb/playback-backend/internal/config/provider"
+	"github.com/stretchr/testify/assert"
 )
 
 type FakeProvider struct {

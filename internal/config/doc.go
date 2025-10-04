@@ -1,39 +1,52 @@
-// Package config provides structs and functions for configuration management.
-// Here you will find [provider.Provider]: The interface for anything that retrieves a set of properties
-// You will also find [config.Manager]: A facade that facilitates config snapshots and hot-reloading via subscription
-// And [propertyresolver.PropertyResolver]: An interface for resolving keys to values
+// Package config centralises the primitives used to load, validate, and distribute
+// configuration to the rest of the application.
 //
-// This package has been designed carefully for purity, here is a rough overview of how it is intended to be used:
-// Providers are things like file parsers, SSM agents, env var loaders etc that build KV maps. If a crucial
-// provider is unimplemented, create a new type that implements the Provider interface and provide a definition
-// for its Load function
+// Core abstractions:
+//   - [provider.Provider] implementations acquire raw key/value material from
+//     environment variables, parameter stores, or other backing systems.
+//   - [Manager] orchestrates providers, snapshots validated configuration, and
+//     exposes subscription hooks for hot reloading.
+//   - [propertyresolver.PropertyResolver] performs typed lookups while enforcing
+//     defaults and validation rules defined by each config section.
 //
-// Adding a New Config Section:
+// Typical workflow:
+//   1. Compose one or more Provider implementations suited to the deployment
+//      environment (for example, environment variables or parameter stores).
+//   2. Instantiate a Manager with those providers. The Manager flattens and
+//      validates configuration, emitting a strongly typed Snapshot.
+//   3. Pass snapshot fragments into application components. Optionally subscribe
+//      to changes to support hot reloading without restarts.
 //
-//  1. Create a new package (e.g., internal/config/redis/)
-//  2. Define your Config struct with validation constants
-//  3. Implement Defaults(), Validate(), and FromResolver() methods
-//  4. Add the section to Manager's Snapshot struct as a pointer
-//  5. Update Manager.decode() to populate your section
+// Adding a new config section:
 //
-// Example - Application Components Using Config:
+//   1. Create a package (such as internal/config/redis) that declares a Config
+//      struct representing the section.
+//   2. Provide Defaults, Validate, and FromResolver helpers so the Manager can
+//      initialise and populate the section consistently.
+//   3. Add a pointer to the new section in [Snapshot] and extend Manager.decode
+//      to fill it from the shared resolver.
 //
-//	ctx := context.Background()
-//	provider := &provider.EnvVarProvider{Prefix: "APP_"}
+// Example usage:
 //
-//	manager, err := config.NewManager(ctx, provider)
-//	if err != nil {
-//		return err
-//	}
+//      ctx := context.Background()
+//      manager, err := config.NewManager(ctx, &provider.EnvVarProvider{Prefix: "APP_"})
+//      if err != nil {
+//              return err
+//      }
 //
-//	// Get current config snapshot (atomic, cheap)
-//	cfg := manager.Snapshot()
-//	grpcServer := grpc.NewServer(cfg.GRPCServer)
+//      snapshot := manager.Snapshot()
+//      grpcCfg := snapshot.GRPCServer
+//      lis, err := net.Listen("tcp", fmt.Sprintf(":%d", grpcCfg.Port))
+//      if err != nil {
+//              return err
+//      }
 //
-//	// Subscribe to config changes (optional, hot-reload support)
-//	manager.Subscribe("grpc-server", func(old, new config.Snapshot) {
-//		if old.GRPCServer.Port != new.GRPCServer.Port {
-//			grpcServer.UpdatePort(new.GRPCServer.Port)
-//		}
-//	})
+//      manager.Subscribe("grpc-server", func(oldSnap, newSnap config.Snapshot) {
+//              if oldSnap.GRPCServer.Port != newSnap.GRPCServer.Port {
+//                      log.Printf("grpc port changed: %d -> %d", oldSnap.GRPCServer.Port, newSnap.GRPCServer.Port)
+//              }
+//      })
+//
+// The package is intentionally side-effect free, making it safe to use in unit
+// tests by providing alternate providers or stubbed resolvers.
 package config

@@ -8,6 +8,7 @@ import (
 	"maps"
 	"slices"
 	"strings"
+	"unicode"
 )
 
 // returns stringified versions of log levels
@@ -173,6 +174,58 @@ func Normalize(s string) string {
 	s = strings.ReplaceAll(s, ".", "_")
 	s = strings.ReplaceAll(s, "-", "_")
 	return strings.ToUpper(s)
+}
+
+// buildString creates a string using a builder function with pre-allocated capacity
+func buildString(capacity int, fn func(*strings.Builder)) string {
+	var sb strings.Builder
+	sb.Grow(capacity)
+	fn(&sb)
+	return sb.String()
+}
+
+// isValidPrefixChar checks if a rune is valid for a prefix (A-Z, 0-9, _)
+func isValidPrefixChar(r rune) bool {
+	return unicode.IsUpper(r) || unicode.IsDigit(r) || r == '_'
+}
+
+// SanitizePrefix removes invalid characters from prefix string and truncates to maxLen.
+// Only allows A-Z, 0-9, and underscore. Uppercases result.
+func SanitizePrefix(s string, maxLen int) string {
+	s = strings.TrimSpace(s)
+	s = s[:min(len(s), maxLen)]
+
+	// Fast path: check if already clean
+	needsSanitize := false
+	for _, r := range s {
+		if !isValidPrefixChar(r) {
+			needsSanitize = true
+			break
+		}
+	}
+
+	if !needsSanitize {
+		return s
+	}
+
+	// Slow path: filter invalid chars and uppercase
+	return buildString(len(s), func(sb *strings.Builder) {
+		for _, r := range s {
+			if isValidPrefixChar(r) {
+				sb.WriteRune(r)
+			} else if unicode.IsLower(r) {
+				sb.WriteRune(unicode.ToUpper(r))
+			}
+		}
+	})
+}
+
+// ConcatStrings efficiently concatenates two strings using strings.Builder
+func ConcatStrings(a, b string) string {
+	return buildString(len(a)+len(b), func(sb *strings.Builder) {
+		sb.WriteString(a)
+		sb.WriteString(b)
+	})
 }
 
 // Create a validator for a set of config values.

@@ -1,8 +1,3 @@
-// internal/config/clickhouse/section.go
-//
-// Package clickhouse defines the configuration for ClickHouse database connections.
-//
-// It consists of a Config struct and methods to resolve incoming key-values from a [config.Manager]
 package clickhouse
 
 import (

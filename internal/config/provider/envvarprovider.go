@@ -35,7 +35,8 @@ func (p *EnvVarProvider) Load(ctx context.Context) (map[string]string, error) {
 }
 
 func (p *EnvVarProvider) Name() string {
-	return "env"
+	prefix := base.SanitizePrefix(p.Prefix, MAX_PREFIX_CHARS)
+	return base.ConcatStrings(prefix, ENV_VAR_PROVIDER_NAME)
 }
 
 func (p EnvVarProvider) Watch(ctx context.Context, notify func()) error {
